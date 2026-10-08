@@ -125,10 +125,10 @@ node scripts/launcher.mjs --config config/local.json --port 8791
 
 - [接入材料](docs/onboarding.md)：JavaScript、浏览器、Python、PowerShell及裸线协议；SDK在 `sdk/`。
 - [现行规格与说明索引](docs/README.md)：通讯边界、定向信息、附件、留存、部署及工作台。
-- [开发与测试](docs/development.md)：`npm test`只要求Node；真实DSH与跨语言验收分别显式运行，不以跳过冒充通过。
+- [开发与测试](docs/development.md)：`npm test`只要求Node；真实DSH与跨语言集成检查可按需要单独运行。
 - [构建与分发](docs/releases.md)：生成新的源码包或Windows x64便携包，构建输出写 `dist/`，不覆盖部署目录。
 
-`examples/`是独立外部验证程序，说明双向、多来源、多桥及多轮工作流玩法，不由Hub加载或替它们安排业务。默认启动只启动Hub与管理界面。
+`examples/`提供独立程序示例，展示双向、多来源、多桥及多轮工作流用法。示例通过自己的桥接入，业务由各程序实现。默认启动只启动Hub与管理界面。
 
 npm 包包含 Hub、管理界面、三个语言的 SDK、参考配置与文档；源码示例、测试和整合包构建工具在 GitHub 仓库中，不随 npm 安装。若要运行用途演示或源码测试，请先克隆仓库。
 
@@ -142,14 +142,14 @@ src/debug/            只读调试页
 sdk/                  JavaScript、Python、PowerShell桥
 config/               可移植默认接线配置
 docs/specs/           现行通讯规格
-examples/             独立外部验证程序
+examples/             独立程序示例与用途演示
 tests/                通讯回归、集成测试和夹具
 scripts/              启动、验证、构建与分发工具
-.github/workflows/    可重跑的Windows CI
+.github/workflows/    Windows持续集成
 ```
 
-本仓库只包含最终源码、规格、示例和可重跑工具。原始反馈、归档、阶段审查及证据、历史整合包、依赖缓存和运行数据在本机保留，不进入Git。具体迁移范围见[仓库结构](docs/repository.md)。
+各目录的组件职责、SDK 使用方式与分发内容见[仓库结构](docs/repository.md)。
 
-当前验证范围及开放边界见[验证说明](docs/verification.md)。消息追加没有每帧fsync；本机管理面属于同一信任域。不要把已有测试扩大为断电耐久、任意第三方桥、所有平台或生产业务资格。
+支持环境、测试范围与已知限制见[验证说明](docs/verification.md)。部署时请注意：消息追加不保证断电耐久，本机管理接口面向同一信任域；配置与容量说明见[部署文档](docs/deployment.md)。
 
 本项目采用 [MIT 许可证](LICENSE)。便携包附带的 Node.js 运行时保留其自己的许可证；外部程序和 harness 按各自许可使用。
