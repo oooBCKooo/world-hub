@@ -1,0 +1,41 @@
+{
+  "version": "0.1",
+  "hub": { "id": "peros-hub" },
+  "transport": { "host": "127.0.0.1", "port": 8790, "path": "/bridge" },
+  "log": { "enabled": true, "dir": "./.hub/log", "segmentMaxBytes": 8388608, "segmentMaxCount": 8 },
+  "limits": {
+    "maxPayloadBytes": 262144,
+    "maxSubscriptionsPerBridge": 64,
+    "maxFiltersPerSubscription": 16,
+    "maxPendingDeliveries": 512,
+    "maxCatchUpMessages": 5000,
+    "catchUpBatchSize": 256,
+    "maxConnections": 256,
+    "maxBridges": 128
+  },
+  "acl": {
+    "defaultDeny": true,
+    "allowUnlistedBridges": false,
+    "bridges": {
+      "source.sensor-a": {
+        "allow": { "publish": ["source/sensor-a/#", "source/sensor-a"], "subscribe": ["cmd/sensor-a"] }
+      },
+      "source.sensor-b": {
+        "allow": { "publish": ["source/sensor-b/#", "source/sensor-b"], "subscribe": ["cmd/sensor-b"] }
+      },
+      "source.ticker": {
+        "allow": { "publish": ["source/ticker/#", "source/ticker"], "subscribe": ["cmd/ticker"] }
+      }
+    },
+    "credentials": {
+      "ui.manual": {
+        "maxConnections": 4,
+        "allow": { "publish": ["#"], "subscribe": ["#"] }
+      },
+      "ui.dashboard": {
+        "maxConnections": 8,
+        "allow": { "publish": ["cmd/#"], "subscribe": ["#"] }
+      }
+    }
+  }
+}

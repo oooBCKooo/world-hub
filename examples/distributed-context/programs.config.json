@@ -1,0 +1,33 @@
+{
+  "hub": { "url": "ws://127.0.0.1:8791/bridge" },
+  "stateDir": "../../.hub/phase2/programs",
+  "channels": {
+    "contextRequest": "example/phase2/context/request",
+    "contextResponse": "example/phase2/context/response",
+    "harnessRequest": "example/phase2/harness/request",
+    "harnessResponse": "example/phase2/harness/response",
+    "harnessEvent": "example/phase2/harness/event"
+  },
+  "peers": {
+    "context": { "bridgeId": "phase2.context", "publish": ["contextResponse"], "subscribe": ["contextRequest", "harnessEvent"] },
+    "context.system": { "bridgeId": "phase2.context.system", "publish": ["contextResponse"], "subscribe": ["contextRequest"] },
+    "context.dialogue": { "bridgeId": "phase2.context.dialogue", "publish": ["contextResponse"], "subscribe": ["contextRequest", "harnessEvent"] },
+    "context.notes": { "bridgeId": "phase2.context.notes", "publish": ["contextResponse"], "subscribe": ["contextRequest"] },
+    "ui": { "bridgeId": "phase2.ui", "publish": ["contextRequest", "harnessRequest"], "subscribe": ["contextResponse", "harnessResponse", "harnessEvent"] },
+    "harness": { "bridgeId": "phase2.harness", "publish": ["harnessResponse", "harnessEvent"], "subscribe": ["harnessRequest"] }
+  },
+  "context": { "file": "context.json", "format": "json" },
+  "contextProviders": [
+    { "id": "system", "peer": "context.system", "context": { "file": "system-prompt.json", "format": "json" } },
+    { "id": "dialogue", "peer": "context.dialogue", "context": { "file": "dialogue.json", "format": "json" }, "trackDialogue": true },
+    { "id": "notes", "peer": "context.notes", "context": { "file": "context.txt" } }
+  ],
+  "ui": { "host": "127.0.0.1", "port": 8792 },
+  "harness": {
+    "home": "../../.hub/phase2/dsh-home",
+    "cwd": "../../.hub/phase2/workspace",
+    "profile": "sdk",
+    "provider": "deepseek-official",
+    "model": "deepseek-flash"
+  }
+}

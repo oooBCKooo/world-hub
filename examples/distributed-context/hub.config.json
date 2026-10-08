@@ -1,0 +1,18 @@
+{
+  "version": "0.1",
+  "hub": { "id": "phase2-example-hub" },
+  "transport": { "host": "127.0.0.1", "port": 8791, "path": "/bridge" },
+  "log": { "enabled": true, "dir": "../../.hub/phase2/log", "segmentMaxBytes": 8388608, "segmentMaxCount": 8 },
+  "acl": {
+    "defaultDeny": true,
+    "allowUnlistedBridges": false,
+    "bridges": {
+      "phase2.context": { "allow": { "publish": ["example/phase2/#"], "subscribe": ["example/phase2/#"] } },
+      "phase2.context.system": { "allow": { "publish": ["example/phase2/#"], "subscribe": ["example/phase2/#"] } },
+      "phase2.context.dialogue": { "allow": { "publish": ["example/phase2/#"], "subscribe": ["example/phase2/#"] } },
+      "phase2.context.notes": { "allow": { "publish": ["example/phase2/#"], "subscribe": ["example/phase2/#"] } },
+      "phase2.ui": { "allow": { "publish": ["example/phase2/#"], "subscribe": ["example/phase2/#"] } },
+      "phase2.harness": { "allow": { "publish": ["example/phase2/#"], "subscribe": ["example/phase2/#"] } }
+    }
+  }
+}

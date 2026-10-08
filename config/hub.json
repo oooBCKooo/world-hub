@@ -1,0 +1,56 @@
+{
+  "version": "0.1",
+  "hub": {
+    "id": "peros-hub"
+  },
+  "transport": {
+    "host": "127.0.0.1",
+    "port": 8790,
+    "path": "/bridge"
+  },
+  "log": {
+    "enabled": true,
+    "dir": "../data/log",
+    "segmentMaxBytes": 8388608,
+    "segmentMaxCount": 8
+  },
+  "limits": {
+    "maxPayloadBytes": 262144,
+    "maxSubscriptionsPerBridge": 64,
+    "maxFiltersPerSubscription": 16,
+    "maxPendingDeliveries": 512,
+    "maxCatchUpMessages": 5000,
+    "catchUpBatchSize": 256,
+    "maxConnections": 256,
+    "maxBridges": 128
+  },
+  "blobs": {
+    "dir": "../data/blobs",
+    "maxObjectBytes": 1073741824,
+    "maxTotalBytes": 2147483648,
+    "maxObjects": 128,
+    "chunkBytes": 262144
+  },
+  "management": {
+    "stateFile": "../data/management.json",
+    "annotations": {}
+  },
+  "acl": {
+    "defaultDeny": true,
+    "allowUnlistedBridges": false,
+    "bridges": {},
+    "credentials": {
+      "ui.manual": {
+        "maxConnections": 4,
+        "allow": {
+          "publish": [
+            "#"
+          ],
+          "subscribe": [
+            "#"
+          ]
+        }
+      }
+    }
+  }
+}

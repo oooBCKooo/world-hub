@@ -1,0 +1,31 @@
+{
+  "name": "world-hub",
+  "version": "0.11.0",
+  "private": true,
+  "type": "module",
+  "description": "Communications crossroads for external programs connected through bidirectional mod bridges.",
+  "engines": {
+    "node": ">=22.4.0"
+  },
+  "scripts": {
+    "start": "node scripts/launcher.mjs",
+    "check": "node scripts/launcher.mjs --check",
+    "hub": "node src/hub/hub-server.mjs --config config/hub.json",
+    "token": "node src/hub/hub-server.mjs --print-token",
+    "test": "node scripts/verify.mjs --suite node",
+    "verify": "node scripts/verify.mjs --suite node",
+    "test:dsh": "node scripts/verify.mjs --suite dsh",
+    "test:cross-language": "node scripts/verify.mjs --suite cross-language",
+    "test:distribution": "node --test --test-timeout=60000 scripts/release/distribution.test.mjs",
+    "test:recovery": "node scripts/test-recovery.mjs",
+    "build": "node scripts/release/build-package.mjs",
+    "verify:package": "node scripts/release/verify-package.mjs",
+    "demo:management": "node examples/management/run-management-demo.mjs",
+    "demo:events": "node examples/event-panel/run-demo.mjs",
+    "demo:directed": "node examples/directed-transfer/run-phase4.mjs",
+    "demo:workflow": "node examples/workflows/run-flows.mjs --demo",
+    "demo:context": "node examples/distributed-context/run-phase2.mjs --fixture",
+    "demo:three": "node examples/three-programs/run-three.mjs",
+    "check:repository": "node scripts/check-repository.mjs"
+  }
+}

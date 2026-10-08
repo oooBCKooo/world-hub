@@ -1,0 +1,8 @@
+{
+  "name": "reference-python",
+  "command": "python",
+  "args": ["-u", "{root}/tests/fixtures/python/worker.py", "--url", "{url}", "--bridge", "{bridge}", "--credential", "{credential}", "--token", "{token}"],
+  "cwd": "{root}",
+  "sources": ["{root}/tests/fixtures/python/worker.py", "{root}/sdk/python/hub_bridge.py", "{root}/sdk/python/requirements.txt"],
+  "profiles": ["base", "directed", "blob"]
+}

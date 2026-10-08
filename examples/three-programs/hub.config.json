@@ -1,0 +1,40 @@
+{
+  "version": "0.1",
+  "hub": { "id": "three-program-hub" },
+  "transport": { "host": "127.0.0.1", "port": 8801, "path": "/bridge" },
+  "log": { "enabled": true, "dir": "./.hub/log", "segmentMaxBytes": 8388608, "segmentMaxCount": 8 },
+  "limits": {
+    "maxPayloadBytes": 262144,
+    "maxSubscriptionsPerBridge": 64,
+    "maxFiltersPerSubscription": 16,
+    "maxPendingDeliveries": 512,
+    "maxCatchUpMessages": 5000,
+    "catchUpBatchSize": 256,
+    "maxConnections": 256,
+    "maxBridges": 128
+  },
+  "acl": {
+    "defaultDeny": true,
+    "allowUnlistedBridges": false,
+    "bridges": {
+      "app.order": {
+        "allow": {
+          "publish": ["order/new", "billing/charge"],
+          "subscribe": ["billing/charge"]
+        }
+      },
+      "app.billing": {
+        "allow": {
+          "publish": ["billing/charge"],
+          "subscribe": ["order/new", "billing/charge"]
+        }
+      },
+      "app.audit": {
+        "allow": {
+          "publish": [],
+          "subscribe": ["#"]
+        }
+      }
+    }
+  }
+}

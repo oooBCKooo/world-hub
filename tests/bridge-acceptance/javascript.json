@@ -1,0 +1,8 @@
+{
+  "name": "reference-javascript",
+  "command": "node",
+  "args": ["{root}/examples/cross-language/js-worker.mjs", "--url", "{url}", "--bridge", "{bridge}", "--credential", "{credential}", "--token", "{token}"],
+  "cwd": "{root}",
+  "sources": ["{root}/examples/cross-language/js-worker.mjs"],
+  "profiles": ["base", "directed", "blob"]
+}

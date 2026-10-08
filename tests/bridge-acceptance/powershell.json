@@ -1,0 +1,8 @@
+{
+  "name": "reference-powershell",
+  "command": "pwsh",
+  "args": ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", "{root}/tests/fixtures/powershell/worker.ps1", "-Url", "{url}", "-Bridge", "{bridge}", "-Credential", "{credential}", "-Token", "{token}"],
+  "cwd": "{root}",
+  "sources": ["{root}/tests/fixtures/powershell/worker.ps1", "{root}/tests/fixtures/powershell/ProtocolWorker.cs", "{root}/sdk/powershell/HubBridge.psm1", "{root}/sdk/powershell/HubBridge.cs"],
+  "profiles": ["base", "directed", "blob"]
+}

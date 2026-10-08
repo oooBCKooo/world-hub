@@ -1,0 +1,24 @@
+# Local history, credentials, deployed data and validation/build outputs.
+.local/
+.artifacts/
+dist/
+data/
+.hub/
+**/.hub/
+**/.state/
+config/local*.json
+.env
+.env.*
+!.env.example
+*.local.json
+*.log
+*.bak
+*.tmp
+node_modules/
+.venv/
+__pycache__/
+*.py[cod]
+smoke-results.json
+self-check-result.json
+Thumbs.db
+.DS_Store

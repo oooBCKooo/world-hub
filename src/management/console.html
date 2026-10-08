@@ -1,0 +1,3012 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>世界枢纽 · 拓扑管理画布</title>
+  <link rel="stylesheet" href="/manage/manual-console.css">
+  <style>
+    :root {
+      --bg: #070b12;
+      --bg-dots: rgba(255, 255, 255, 0.06);
+      --surface: #0d1522;
+      --surface-glass: rgba(13, 21, 34, 0.82);
+      --surface-glass-heavy: rgba(10, 16, 26, 0.94);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-bright: rgba(255, 255, 255, 0.16);
+      --ink: #f0f6fc;
+      --ink-dim: #cbd5e1;
+      --muted: #738496;
+      --teal: #00d2b4;
+      --teal-glow: rgba(0, 210, 180, 0.35);
+      --teal-soft: rgba(0, 210, 180, 0.12);
+      --blue: #388bfd;
+      --blue-glow: rgba(56, 139, 253, 0.35);
+      --blue-soft: rgba(56, 139, 253, 0.12);
+      --amber: #f59e0b;
+      --amber-glow: rgba(245, 158, 11, 0.35);
+      --amber-soft: rgba(245, 158, 11, 0.12);
+      --red: #f43f5e;
+      --red-glow: rgba(244, 63, 94, 0.35);
+      --red-soft: rgba(244, 63, 94, 0.12);
+      --mono: ui-monospace, SFMono-Regular, "Cascadia Code", Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      --shadow-lg: 0 20px 48px -12px rgba(0, 0, 0, 0.65), 0 0 0 1px var(--border);
+      --radius: 14px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: var(--bg); color: var(--ink);
+      font: 13px/1.5 var(--sans);
+      user-select: none; -webkit-user-select: none;
+    }
+
+    /* Common UI Utilities */
+    button, input, select, textarea { font: inherit; color: inherit; }
+    button { cursor: pointer; border: 0; background: transparent; }
+    button:disabled { cursor: not-allowed; opacity: 0.45; }
+    button, input, select, textarea { outline-offset: 2px; }
+    :focus-visible { outline: 2px solid var(--teal); }
+    svg, svg * { outline: none !important; -webkit-tap-highlight-color: transparent; }
+    .mono { font-family: var(--mono); font-size: 11px; }
+    .muted { color: var(--muted); }
+    .hidden { display: none !important; }
+    .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
+
+    /* Fullscreen Canvas Viewport with Hardware Acceleration */
+    #canvas-container {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      cursor: grab; overflow: hidden; z-index: 1; outline: none;
+      touch-action: none;
+      background-color: var(--bg);
+      background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+      background-size: 48px 48px;
+    }
+    #canvas-container:active { cursor: grabbing; }
+    #canvas-svg {
+      width: 100%; height: 100%; display: block;
+      outline: none; contain: strict;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeSpeed;
+    }
+    #viewport {
+      transform-origin: 0 0;
+      will-change: transform;
+    }
+    #canvas-container.is-panning #viewport {
+      pointer-events: none !important;
+    }
+    #canvas-container.is-panning .hub-pulse-ring,
+    #canvas-container.is-panning .hub-radar-ring {
+      animation-play-state: paused !important;
+    }
+    #canvas-container.is-panning * {
+      filter: none !important;
+    }
+    #canvas-container.is-panning #canvas-svg {
+      shape-rendering: optimizeSpeed !important;
+      text-rendering: optimizeSpeed !important;
+    }
+
+    /* Topology SVG Visual Styles */
+    .coord-axis { stroke: rgba(255, 255, 255, 0.03); stroke-width: 1; }
+    .orbit-circle { fill: none; stroke: rgba(255, 255, 255, 0.04); stroke-width: 1.2; stroke-dasharray: 6 8; }
+    .orbit-label { font-size: 10px; font-weight: 700; fill: rgba(255, 255, 255, 0.16); letter-spacing: 0.12em; text-anchor: middle; }
+
+    /* Hub Core Node */
+    .hub-node { cursor: pointer; outline: none !important; }
+    .hub-node:focus, .hub-node:focus-visible, .hub-node:active { outline: none !important; }
+    .hub-focus-ring {
+      fill: none; stroke: var(--teal); stroke-width: 2; opacity: 0; pointer-events: none;
+    }
+    .hub-node:hover .hub-focus-ring,
+    .hub-node:focus-visible .hub-focus-ring {
+      opacity: 0.85; stroke-width: 2.5; filter: drop-shadow(0 0 14px var(--teal));
+    }
+    .hub-pulse-ring {
+      fill: none; stroke: var(--teal); stroke-width: 1.5; opacity: 0.25;
+      animation: hubPulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      transform-origin: center;
+    }
+    .hub-radar-ring {
+      fill: none; stroke: var(--teal); stroke-width: 1.2; stroke-dasharray: 8 14; opacity: 0.4;
+      animation: radarRotate 28s linear infinite; transform-origin: 0 0;
+    }
+    .hub-outer-circle { fill: #0b1522; stroke: var(--border-bright); stroke-width: 2; filter: drop-shadow(0 0 24px var(--teal-glow)); }
+    .hub-inner-core { fill: #061017; stroke: var(--teal); stroke-width: 2.5; cursor: pointer; }
+    .hub-node:hover .hub-inner-core, .hub-node:focus-visible .hub-inner-core { stroke-width: 3.5; stroke: #fff; filter: drop-shadow(0 0 20px var(--teal)); }
+    .hub-node:hover .hub-outer-circle, .hub-node:focus-visible .hub-outer-circle { stroke: var(--teal); filter: drop-shadow(0 0 32px var(--teal-glow)); }
+    .hub-title { font-size: 15px; font-weight: 800; fill: #ffffff; text-anchor: middle; letter-spacing: 0.05em; pointer-events: none; }
+    .hub-id-text { font-family: var(--mono); font-size: 10px; fill: var(--teal); text-anchor: middle; pointer-events: none; }
+    .hub-status-text { font-size: 10px; fill: var(--muted); text-anchor: middle; pointer-events: none; }
+    .hub-crossroads-icon { stroke: var(--teal); stroke-width: 2.2; stroke-linecap: round; pointer-events: none; }
+
+    /* Bridge Nodes */
+    .bridge-node { cursor: pointer; outline: none; }
+    .bridge-card-bg {
+      fill: rgba(13, 21, 33, 0.96); stroke: rgba(255, 255, 255, 0.14); stroke-width: 1.2; rx: 14;
+    }
+    .bridge-node:hover .bridge-card-bg, .bridge-node:focus-visible .bridge-card-bg {
+      stroke: var(--teal); stroke-width: 1.8; filter: drop-shadow(0 0 16px var(--teal-glow));
+    }
+    .bridge-node.selected .bridge-card-bg {
+      stroke: var(--teal); stroke-width: 2.2; fill: rgba(10, 26, 38, 0.98);
+      filter: drop-shadow(0 0 20px var(--teal-glow));
+    }
+    .bridge-node.paused .bridge-card-bg {
+      stroke: var(--amber);
+    }
+    .bridge-node.paused:hover .bridge-card-bg, .bridge-node.paused.selected .bridge-card-bg {
+      stroke: var(--amber); filter: drop-shadow(0 0 20px var(--amber-glow));
+    }
+    .bridge-name { font-size: 13px; font-weight: 700; fill: #ffffff; pointer-events: none !important; user-select: none !important; -webkit-user-select: none !important; text-rendering: optimizeSpeed; }
+    .bridge-key { font-family: var(--mono); font-size: 10px; fill: var(--muted); pointer-events: none !important; user-select: none !important; -webkit-user-select: none !important; text-rendering: optimizeSpeed; }
+    .bridge-pill { font-size: 9px; font-weight: 600; text-anchor: middle; pointer-events: none !important; user-select: none !important; -webkit-user-select: none !important; text-rendering: optimizeSpeed; }
+    .bridge-dot { r: 4; pointer-events: none !important; }
+    .bridge-dot.online { fill: var(--teal); }
+    .bridge-dot.paused { fill: var(--amber); }
+    .bridge-dot.offline { fill: var(--muted); }
+    .bridge-node:hover .bridge-dot.online, .bridge-node.selected .bridge-dot.online { filter: drop-shadow(0 0 6px var(--teal)); }
+    .bridge-node:hover .bridge-dot.paused, .bridge-node.selected .bridge-dot.paused { filter: drop-shadow(0 0 6px var(--amber)); }
+
+    /* Program Note Nodes */
+    .program-node { cursor: pointer; outline: none; }
+    .program-box {
+      fill: rgba(12, 18, 28, 0.88); stroke: rgba(255, 255, 255, 0.08); stroke-width: 1.2; rx: 10;
+    }
+    .program-node:hover .program-box, .program-node:focus-visible .program-box {
+      stroke: #94a3b8; fill: rgba(18, 28, 44, 0.95);
+    }
+    .program-name { font-size: 11px; font-weight: 650; fill: #e2e8f0; pointer-events: none !important; user-select: none !important; -webkit-user-select: none !important; text-rendering: optimizeSpeed; }
+    .program-sub { font-size: 9px; fill: #64748b; font-weight: 500; pointer-events: none !important; user-select: none !important; -webkit-user-select: none !important; text-rendering: optimizeSpeed; }
+
+    /* Rails and Links */
+    .annotation-link {
+      fill: none; stroke: rgba(148, 163, 184, 0.15); stroke-width: 1.2;
+      pointer-events: none !important;
+    }
+    .annotation-link.highlight {
+      stroke: var(--teal) !important;
+      stroke-dasharray: 6 3 !important;
+      stroke-width: 2.4 !important;
+      filter: drop-shadow(0 0 8px var(--teal));
+    }
+    .bridge-node.linked-highlight .bridge-card-bg {
+      stroke: var(--teal) !important;
+      stroke-width: 2.2 !important;
+      filter: drop-shadow(0 0 20px var(--teal-glow));
+    }
+    .program-node.selected .program-box {
+      stroke: var(--teal) !important;
+      stroke-width: 2.2 !important;
+      fill: rgba(10, 26, 38, 0.98) !important;
+      stroke-dasharray: none !important;
+      filter: drop-shadow(0 0 20px var(--teal-glow)) !important;
+    }
+    .program-node.selected .program-name {
+      fill: #ffffff !important;
+      font-weight: 800 !important;
+    }
+    .program-node.selected .program-sub {
+      fill: var(--teal) !important;
+      opacity: 1 !important;
+    }
+    .program-node.linked-highlight .program-box {
+      stroke: var(--teal) !important;
+      stroke-dasharray: none !important;
+      fill: rgba(18, 32, 48, 0.96) !important;
+      filter: drop-shadow(0 0 16px var(--teal-glow));
+    }
+    .program-node.highlight .program-box {
+      stroke: var(--teal) !important;
+      stroke-dasharray: none !important;
+      fill: rgba(22, 38, 56, 0.98) !important;
+      filter: drop-shadow(0 0 20px var(--teal-glow));
+    }
+    .program-node.linked-highlight .program-name,
+    .program-node.highlight .program-name {
+      fill: #ffffff !important;
+      font-weight: 800 !important;
+    }
+    .program-node.linked-highlight .program-sub,
+    .program-node.highlight .program-sub {
+      fill: var(--teal) !important;
+      opacity: 1 !important;
+    }
+
+    /* Target Flash when focused via Search or Zoom */
+    @keyframes targetFlashAnim {
+      0% { filter: drop-shadow(0 0 0px #fff); }
+      50% { filter: drop-shadow(0 0 26px var(--teal)); }
+      100% { filter: drop-shadow(0 0 4px var(--teal)); }
+    }
+    .target-flash {
+      animation: targetFlashAnim 0.7s cubic-bezier(0.16, 1, 0.3, 1) 2;
+    }
+
+    /* Level of Detail (LOD) - 缩放自适应渲染体系 */
+    /* 极远大图隐藏文字；少量节点仍保留主名称，避免小图变成无名卡片。 */
+    svg.lod-nano .bridge-node text,
+    svg.lod-nano .bridge-node.selected text,
+    svg.lod-nano .bridge-node:hover text,
+    svg.lod-nano .program-node text,
+    svg.lod-nano .program-node.selected text,
+    svg.lod-nano .program-node:hover text,
+    svg.lod-nano .bridge-pill-bg,
+    svg.lod-nano .orbit-label {
+      display: none !important;
+    }
+    /* 极远模式保留中心世界枢纽核心标识 */
+    svg.lod-nano .hub-title,
+    svg.lod-nano .hub-id-text,
+    svg.lod-nano .hub-status-text {
+      display: block !important;
+    }
+    svg.lod-nano.topology-sparse .bridge-node text.bridge-name,
+    svg.lod-nano.topology-sparse .program-node text.program-name {
+      display: block !important;
+    }
+
+    /* 普通概览始终显示主名称，次级内容在选择或悬停时展开。 */
+    svg.lod-macro .bridge-node text,
+    svg.lod-macro .program-node text,
+    svg.lod-macro .bridge-pill-bg,
+    svg.lod-macro .orbit-label {
+      display: none !important;
+    }
+    /* 宏观模式下保留中心世界枢纽核心标识 */
+    svg.lod-macro .hub-title,
+    svg.lod-macro .hub-id-text,
+    svg.lod-macro .hub-status-text {
+      display: block !important;
+    }
+    svg.lod-macro .bridge-node text.bridge-name,
+    svg.lod-macro .program-node text.program-name {
+      display: block !important;
+    }
+    /* 宏观模式下，选中的卡片、关联卡片或悬停卡片展示文字 */
+    svg.lod-macro .bridge-node.selected text,
+    svg.lod-macro .bridge-node:hover text,
+    svg.lod-macro .program-node.selected text,
+    svg.lod-macro .program-node:hover text,
+    svg.lod-macro .program-node.linked-highlight text {
+      display: block !important;
+    }
+
+    /* 2. 中观巡航模式 (1.00 <= scale < 1.65): 广阔巡航视角，仅渲染主标题，坚决不进行次级全文字渲染 */
+    svg.lod-medium .bridge-key,
+    svg.lod-medium .program-sub,
+    svg.lod-medium .bridge-pill-bg {
+      display: none !important;
+    }
+    /* 中观模式下，只有用户选中的卡片、关联卡片或鼠标悬停的卡片，才展开全部次级文字与通道信息 */
+    svg.lod-medium .bridge-node.selected text,
+    svg.lod-medium .bridge-node:hover text,
+    svg.lod-medium .program-node.selected text,
+    svg.lod-medium .program-node:hover text,
+    svg.lod-medium .program-node.linked-highlight text {
+      display: block !important;
+    }
+    svg.lod-medium .bridge-node.selected .bridge-pill-bg,
+    svg.lod-medium .bridge-node:hover .bridge-pill-bg {
+      display: block !important;
+    }
+
+    /* HUD Search Bar */
+    .hud-search-box {
+      position: relative;
+      display: flex;
+      align-items: center;
+      flex: none;
+    }
+    .hud-search-input {
+      width: 150px;
+      height: 30px;
+      background: rgba(0, 0, 0, 0.45);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 0 10px;
+      font-size: 11px;
+      color: #fff;
+      transition: all 0.2s ease;
+    }
+    .hud-search-input:focus {
+      width: 200px;
+      border-color: var(--teal);
+      box-shadow: 0 0 12px var(--teal-glow);
+      outline: none;
+    }
+    .hud-search-dropdown {
+      position: absolute;
+      top: 36px;
+      left: 0;
+      width: 260px;
+      max-height: 280px;
+      overflow-y: auto;
+      background: var(--surface-glass-heavy);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border-bright);
+      border-radius: 8px;
+      box-shadow: var(--shadow-lg);
+      z-index: 70;
+      display: flex;
+      flex-direction: column;
+    }
+    .hud-search-dropdown.hidden { display: none; }
+    .hud-search-item {
+      padding: 7px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      cursor: pointer;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      font-size: 11px;
+      transition: background 0.15s ease;
+      color: #e2e8f0;
+    }
+    .hud-search-item:hover, .hud-search-item.active {
+      background: rgba(0, 210, 180, 0.14);
+      color: #fff;
+    }
+    .hud-search-item .tag {
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-weight: 700;
+      flex: none;
+    }
+    .hud-search-item .tag.bridge { background: var(--teal-soft); color: var(--teal); }
+    .hud-search-item .tag.program { background: rgba(255, 255, 255, 0.1); color: #94a3b8; }
+    .hub-rail {
+      fill: none; stroke: rgba(255, 255, 255, 0.1); stroke-width: 2;
+      pointer-events: none !important;
+    }
+    .hub-rail.online { stroke: rgba(0, 210, 180, 0.28); }
+    .hub-rail.paused { stroke: rgba(245, 158, 11, 0.28); stroke-dasharray: 6 6; }
+    .hub-rail.highlight { stroke: var(--teal); stroke-width: 3; filter: drop-shadow(0 0 8px var(--teal)); }
+    .pulse-particle {
+      r: 4; fill: var(--teal); filter: drop-shadow(0 0 8px var(--teal));
+      pointer-events: none;
+    }
+    .pulse-particle.delivery { fill: var(--blue); filter: drop-shadow(0 0 8px var(--blue)); }
+
+    /* Animations */
+    @keyframes radarRotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes hubPulse { 0% { r: 90; opacity: 0.35; } 50% { r: 115; opacity: 0.06; } 100% { r: 90; opacity: 0.35; } }
+
+    /* Floating Top HUD */
+    .top-hud {
+      position: fixed; top: 14px; left: 16px; right: 16px; height: 54px;
+      background: var(--surface-glass); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      box-shadow: var(--shadow-lg); z-index: 50;
+      display: flex; align-items: center; justify-content: space-between; padding: 0 16px;
+      gap: 14px; flex-wrap: nowrap;
+    }
+    .brand-group { display: flex; align-items: center; gap: 10px; flex: none; }
+    .brand-badge {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: linear-gradient(135deg, #00d2b4, #008775);
+      color: #041210; display: grid; place-items: center; font-weight: 900; font-size: 15px;
+      box-shadow: 0 0 16px var(--teal-glow);
+    }
+    .brand-title { font-size: 13px; font-weight: 800; color: #fff; letter-spacing: 0.02em; }
+    .brand-sub { font-size: 9px; color: var(--muted); }
+    .hud-hub-id {
+      background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border);
+      border-radius: 5px; padding: 2px 7px; font-family: var(--mono); font-size: 10px;
+      color: var(--teal); margin-left: 6px;
+    }
+
+    .metrics-group { display: flex; align-items: center; gap: 20px; flex: 1; justify-content: center; }
+    .metric-chip { display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
+    .metric-chip .num { font-size: 14px; font-weight: 800; font-family: var(--mono); color: #fff; }
+    .metric-chip .lbl { font-size: 9px; color: var(--muted); letter-spacing: 0.04em; }
+
+    .top-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+    .status-indicator {
+      display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--muted);
+      margin-right: 4px;
+    }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+    .status-dot.online { background: var(--teal); box-shadow: 0 0 8px var(--teal); }
+    .status-dot.offline { background: var(--red); box-shadow: 0 0 8px var(--red); }
+
+    .hud-btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 5px 10px; border-radius: 7px; font-size: 11px; font-weight: 650;
+      background: rgba(255, 255, 255, 0.06); border: 1px solid var(--border);
+      color: var(--ink-dim); transition: all 0.2s ease;
+    }
+    .hud-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); color: #fff; border-color: var(--border-bright); }
+    .hud-btn.active { background: var(--teal-soft); border-color: var(--teal); color: var(--teal); }
+
+    /* Canvas Navigation Floating Controls (Bottom-Right) */
+    .canvas-controls {
+      position: fixed; right: 20px; bottom: 84px; z-index: 40;
+      display: flex; flex-direction: column; gap: 6px;
+      background: var(--surface-glass); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      padding: 6px; border: 1px solid var(--border); border-radius: 12px;
+      box-shadow: var(--shadow-lg);
+    }
+    .ctrl-btn {
+      width: 32px; height: 32px; border-radius: 8px;
+      display: grid; place-items: center; color: var(--ink-dim); font-size: 14px; font-weight: 700;
+      background: rgba(255, 255, 255, 0.03); border: 1px solid transparent; transition: all 0.15s ease;
+    }
+    .ctrl-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; border-color: var(--border); }
+    .zoom-text { font-family: var(--mono); font-size: 9px; text-align: center; color: var(--muted); padding: 2px 0; }
+
+    /* Toast Notification */
+    .toast {
+      position: fixed; top: calc(var(--hud-bottom, 68px) + 8px); left: 50%; transform: translateX(-50%);
+      max-width: calc(100vw - 32px);
+      padding: 6px 16px; border-radius: 20px; font-size: 11px; font-weight: 600;
+      background: var(--surface-glass-heavy); border: 1px solid var(--border-bright);
+      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6); z-index: 60;
+      color: var(--teal); transition: all 0.3s ease; pointer-events: none;
+    }
+    .toast.error { color: var(--red); border-color: rgba(244, 63, 94, 0.35); }
+    .toast.neutral { color: var(--muted); }
+
+    /* Right Inspector Drawer (Bridge Inspector) */
+    .inspector-drawer {
+      position: fixed; top: calc(var(--hud-bottom, 68px) + 10px); right: 16px; bottom: 84px; width: 380px; max-width: calc(100vw - 32px);
+      background: var(--surface-glass-heavy); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      box-shadow: var(--shadow-lg); z-index: 45;
+      display: flex; flex-direction: column; overflow: hidden;
+      transform: translateX(calc(100% + 24px)); transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .inspector-drawer.open { transform: translateX(0); }
+    .drawer-head {
+      padding: 16px 18px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex: none;
+    }
+    .drawer-head h2 { font-size: 15px; font-weight: 800; color: #fff; overflow-wrap: anywhere; }
+    .drawer-head p { font-family: var(--mono); font-size: 10px; color: var(--muted); overflow-wrap: anywhere; margin-top: 2px; }
+    .close-btn {
+      width: 28px; height: 28px; border-radius: 7px;
+      display: grid; place-items: center; color: var(--muted); font-size: 16px;
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .close-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.1); }
+    .drawer-body {
+      padding: 18px; overflow-y: auto; overflow-x: hidden; flex: 1;
+      display: flex; flex-direction: column; gap: 18px;
+    }
+    .drawer-content-group {
+      display: flex; flex-direction: column; gap: 18px;
+    }
+
+    .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+    .action-btn {
+      flex: 1; min-height: 36px; padding: 7px 12px; border-radius: 9px;
+      font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      border: 1px solid transparent; transition: all 0.2s ease;
+    }
+    .action-btn.pause { background: var(--amber-soft); color: var(--amber); border-color: rgba(245, 158, 11, 0.4); }
+    .action-btn.pause:hover:not(:disabled) { background: var(--amber); color: #000; box-shadow: 0 0 16px var(--amber-glow); }
+    .action-btn.resume { background: var(--teal-soft); color: var(--teal); border-color: rgba(0, 210, 180, 0.4); }
+    .action-btn.resume:hover:not(:disabled) { background: var(--teal); color: #000; box-shadow: 0 0 16px var(--teal-glow); }
+    .action-btn.danger { background: var(--red-soft); color: var(--red); border-color: rgba(244, 63, 94, 0.35); }
+    .action-btn.danger:hover:not(:disabled) { background: var(--red); color: #fff; box-shadow: 0 0 16px var(--red-glow); }
+    .action-help-text { font-size: 10px; color: var(--muted); line-height: 1.45; }
+
+    .section-block {
+      background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px;
+    }
+    .section-block h3 { font-size: 11px; font-weight: 750; color: #fff; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 8px; }
+    .watermark-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .wm-card { background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border); border-radius: 6px; padding: 7px; text-align: center; }
+    .wm-card span { font-size: 9px; color: var(--muted); display: block; }
+    .wm-card strong { font-family: var(--mono); font-size: 13px; font-weight: 700; color: #fff; display: block; margin-top: 2px; }
+
+    .channel-badge {
+      display: flex; flex-direction: column; gap: 2px;
+      padding: 6px 8px; border-left: 2px solid var(--teal); background: rgba(0, 210, 180, 0.04);
+      border-radius: 0 6px 6px 0; margin-bottom: 6px; font-size: 11px;
+    }
+    .channel-badge .topic { font-family: var(--mono); font-weight: 700; color: #fff; overflow-wrap: anywhere; }
+    .channel-badge .dir { font-size: 9px; color: var(--muted); }
+
+    .acl-tag-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+    .acl-pill {
+      font-family: var(--mono); font-size: 10px; padding: 2px 6px;
+      background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border);
+      border-radius: 4px; color: var(--ink-dim);
+    }
+
+    .form-label { display: block; font-size: 11px; font-weight: 600; color: var(--ink-dim); margin-bottom: 4px; }
+    .drawer-input {
+      width: 100%; border: 1px solid var(--border); border-radius: 7px;
+      background: rgba(0, 0, 0, 0.35); padding: 7px 10px; color: #fff; font-size: 12px;
+      transition: border 0.15s ease;
+    }
+    .drawer-input:focus { border-color: var(--teal); }
+    .drawer-textarea {
+      width: 100%; min-height: 80px; resize: vertical; border: 1px solid var(--border);
+      border-radius: 7px; background: rgba(0, 0, 0, 0.35); padding: 7px 10px;
+      color: #fff; font-family: var(--mono); font-size: 11px; line-height: 1.5;
+    }
+    .drawer-textarea:focus { border-color: var(--teal); }
+    .drawer-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+
+    /* Bottom Stream Console Drawer */
+    .stream-drawer {
+      position: fixed; left: 16px; right: 16px; bottom: 14px; height: 56px;
+      background: var(--surface-glass-heavy); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      box-shadow: var(--shadow-lg); z-index: 42;
+      display: flex; flex-direction: column; overflow: hidden;
+      transition: height 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .stream-drawer.expanded { height: 50vh; z-index: 48; }
+    .stream-bar {
+      height: 56px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; flex: none; cursor: pointer;
+    }
+    .stream-bar-title { display: flex; align-items: center; gap: 10px; }
+    .stream-bar-title h3 { font-size: 13px; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 6px; }
+    .stream-count-badge { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+    .stream-latest-ticker {
+      font-family: var(--mono); font-size: 11px; color: var(--ink-dim);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 480px;
+    }
+    .stream-tabs { display: flex; gap: 4px; background: rgba(0, 0, 0, 0.3); padding: 3px; border-radius: 7px; }
+    .tab-btn {
+      padding: 4px 10px; font-size: 10px; font-weight: 650; border-radius: 5px; color: var(--muted);
+      transition: all 0.15s ease;
+    }
+    .tab-btn[aria-pressed="true"] { background: var(--teal-soft); color: var(--teal); font-weight: 800; }
+
+    .stream-body {
+      padding: 0 16px 14px; overflow: hidden; display: flex; flex-direction: column; flex: 1; gap: 10px;
+    }
+    .stream-filter-bar {
+      display: flex; gap: 10px; align-items: center; flex: none;
+    }
+    .stream-table-container {
+      flex: 1; overflow-y: auto; overflow-x: auto; border: 1px solid var(--border);
+      border-radius: 8px; background: rgba(0, 0, 0, 0.3);
+    }
+    .stream-table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
+    .stream-table th {
+      text-align: left; padding: 8px 10px; font-size: 10px; color: var(--muted); font-weight: 600;
+      background: rgba(13, 21, 34, 0.95); position: sticky; top: 0; z-index: 2; border-bottom: 1px solid var(--border);
+    }
+    .stream-table td {
+      padding: 7px 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      vertical-align: middle; overflow-wrap: anywhere;
+    }
+    .stream-table tr:hover td { background: rgba(255, 255, 255, 0.03); }
+    .stream-kind-tag {
+      display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;
+      background: rgba(255, 255, 255, 0.06); color: var(--ink-dim); text-align: center;
+    }
+    .stream-kind-tag.message, .stream-kind-tag.retained { color: var(--teal); background: var(--teal-soft); }
+    .stream-kind-tag.delivery { color: var(--blue); background: var(--blue-soft); }
+    .stream-kind-tag.error { color: var(--red); background: var(--red-soft); }
+    .seq-btn {
+      font-family: var(--mono); font-size: 11px; color: var(--teal); font-weight: 700;
+      text-decoration: underline; text-underline-offset: 2px;
+    }
+    .seq-btn:hover { color: #fff; }
+
+    /* Modals & Dialogs */
+    dialog {
+      width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 40px);
+      background: var(--surface-glass-heavy); border: 1px solid var(--border-bright);
+      border-radius: var(--radius); padding: 0; color: var(--ink);
+      box-shadow: 0 30px 90px rgba(0, 0, 0, 0.85); margin: auto; z-index: 100;
+    }
+    dialog::backdrop { background: rgba(4, 7, 13, 0.75); backdrop-filter: blur(8px); }
+    .dialog-head {
+      padding: 16px 20px; display: flex; align-items: flex-start; justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+    }
+    .dialog-head h2 { font-size: 15px; font-weight: 800; color: #fff; }
+    .dialog-head p { font-size: 10px; color: var(--muted); margin-top: 2px; }
+    .dialog-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
+    .dialog-pre {
+      background: #050a12; border: 1px solid var(--border); border-radius: 8px;
+      padding: 14px; font-family: var(--mono); font-size: 11px; line-height: 1.6;
+      white-space: pre-wrap; overflow-wrap: anywhere; max-height: 55vh; overflow-y: auto; color: #e2e8f0;
+    }
+
+    /* Capacity Panel Inside Dialog */
+    .capacity-metric-box {
+      background: rgba(0, 0, 0, 0.35); border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+    }
+    .capacity-metric-box strong { font-family: var(--mono); font-size: 16px; color: #fff; display: block; margin: 4px 0; }
+
+    /* Responsive Adaptation */
+    @media (max-width: 1120px) {
+      .top-hud { height: auto; padding: 10px 14px; flex-wrap: wrap; gap: 10px; }
+      .brand-group { min-width: 0; flex: 1; }
+      .brand-group > div:last-child { min-width: 0; }
+      .hud-hub-id { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .metrics-group { flex: none; gap: 14px; }
+      .top-actions { width: 100%; min-width: 0; flex-wrap: wrap; }
+      .hud-btn { white-space: nowrap; }
+      .status-indicator { margin-right: auto; white-space: nowrap; }
+      .stream-latest-ticker { display: none; }
+      .hud-search-box { flex: 1; min-width: 120px; }
+      .hud-search-input, .hud-search-input:focus { width: 100%; }
+      .hud-search-dropdown { width: min(280px, calc(100vw - 60px)); }
+    }
+    @media (max-width: 600px) {
+      .inspector-drawer { width: calc(100vw - 32px); }
+      .brand-group { flex-basis: 100%; }
+      .metrics-group { order: 3; width: 100%; justify-content: space-around; gap: 6px; padding-top: 8px; border-top: 1px solid var(--border); }
+      .top-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+      .hud-search-box { grid-column: span 2; min-width: 0; }
+      .status-indicator { grid-column: span 2; justify-self: end; margin-right: 0; }
+      .hud-btn { justify-content: center; padding: 6px 3px; }
+      .stream-bar { gap: 6px; flex-wrap: wrap; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation: none !important; transition: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Fullscreen Interactive Canvas -->
+  <main id="canvas-container" role="region" aria-label="世界枢纽全屏通讯拓扑画布">
+    <svg id="canvas-svg" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <!-- Background Grid Pattern -->
+        <pattern id="grid-pattern" width="48" height="48" patternUnits="userSpaceOnUse">
+          <circle cx="24" cy="24" r="1" fill="var(--bg-dots)" />
+        </pattern>
+        <!-- Hub Radial Glow -->
+        <radialGradient id="hub-core-glow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#00d2b4" stop-opacity="0.3" />
+          <stop offset="70%" stop-color="#00d2b4" stop-opacity="0.04" />
+          <stop offset="100%" stop-color="#00d2b4" stop-opacity="0" />
+        </radialGradient>
+        <!-- Markers for Rails -->
+        <marker id="marker-teal" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 Z" fill="#00d2b4" />
+        </marker>
+        <marker id="marker-blue" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 Z" fill="#388bfd" />
+        </marker>
+      </defs>
+
+
+      <!-- Viewport Root Group (Managed by Pan & Zoom) -->
+      <g id="viewport">
+        <!-- Coordinate Guides & Orbits -->
+        <g id="guides-g">
+          <circle cx="0" cy="0" r="380" class="orbit-circle" />
+          <circle cx="0" cy="0" r="700" class="orbit-circle" />
+          <text x="0" y="-390" class="orbit-label">MOD BRIDGES · 通讯主体环</text>
+          <text x="0" y="-710" class="orbit-label">PROGRAM ANNOTATIONS · 外部程序注记环</text>
+        </g>
+
+        <!-- Program Annotation Links (N:M dashed lines) -->
+        <g id="annotation-links-g"></g>
+
+        <!-- Hub Rails (Bridge <-> Hub communication paths) -->
+        <g id="rails-g"></g>
+
+        <!-- External Program Nodes (Outer orbit) -->
+        <g id="program-nodes-g"></g>
+
+        <!-- Mod Bridge Nodes (Inner orbit) -->
+        <g id="bridge-nodes-g"></g>
+
+        <!-- Telemetry Particles Group -->
+        <g id="pulses-g"></g>
+
+        <!-- Center World Hub Core Node -->
+        <g id="hub-node" class="hub-node" transform="translate(0, 0)" role="button" tabindex="0" aria-label="世界枢纽核心中枢，点击查看留存与容量">
+          <circle cx="0" cy="0" r="170" fill="url(#hub-core-glow)" />
+          <circle cx="0" cy="0" r="105" class="hub-pulse-ring" />
+          <circle cx="0" cy="0" r="125" class="hub-radar-ring" />
+          <circle cx="0" cy="0" r="82" class="hub-outer-circle" />
+          <circle cx="0" cy="0" r="70" class="hub-inner-core" />
+          <circle cx="0" cy="0" r="88" class="hub-focus-ring" />
+          <!-- Center Crossroads Glyph (Placed nicely in upper half) -->
+          <path d="M-14 -20 L14 -20 M0 -34 L0 -6" class="hub-crossroads-icon" />
+          <rect x="-5" y="-25" width="10" height="10" rx="2" fill="#00d2b4" />
+          <!-- Hub Texts (Centered in middle/lower half) -->
+          <text x="0" y="10" class="hub-title">世界枢纽</text>
+          <text x="0" y="27" id="hub-core-id" class="hub-id-text">world-hub</text>
+          <text x="0" y="42" id="hub-core-instances" class="hub-status-text">3 在线实例</text>
+        </g>
+      </g>
+    </svg>
+  </main>
+
+  <!-- Top Floating HUD -->
+  <header class="top-hud">
+    <div class="brand-group">
+      <div class="brand-badge" aria-hidden="true">❖</div>
+      <div>
+        <div style="display:flex; align-items:center;">
+          <h1 class="brand-title">世界枢纽</h1>
+          <span class="hud-hub-id" id="hud-hub-name">等待连接…</span>
+        </div>
+        <div class="brand-sub">程序之间的通讯十字路口 · 语义中立</div>
+      </div>
+    </div>
+
+    <div class="metrics-group" aria-label="枢纽通讯状态概览">
+      <div class="metric-chip">
+        <span class="num" id="metric-online">—</span>
+        <span class="lbl">在线实例</span>
+      </div>
+      <div class="metric-chip">
+        <span class="num" id="metric-paused">—</span>
+        <span class="lbl">暂停主体</span>
+      </div>
+      <div class="metric-chip">
+        <span class="num" id="metric-accepted">—</span>
+        <span class="lbl">已接纳消息</span>
+      </div>
+      <div class="metric-chip">
+        <span class="num" id="metric-delivered">—</span>
+        <span class="lbl">已投递至桥</span>
+      </div>
+    </div>
+
+    <div class="top-actions">
+      <button type="button" class="hud-btn" id="btn-manual-console" title="用界面自己的 mod 手动操作通讯">↗ 通讯工作台</button>
+      <div class="hud-search-box" id="hud-search-box">
+        <input type="text" id="hud-search-input" class="hud-search-input" placeholder="🔍 快速定位 (桥/程序)…" autocomplete="off" spellcheck="false" aria-label="搜索并定位桥或程序" />
+        <div id="hud-search-dropdown" class="hud-search-dropdown hidden"></div>
+      </div>
+      <div class="status-indicator">
+        <i class="status-dot" id="status-dot"></i>
+        <span id="status-text">读取中…</span>
+      </div>
+      <button type="button" class="hud-btn" id="btn-flow-anim" title="切换光轨真实通讯粒子动画">
+        ⚡ 动效
+      </button>
+      <button type="button" class="hud-btn" id="btn-retention-toggle" title="查看留存与容量边界">
+        📦 留存容量
+      </button>
+      <button type="button" class="hud-btn" id="btn-stream-toggle" title="展开/收起底部信息流水控制台">
+        📊 信息流水
+      </button>
+      <button type="button" class="hud-btn" id="btn-refresh" title="立即同步枢纽最新快照">
+        刷新
+      </button>
+    </div>
+  </header>
+
+  <!-- Toast Notification -->
+  <div class="toast neutral" id="toast" role="status" aria-live="polite">
+    管理桥的接入与通讯；外部业务由程序自行负责。
+  </div>
+
+  <!-- Canvas Navigation Floating Controls (Bottom-Right) -->
+  <aside class="canvas-controls" aria-label="画布缩放平移控制">
+    <button type="button" class="ctrl-btn" id="btn-fit" title="适屏居中 (Fit All)">⛶</button>
+    <button type="button" class="ctrl-btn" id="btn-center" title="聚焦世界枢纽 (Focus Hub)">◎</button>
+    <button type="button" class="ctrl-btn" id="btn-zoom-in" title="放大 (+)">+</button>
+    <div class="zoom-text" id="zoom-indicator">100%</div>
+    <button type="button" class="ctrl-btn" id="btn-zoom-out" title="缩小 (-)">−</button>
+  </aside>
+
+  <!-- Right Inspector Drawer (Bridge Inspector) -->
+  <aside class="inspector-drawer" id="inspector-drawer" aria-label="桥属性与接入控制抽屉" aria-hidden="true" inert>
+    <div class="drawer-head">
+      <div>
+        <h2 id="ins-title" tabindex="-1">桥详情</h2>
+        <p id="ins-key">—</p>
+      </div>
+      <button type="button" class="close-btn" id="ins-close" aria-label="关闭桥详情抽屉">✕</button>
+    </div>
+    <div class="drawer-body">
+      <!-- Bridge Specific Container -->
+      <div id="ins-bridge-content" class="drawer-content-group">
+        <!-- Admission Controls -->
+        <div class="section-block">
+          <h3>接入控制</h3>
+          <div class="btn-group">
+            <button type="button" class="action-btn pause" id="ins-toggle">暂停接入</button>
+            <button type="button" class="action-btn danger" id="ins-disconnect">断开本次连接</button>
+          </div>
+          <p class="action-help-text" id="ins-help-text" style="margin-top: 8px;">
+            暂停会持久保存状态并断开全部实例，阻止重连；断开只关闭当前连接 ID。
+          </p>
+        </div>
+
+        <!-- Watermarks & Subscriptions -->
+        <div class="section-block">
+          <h3>订阅与通讯水位</h3>
+          <div id="ins-subscriptions">
+            <div class="muted" style="font-size:11px;">暂无在线订阅。</div>
+          </div>
+        </div>
+
+        <!-- Mod Channels -->
+        <div class="section-block">
+          <h3>Mod 注册的通道</h3>
+          <div id="ins-channels">
+            <div class="muted" style="font-size:11px;">暂无在线通道声明。</div>
+          </div>
+        </div>
+
+        <!-- ACL Whitelists -->
+        <div class="section-block">
+          <h3>身份授权范围</h3>
+          <div style="font-size: 11px;">
+            <div style="margin-bottom: 6px;">
+              <span class="muted">可发布主题：</span>
+              <div class="acl-tag-list" id="ins-acl-pub"></div>
+            </div>
+            <div>
+              <span class="muted">可订阅主题：</span>
+              <div class="acl-tag-list" id="ins-acl-sub"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- N:M Annotation Editor -->
+        <div class="section-block">
+          <h3>程序与桥的关联注记</h3>
+          <p class="action-help-text" style="margin-bottom: 8px;">
+            此标注仅用于视图阅读，枢纽不感知外部程序形态与真实执行状态。
+          </p>
+          <form id="annotation-form">
+            <div style="margin-bottom: 8px;">
+              <label class="form-label" for="bridge-name-input">桥显示名称</label>
+              <input type="text" class="drawer-input" id="bridge-name-input" maxlength="120" autocomplete="off">
+            </div>
+            <div style="margin-bottom: 8px;">
+              <label class="form-label" for="program-names-input">关联外部程序 (每行一个 · 格式: id | 名称)</label>
+              <textarea class="drawer-textarea" id="program-names-input" placeholder="program.alpha | 事件程序 A" spellcheck="false"></textarea>
+            </div>
+            <div class="drawer-footer">
+              <span id="annotation-dirty" class="muted" style="font-size:10px;">仅保存管理注记</span>
+              <button type="submit" class="action-btn resume" id="annotation-save" style="flex:none; padding: 5px 14px;">保存注记</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Program Specific Container -->
+      <div id="ins-program-content" class="drawer-content-group hidden">
+        <div class="section-block">
+          <h3>外部程序注记</h3>
+          <p class="action-help-text">
+            外部程序通过 Mod 桥接入世界枢纽进行事件通讯。枢纽只做接线与路由，外部程序由其自身独立承载，其生命周期与内部状态不可直接观测。
+          </p>
+          <div class="btn-group" style="margin-top: 10px;">
+            <button type="button" class="action-btn" id="btn-prog-fly" style="background: rgba(0, 210, 180, 0.12); color: var(--teal); border: 1px solid var(--teal);">🎯 定位此程序</button>
+          </div>
+        </div>
+
+        <div class="section-block">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+            <h3 style="margin:0;">关联的 Mod 桥接入点</h3>
+            <span class="muted" id="ins-prog-bridge-count" style="font-size:11px;">0 座</span>
+          </div>
+          <div id="ins-prog-bridges-list"></div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Bottom Stream Console Drawer -->
+  <section class="stream-drawer" id="stream-drawer" aria-label="信息流水与遥测控制台">
+    <div class="stream-bar" id="stream-bar" title="点击展开/收起信息流水">
+      <div class="stream-bar-title">
+        <h3>📊 信息流水</h3>
+        <span class="stream-count-badge" id="stream-count">采样读取中…</span>
+      </div>
+      <div class="stream-latest-ticker" id="stream-ticker">
+        等待通讯事件…
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <div class="stream-tabs" role="tablist">
+          <button type="button" class="tab-btn" id="tab-activity" aria-pressed="true">近期动态</button>
+          <button type="button" class="tab-btn" id="tab-retained" aria-pressed="false">留存信息</button>
+        </div>
+        <button type="button" class="hud-btn" id="btn-stream-toggle-inner">▲ 展开</button>
+      </div>
+    </div>
+
+    <div class="stream-body" id="stream-body" aria-hidden="true" inert>
+      <div class="stream-filter-bar">
+        <input type="search" class="drawer-input" id="stream-search" placeholder="过滤主题 / 序号 / 桥 / 路由" style="max-width: 320px;" autocomplete="off">
+        <select class="drawer-input" id="stream-bridge-filter" style="max-width: 220px;">
+          <option value="">所有通讯桥</option>
+        </select>
+        <span class="muted" style="font-size:10px; margin-left:auto;">
+          提示：投递与 ACK 仅表示通讯转交，不代表外部业务完成
+        </span>
+      </div>
+      <div class="stream-table-container">
+        <table class="stream-table">
+          <thead>
+            <tr>
+              <th style="width: 76px;">时间</th>
+              <th style="width: 72px;">类型</th>
+              <th>主题 / 路由</th>
+              <th style="width: 80px;">序号</th>
+              <th style="width: 76px;">大小</th>
+            </tr>
+          </thead>
+          <tbody id="stream-table-body"></tbody>
+        </table>
+        <div id="stream-empty" class="muted hidden" style="padding: 24px; text-align: center; font-size: 11px;">
+          当前筛选范围内暂无通讯记录。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Global Retention & Capacity Modal -->
+  <dialog id="retention-dialog" aria-labelledby="ret-dialog-title">
+    <div class="dialog-head">
+      <div>
+        <h2 id="ret-dialog-title">📦 系统留存与容量边界</h2>
+        <p>提供者自主决定保留策略；枢纽不越权清理</p>
+      </div>
+      <button type="button" class="close-btn" id="ret-close" aria-label="关闭">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+        <div class="capacity-metric-box">
+          <span class="muted" style="font-size:10px;">受提供者策略保护的记录</span>
+          <strong id="ret-protected-count">—</strong>
+        </div>
+        <div class="capacity-metric-box">
+          <span class="muted" style="font-size:10px;">当前最后通讯序号</span>
+          <strong id="ret-last-seq">—</strong>
+        </div>
+      </div>
+
+      <div class="capacity-metric-box">
+        <span class="muted" style="font-size:10px;">日志存储容量边界</span>
+        <strong id="ret-capacity-spec" style="font-size:13px; margin: 4px 0;">—</strong>
+        <div class="muted" id="ret-usage-text" style="font-size: 11px;">—</div>
+        <div class="muted" id="ret-oldest-seq" style="font-size: 11px; margin-top: 2px;">—</div>
+        <div class="muted" id="ret-segment-room" style="font-size: 11px; margin-top: 2px;">—</div>
+      </div>
+
+      <div class="capacity-metric-box">
+        <span class="muted" style="font-size:10px;">最旧段受保护的提供者</span>
+        <div id="ret-blockers" style="font-size:11px; white-space:pre-wrap; overflow-wrap:anywhere;">—</div>
+      </div>
+
+      <div class="capacity-metric-box">
+        <span class="muted" style="font-size:10px;">附件预约与可回收空间</span>
+        <div id="ret-blob-usage" style="font-size:11px; overflow-wrap:anywhere;">—</div>
+        <div class="muted" id="ret-blob-room" style="font-size:11px; margin-top:2px;">—</div>
+        <div class="muted" id="ret-gap-failures" style="font-size:11px; margin-top:2px;">—</div>
+      </div>
+
+      <p id="ret-warning-text" style="font-size:11px; color:var(--amber); line-height:1.45;"></p>
+
+      <p class="muted" style="font-size:10px; line-height: 1.5; border-top: 1px solid var(--border); padding-top: 10px;">
+        规范恪守：发送、抽取、ACK 与 caught_up 绝不释放记录。最旧段受保护未释放时，容量耗尽将以 LOG_CAPACITY 拒绝新发布，绝不为了容量覆盖未释放消息。本界面不提供强制清空操作。
+      </p>
+    </div>
+  </dialog>
+
+  <!-- Raw Message Inspection Modal -->
+  <dialog id="message-dialog" aria-labelledby="msg-dialog-title">
+    <div class="dialog-head">
+      <div>
+        <h2 id="msg-dialog-title">原始通讯帧</h2>
+        <p id="msg-dialog-subtitle">按需读取留存的原始文本 · 零失真展示</p>
+      </div>
+      <button type="button" class="close-btn" id="msg-close" aria-label="关闭原始信息窗口">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div class="muted" id="msg-dialog-note" style="font-size: 11px;">
+        以下为接口返回的原始字符序列，忠实呈现大整数与转义；不执行任何载荷代码。
+      </div>
+      <pre class="dialog-pre" id="msg-content" tabindex="0">正在读取…</pre>
+    </div>
+  </dialog>
+
+  <!-- Pure ES Module Logic -->
+  <script type="module" src="/manage/manual-console.mjs"></script>
+  <script type="module">
+    const $ = id => document.getElementById(id);
+    const NS = 'http://www.w3.org/2000/svg';
+    const MAX_EVENTS = 600, MAX_ROWS = 150, MAX_PULSES = 8;
+    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+
+    // App Global State
+    const state = {
+      data: null,
+      selected: null,
+      selectedProgram: null,
+      fresh: false,
+      busy: new Set(),
+      events: [],
+      eventIds: new Set(),
+      epoch: null,
+      maxEventId: 0,
+      view: 'activity', // 'activity' | 'retained'
+      dirty: false,
+      drafts: new Map(),
+      streamSignature: '',
+      bridgeSelectSignature: '',
+      lastTopologySignature: '',
+      flowAnimation: !reducedMotion.matches,
+      first: true,
+      viewport: { x: window.innerWidth / 2, y: window.innerHeight / 2, scale: 1.0 },
+      isDragging: false,
+      dragStart: { x: 0, y: 0 },
+      nodePositions: new Map(), // key -> { x, y }
+      programPositions: new Map(), // progId -> { x, y }
+      hoveredBridge: null,
+      hoveredProgram: null,
+      messageRequest: 0
+    };
+
+    let polling = false, refreshAgain = false, pollTimer = null, toastTimer = null, lastGoodAt = null;
+    let pollCompletion = Promise.resolve(), inspectorOpener = null, inspectorProgramKey = null;
+    const programBridgeCards = new Map(), streamRows = new Map();
+    const pulseTimers = new Set();
+    const fmt = new Intl.NumberFormat('zh-CN');
+
+    // Utility Helpers
+    const formatCount = v => Number.isFinite(v) ? fmt.format(v) : '—';
+    const asArray = v => Array.isArray(v) ? v : [];
+    const str = v => v == null ? '' : String(v);
+
+    function bytes(value) {
+      if (!Number.isFinite(value)) return '—';
+      if (value < 1024) return value + ' B';
+      if (value < 1024 ** 2) return (value / 1024).toFixed(1) + ' KB';
+      return (value / 1024 ** 2).toFixed(1) + ' MB';
+    }
+
+    function time(at) {
+      const d = new Date(at);
+      return Number.isNaN(d.getTime()) ? '—' : d.toLocaleTimeString('zh-CN', { hour12: false });
+    }
+
+    function setText(id, value) {
+      const el = $(id);
+      if (el) {
+        const text = str(value);
+        if (el.textContent !== text) el.textContent = text;
+      }
+    }
+
+    function el(tag, className = '', content = '') {
+      const n = document.createElement(tag);
+      if (className) n.className = className;
+      if (content !== '') n.textContent = str(content);
+      return n;
+    }
+
+    function svgEl(tag, attrs = {}, content) {
+      const n = document.createElementNS(NS, tag);
+      for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, str(v));
+      if (content !== undefined) n.textContent = str(content);
+      return n;
+    }
+
+    function shorten(value, max = 22) {
+      let width = 0, result = '';
+      for (const char of str(value)) {
+        const step = char.codePointAt(0) > 255 ? 2 : 1;
+        if (width + step > max) return result + '…';
+        result += char; width += step;
+      }
+      return result;
+    }
+
+    function bridges() { return asArray(state.data?.bridges); }
+    function selectedBridge() { return bridges().find(b => b.key === state.selected); }
+    function selectedProgram() { return state.selectedProgram ? state.programPositions.get(state.selectedProgram) || null : null; }
+    function label(b) { return str(b.label || b.key); }
+    function status(b) { return b.paused ? '已暂停接入' : asArray(b.instances).length ? '已接入' : '未接入'; }
+    function stateClass(b) { return b.paused ? 'paused' : asArray(b.instances).length ? 'online' : 'offline'; }
+
+    function endpointBridge(id) {
+      if (id == null) return null;
+      const target = str(id);
+      const exact = bridges().find(b => asArray(b.instances).some(i => str(i.bridgeId) === target));
+      if (exact) return exact;
+      return bridges().find(b => target === str(b.key) || (b.kind === 'credential' && target.startsWith(str(b.key) + ':') && /^\d+$/.test(target.slice(str(b.key).length + 1)))) || null;
+    }
+
+    function endpointName(id) {
+      const b = endpointBridge(id);
+      return b ? label(b) : str(id || '未知桥');
+    }
+
+    function toast(text, kind = 'neutral', autoClear = true) {
+      clearTimeout(toastTimer);
+      const t = $('toast');
+      t.textContent = text;
+      t.className = 'toast ' + kind;
+      if (autoClear) {
+        toastTimer = setTimeout(() => {
+          t.textContent = '管理桥的接入与通讯；外部业务由程序自行负责。';
+          t.className = 'toast neutral';
+        }, 9000);
+      }
+    }
+
+    // HTTP Request Handler
+    async function request(path, options = {}, raw = false) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 9000);
+      try {
+        const response = await fetch(path, {
+          cache: 'no-store', credentials: 'same-origin', redirect: 'error',
+          ...options, signal: controller.signal
+        });
+        const original = await response.text();
+        let result;
+        try { result = JSON.parse(original); } catch {
+          if (!raw) throw new Error('管理接口未返回有效 JSON');
+        }
+        if (!response.ok) {
+          throw new Error(str(result?.message || result?.error?.message || result?.error?.code || result?.error || result?.code || 'HTTP ' + response.status));
+        }
+        return raw ? original : result;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    // Refresh & Polling Loop
+    async function refresh({ manual = false, afterMutation = false } = {}) {
+      if (state.isDragging && !manual && !afterMutation) {
+        refreshAgain = true;
+        return;
+      }
+      if (polling) {
+        if (afterMutation) { await pollCompletion; return refresh({ afterMutation: true }); }
+        refreshAgain = true; return;
+      }
+      polling = true;
+      let finishPoll;
+      pollCompletion = new Promise(resolve => { finishPoll = resolve; });
+      clearTimeout(pollTimer);
+      $('btn-refresh').disabled = true;
+
+      try {
+        const data = await request('/manage/api/state');
+        if (!data.hub || !Array.isArray(data.bridges)) throw new Error('管理状态格式不完整');
+
+        state.data = data;
+        state.fresh = true;
+        lastGoodAt = new Date();
+
+        const epoch = str(data.hub.startedAt) + '|' + str(data.hub.hubId);
+        const restarted = state.epoch !== null && epoch !== state.epoch;
+        const establishEventBaseline = state.epoch === null || restarted;
+        if (restarted) {
+          state.events = [];
+          state.eventIds.clear();
+          state.maxEventId = 0;
+          state.streamSignature = '';
+          toast('枢纽运行实例已更换，近期动态重新采样。', 'neutral');
+        }
+        state.epoch = epoch;
+
+        const freshEvents = collectEvents(asArray(data.events || data.hub.recent));
+        if (state.first && !state.selected && !state.selectedProgram && data.bridges.length) state.selected = data.bridges[0].key;
+        if (state.selected && !selectedBridge()) { state.selected = null; state.dirty = false; }
+        if (state.selectedProgram && !selectedProgram()) { state.selectedProgram = null; }
+
+        render();
+        if (state.first) {
+          fitAll();
+          state.first = false;
+        }
+        if (!establishEventBaseline && state.flowAnimation) animateEvents(freshEvents);
+
+        setText('status-text', '已同步 · ' + time(lastGoodAt));
+        $('status-dot').className = 'status-dot online';
+        if (manual) toast('已读取最新枢纽状态。', '', true);
+      } catch (error) {
+        state.fresh = false;
+        setText('status-text', lastGoodAt ? '状态过期 · ' + time(lastGoodAt) : '无法读取状态');
+        $('status-dot').className = 'status-dot offline';
+        toast('管理连接不可用：' + error.message + '。通断操作暂不可用。', 'error', false);
+        renderInspector();
+      } finally {
+        polling = false;
+        finishPoll();
+        $('btn-refresh').disabled = false;
+        clearTimeout(pollTimer);
+        const delay = refreshAgain ? 0 : 2000;
+        refreshAgain = false;
+        pollTimer = setTimeout(() => {
+          if (!document.hidden) refresh();
+          else pollTimer = setTimeout(() => refresh(), 10000);
+        }, delay);
+      }
+    }
+
+    function collectEvents(events) {
+      const fresh = [];
+      for (const e of events) {
+        if (!Number.isSafeInteger(e.eventId)) continue;
+        const id = e.eventId;
+        if (state.eventIds.has(id)) continue;
+        if (id > state.maxEventId) fresh.push(e);
+        state.maxEventId = Math.max(state.maxEventId, id);
+        state.eventIds.add(id);
+        state.events.push(e);
+      }
+      state.events.sort((a, b) => a.eventId - b.eventId);
+      while (state.events.length > MAX_EVENTS) {
+        const old = state.events.shift();
+        state.eventIds.delete(old.eventId);
+      }
+      return fresh;
+    }
+
+    function safeId(v) { return Array.from(str(v), char => char.codePointAt(0).toString(16)).join('_') || 'empty'; }
+    function programKey(id, unmarked = false) { return JSON.stringify([unmarked ? 'unmarked' : 'program', str(id)]); }
+
+    // Layout Engine: Dynamic Multi-Column Wing Matrix with N:M Program Clusters
+    function computeGraphLayout() {
+      const allBridges = bridges();
+      const nodePos = new Map();
+      const progPos = new Map();
+
+      // 1. Separate bridges into Left Wing and Right Wing
+      const leftBridges = [];
+      const rightBridges = [];
+      allBridges.forEach((b, idx) => {
+        if (idx % 2 === 0) leftBridges.push(b);
+        else rightBridges.push(b);
+      });
+
+      // Dynamic Density & Multi-Column Allocation
+      // Under massive scale (dozens to hundreds of nodes), matrix columns expand outward
+      const totalBridges = allBridges.length;
+      const maxRows = Math.min(18, Math.max(8, Math.ceil(Math.sqrt(Math.max(1, totalBridges) * 1.2))));
+      const colSpacingX = 260; // Card width 230 + 30px gap
+      const baseBridgeX = 320;
+      const spacingY = totalBridges > 30 ? 118 : 125;
+
+      // Layout Left Wing Bridges
+      leftBridges.forEach((b, idx) => {
+        const colIdx = Math.floor(idx / maxRows);
+        const rowIdx = idx % maxRows;
+        const rowsInThisCol = Math.min(maxRows, leftBridges.length - colIdx * maxRows);
+        const y = -((rowsInThisCol - 1) * spacingY) / 2 + rowIdx * spacingY;
+        const x = -(baseBridgeX + colIdx * colSpacingX);
+        nodePos.set(b.key, { x, y, side: 'left', colIdx, rowIdx });
+      });
+
+      // Layout Right Wing Bridges
+      rightBridges.forEach((b, idx) => {
+        const colIdx = Math.floor(idx / maxRows);
+        const rowIdx = idx % maxRows;
+        const rowsInThisCol = Math.min(maxRows, rightBridges.length - colIdx * maxRows);
+        const y = -((rowsInThisCol - 1) * spacingY) / 2 + rowIdx * spacingY;
+        const x = baseBridgeX + colIdx * colSpacingX;
+        nodePos.set(b.key, { x, y, side: 'right', colIdx, rowIdx });
+      });
+
+      // 2. Aggregate Programs (Deduplicated Entities supporting 1:N and N:M)
+      const programMap = new Map(); // progId -> { id, name, unmarked, bridgeKeys: Set }
+      for (const b of allBridges) {
+        const progs = asArray(b.programs);
+        if (progs.length === 0) {
+          const unId = programKey(b.key, true);
+          if (!programMap.has(unId)) {
+            programMap.set(unId, { key: unId, id: 'unmarked:' + b.key, name: '未标注程序', unmarked: true, bridgeKeys: new Set([b.key]) });
+          } else {
+            programMap.get(unId).bridgeKeys.add(b.key);
+          }
+        } else {
+          for (const p of progs) {
+            const pid = programKey(p.id);
+            if (!programMap.has(pid)) {
+              programMap.set(pid, { key: pid, id: p.id, name: p.name || p.id, unmarked: false, bridgeKeys: new Set([b.key]) });
+            } else {
+              programMap.get(pid).bridgeKeys.add(b.key);
+            }
+          }
+        }
+      }
+
+      // 3. Position Programs on Outer Perimeter with Collision Resolution
+      let maxLeftBridgeX = baseBridgeX;
+      let maxRightBridgeX = baseBridgeX;
+      for (const pos of nodePos.values()) {
+        if (pos.side === 'left') maxLeftBridgeX = Math.max(maxLeftBridgeX, Math.abs(pos.x));
+        else maxRightBridgeX = Math.max(maxRightBridgeX, Math.abs(pos.x));
+      }
+
+      const leftProgs = [];
+      const rightProgs = [];
+
+      for (const prog of programMap.values()) {
+        let sumY = 0;
+        let count = 0;
+        let leftCount = 0;
+        let rightCount = 0;
+        for (const bKey of prog.bridgeKeys) {
+          const pos = nodePos.get(bKey);
+          if (pos) {
+            sumY += pos.y;
+            count++;
+            if (pos.side === 'left') leftCount++;
+            else rightCount++;
+          }
+        }
+        const avgY = count > 0 ? sumY / count : 0;
+        const side = leftCount >= rightCount ? 'left' : 'right';
+        (side === 'left' ? leftProgs : rightProgs).push({ prog, avgY, side });
+      }
+
+      function spaceOutPrograms(list, baseX, side) {
+        if (!list.length) return;
+        list.sort((a, b) => a.avgY - b.avgY);
+
+        // Dynamically align program matrix height with bridge cluster height
+        // Prevents excessive horizontal expansion and keeps wing layout compact and neat
+        const maxBridgeH = (maxRows - 1) * spacingY;
+        const spacingYProg = 62; // 48px card height + 14px gap
+        const idealProgRows = Math.max(12, Math.floor(maxBridgeH / spacingYProg) + 1);
+        const progMaxRows = Math.min(36, idealProgRows);
+        const numCols = Math.max(1, Math.ceil(list.length / progMaxRows));
+        const rowsPerCol = Math.ceil(list.length / numCols);
+        const progColSpacing = 195;
+
+        const startY = -((rowsPerCol - 1) * spacingYProg) / 2;
+
+        list.forEach((item, idx) => {
+          const rowIdx = Math.floor(idx / numCols);
+          const colIdx = idx % numCols;
+          const y = startY + rowIdx * spacingYProg;
+          const colX = baseX + colIdx * progColSpacing;
+
+          progPos.set(item.prog.key, {
+            id: item.prog.id,
+            key: item.prog.key,
+            x: side === 'left' ? -colX : colX,
+            y,
+            name: item.prog.name,
+            unmarked: item.prog.unmarked,
+            bridgeKeys: item.prog.bridgeKeys,
+            side,
+            colIdx,
+            rowIdx
+          });
+        });
+      }
+
+      spaceOutPrograms(leftProgs, maxLeftBridgeX + 220, 'left');
+      spaceOutPrograms(rightProgs, maxRightBridgeX + 220, 'right');
+
+      // Dynamically scale coordinate guide orbits to encompass the active topology
+      const guidesG = $('guides-g');
+      if (guidesG) {
+        guidesG.replaceChildren();
+        const maxOutX = Math.max(maxLeftBridgeX, maxRightBridgeX);
+        const bridgeOrbitR = Math.max(380, maxOutX - 60);
+        const progOrbitR = Math.max(700, maxOutX + 260);
+        guidesG.append(
+          svgEl('circle', { cx: 0, cy: 0, r: bridgeOrbitR, class: 'orbit-circle' }),
+          svgEl('circle', { cx: 0, cy: 0, r: progOrbitR, class: 'orbit-circle' }),
+          svgEl('text', { x: 0, y: -(bridgeOrbitR + 10), class: 'orbit-label' }, 'MOD BRIDGES · 通讯主体集群环'),
+          svgEl('text', { x: 0, y: -(progOrbitR + 10), class: 'orbit-label' }, 'PROGRAM ANNOTATIONS · 外部程序注记矩阵')
+        );
+      }
+
+      state.nodePositions = nodePos;
+      state.programPositions = progPos;
+    }
+
+    // Render Pipeline
+    function render() {
+      const d = state.data;
+      if (!d) return;
+      const hub = d.hub;
+      const allBridges = bridges();
+      const onlineInstances = allBridges.reduce((n, b) => n + asArray(b.instances).length, 0);
+
+      // Top HUD Texts
+      setText('hud-hub-name', hub.hubId);
+      setText('hub-core-id', hub.hubId);
+      setText('hub-core-instances', onlineInstances + ' 在线实例');
+      setText('metric-online', formatCount(onlineInstances));
+      setText('metric-paused', formatCount(allBridges.filter(b => b.paused).length));
+      setText('metric-accepted', formatCount(hub.counters?.accepted));
+      setText('metric-delivered', formatCount(hub.counters?.delivered));
+
+      // Structural Dirty Check: only recompute layout and reconstruct DOM when bridge topology actually changes
+      // Eliminates 2-second periodic canvas DOM re-rendering, completely removing flicker and lag!
+      const topoSig = JSON.stringify(allBridges.map(b => [b.key, asArray(b.programs)]));
+      if (topoSig !== state.lastTopologySignature) {
+        state.lastTopologySignature = topoSig;
+        computeGraphLayout();
+        renderGraph();
+      } else {
+        applyHighlightTopology();
+      }
+      if (state.selectedProgram && !selectedProgram()) state.selectedProgram = null;
+      updateBridgeNodeContents();
+      $('canvas-svg').classList.toggle('topology-sparse', allBridges.length + state.programPositions.size <= 24);
+      renderInspector();
+      renderBridgeFilter();
+      renderStream();
+      renderRetentionData();
+    }
+
+    // Centralized Topology Highlight Cascade Engine
+    // Keeps bridges, programs, and bezier links synchronized under selection and hover
+    function applyHighlightTopology() {
+      const selKey = state.selected;
+      const selProg = state.selectedProgram;
+      const hovBridge = state.hoveredBridge;
+      const hovProg = state.hoveredProgram;
+
+      const activeProg = selProg || hovProg;
+
+      // 1. Mod Bridges & Communication Rails
+      for (const b of bridges()) {
+        const isSel = b.key === selKey;
+        const isHov = b.key === hovBridge;
+        const isProgLinked = Boolean(activeProg && state.programPositions.get(activeProg)?.bridgeKeys.has(b.key));
+
+        const bNode = $(`node-${b.key}`);
+        if (bNode) {
+          bNode.classList.toggle('selected', isSel);
+          bNode.classList.toggle('linked-highlight', !isSel && isProgLinked);
+        }
+
+        const rail = $(`rail-${b.key}`);
+        if (rail) {
+          rail.classList.toggle('highlight', isSel || isHov || isProgLinked);
+        }
+      }
+
+      // 2. Program Nodes (Deduplicated entities supporting 1:N and N:M)
+      for (const [progId, p] of state.programPositions) {
+        const sId = safeId(progId);
+        const pNode = $(`pnode-${sId}`);
+        if (!pNode) continue;
+
+        const isSel = progId === selProg;
+        const isHov = progId === hovProg;
+        const isLinkedToSel = Boolean(selKey && p.bridgeKeys.has(selKey));
+        const isLinkedToHov = Boolean(hovBridge && p.bridgeKeys.has(hovBridge));
+
+        pNode.classList.toggle('selected', isSel);
+        pNode.classList.toggle('highlight', isHov && !isSel);
+        pNode.classList.toggle('linked-highlight', !isSel && !isHov && (isLinkedToSel || isLinkedToHov));
+      }
+
+      // 3. Bezier Annotation Links (Highlight if connected to selected/hovered bridge or program)
+      for (const [progId, p] of state.programPositions) {
+        if (!p.links) continue;
+        for (const item of p.links) {
+          let active = false;
+          if (selKey && item.bKey === selKey) active = true;
+          if (hovBridge && item.bKey === hovBridge) active = true;
+          if (selProg && progId === selProg) active = true;
+          if (hovProg && progId === hovProg) active = true;
+          item.highlighted = active;
+          item.link.classList.toggle('highlight', active);
+        }
+      }
+
+      updateViewportCulling(true);
+    }
+
+    function highlightProgram(p) {
+      state.hoveredProgram = p.key;
+      applyHighlightTopology();
+    }
+
+    function unhighlightProgram(p) {
+      if (state.hoveredProgram === p.key) state.hoveredProgram = null;
+      applyHighlightTopology();
+    }
+
+    function highlightBridge(b) {
+      state.hoveredBridge = b.key;
+      applyHighlightTopology();
+    }
+
+    function unhighlightBridge(b) {
+      if (state.hoveredBridge === b.key) state.hoveredBridge = null;
+      applyHighlightTopology();
+    }
+
+    // Render Canvas Topology Nodes & Rails
+    function renderGraph() {
+      const allBridges = bridges();
+      const railsG = $('rails-g');
+      const annotG = $('annotation-links-g');
+      const bridgeG = $('bridge-nodes-g');
+      const progG = $('program-nodes-g');
+      const focusedNodeId = bridgeG.contains(document.activeElement) || progG.contains(document.activeElement) ? document.activeElement.id : null;
+
+      const railsFrag = document.createDocumentFragment();
+      const annotFrag = document.createDocumentFragment();
+      const bridgeFrag = document.createDocumentFragment();
+      const progFrag = document.createDocumentFragment();
+
+      // 1. Draw Program Nodes & Multi-Branch Annotation Links (1:N and N:M)
+      for (const [progId, p] of state.programPositions) {
+        const sProgId = safeId(progId);
+        p.links = [];
+
+        // Draw independent bezier links to EVERY connected bridge
+        for (const bKey of p.bridgeKeys) {
+          const bPos = state.nodePositions.get(bKey);
+          if (!bPos) continue;
+          const sBridgeKey = safeId(bKey);
+
+          let startX, startY = p.y, endX, endY = bPos.y;
+          let d;
+
+          if (p.side === bPos.side) {
+            // Same wing: smooth horizontal bezier curve
+            startX = p.side === 'left' ? p.x + 85 : p.x - 85;
+            endX = bPos.side === 'left' ? bPos.x - 115 : bPos.x + 115;
+            const midX = (startX + endX) / 2;
+            d = `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`;
+          } else {
+            // Cross-wing connection (1 program connects to bridges on both wings)!
+            startX = p.side === 'left' ? p.x + 85 : p.x - 85;
+            endX = bPos.side === 'left' ? bPos.x + 115 : bPos.x - 115;
+            const arcCtrlY = (startY + endY) / 2 + (startY < 0 ? -180 : 180);
+            d = `M ${startX} ${startY} Q 0 ${arcCtrlY}, ${endX} ${endY}`;
+          }
+
+          const link = svgEl('path', {
+            d,
+            class: `annotation-link link-p-${sProgId} link-b-${sBridgeKey}`,
+            id: `link-${sProgId}-${sBridgeKey}`
+          });
+          annotFrag.append(link);
+          p.links.push({ link, bKey });
+        }
+
+        // Program Node Group
+        const isProgSel = state.selectedProgram === progId;
+        const g = svgEl('g', {
+          class: `program-node${isProgSel ? ' selected' : ''}`,
+          id: `pnode-${sProgId}`,
+          transform: `translate(${p.x}, ${p.y})`,
+          role: 'button',
+          tabindex: 0,
+          'aria-label': `${p.name}，外部程序标注，关联 ${p.bridgeKeys.size} 座桥，状态不可观测，点击查看详情与关联`
+        });
+        g.append(
+          svgEl('rect', { x: -85, y: -24, width: 170, height: 48, class: 'program-box' }),
+          svgEl('text', { x: -70, y: -4, class: 'program-name' }, shorten(p.name, 18)),
+          svgEl('text', { x: -70, y: 12, class: 'program-sub' },
+            p.unmarked ? '待标注程序' : (p.bridgeKeys.size > 1 ? `关联 ${p.bridgeKeys.size} 座桥 · 业务自理` : '不可观测 · 用户注记')
+          )
+        );
+
+        // Hover & Click Interaction for Program
+        g.addEventListener('mouseenter', () => highlightProgram(p));
+        g.addEventListener('mouseleave', () => unhighlightProgram(p));
+        g.addEventListener('click', e => {
+          e.stopPropagation();
+          selectProgram(p.key, g);
+        });
+        g.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            selectProgram(p.key, g);
+          }
+        });
+        progFrag.append(g);
+        p.el = g;
+      }
+
+      // 2. Draw Bridges & Communication Rails to Center Hub (0, 0)
+      for (const b of allBridges) {
+        const pos = state.nodePositions.get(b.key);
+        if (!pos) continue;
+
+        // Curved Rail to Center Hub (0, 0)
+        const startX = pos.side === 'left' ? pos.x + 115 : pos.x - 115;
+        const startY = pos.y;
+        const endX = pos.side === 'left' ? -78 : 78;
+        const endY = 0;
+        const ctrlX = (startX + endX) / 2;
+        const d = `M ${startX} ${startY} C ${ctrlX} ${startY}, ${ctrlX} ${endY}, ${endX} ${endY}`;
+
+        const rail = svgEl('path', {
+          d,
+          class: `hub-rail ${stateClass(b)}${state.selected === b.key ? ' highlight' : ''}`,
+          id: `rail-${b.key}`
+        });
+        railsFrag.append(rail);
+        pos.rail = rail;
+
+        // Bridge Node Group
+        const isSel = state.selected === b.key;
+        const group = svgEl('g', {
+          class: `bridge-node ${stateClass(b)}${isSel ? ' selected' : ''}`,
+          id: `node-${b.key}`,
+          transform: `translate(${pos.x}, ${pos.y})`,
+          role: 'button',
+          tabindex: 0,
+          'aria-label': `${label(b)}，${status(b)}，点击查看详情与控制`
+        });
+
+        // Background Box (230 x 104)
+        group.append(svgEl('rect', { x: -115, y: -52, width: 230, height: 104, class: 'bridge-card-bg' }));
+
+        // Header: Status dot + Label + Key
+        group.append(
+          svgEl('circle', { cx: -98, cy: -34, class: `bridge-dot ${stateClass(b)}` }),
+          svgEl('text', { x: -88, y: -30, class: 'bridge-name' }, shorten(label(b), 24)),
+          svgEl('text', { x: -98, y: -12, class: 'bridge-key' }, shorten(b.key, 28))
+        );
+
+        // Registered Channel Pill
+        const insts = asArray(b.instances);
+        const channels = insts.flatMap(i => asArray(i.channels));
+        const chanText = channels.length ? channels[0].topic || channels[0].name || '已注册通道' : '未注册通道';
+        group.append(
+          svgEl('rect', { x: -98, y: 0, width: 196, height: 20, rx: 5, fill: 'rgba(255, 255, 255, 0.05)', class: 'bridge-pill-bg' }),
+          svgEl('text', { x: -90, y: 14, class: 'bridge-key bridge-channel-text' }, shorten(chanText, 26))
+        );
+
+        // Footer: Status label & Instance count
+        group.append(
+          svgEl('text', { x: -98, y: 38, class: 'bridge-key bridge-status-text' }, `${status(b)} · ${insts.length} 实例`)
+        );
+
+        // Hover & Click Events
+        group.addEventListener('mouseenter', () => highlightBridge(b));
+        group.addEventListener('mouseleave', () => unhighlightBridge(b));
+        group.addEventListener('click', e => {
+          e.stopPropagation();
+          selectBridge(b.key, group);
+        });
+        group.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectBridge(b.key, group); }
+        });
+
+        bridgeFrag.append(group);
+        pos.el = group;
+      }
+
+      // Single-frame atomic DOM swap to eliminate any intermediate flicker
+      railsG.replaceChildren(railsFrag);
+      annotG.replaceChildren(annotFrag);
+      bridgeG.replaceChildren(bridgeFrag);
+      progG.replaceChildren(progFrag);
+      $('pulses-g').replaceChildren();
+
+      applyHighlightTopology();
+      updateViewportCulling();
+      if (focusedNodeId) {
+        const replacement = $(focusedNodeId);
+        (replacement && replacement.style.visibility !== 'hidden' ? replacement : $('hud-search-input'))?.focus({ preventScroll: true });
+      }
+    }
+
+    // Connection and channel changes update existing cards without relaying out relations.
+    function updateBridgeNodeContents() {
+      for (const b of bridges()) {
+        const pos = state.nodePositions.get(b.key), group = pos?.el;
+        if (!group) continue;
+        const currentState = stateClass(b), insts = asArray(b.instances), channels = insts.flatMap(i => asArray(i.channels));
+        for (const node of [group, pos.rail, group.querySelector('.bridge-dot')]) {
+          if (!node) continue;
+          node.classList.remove('online', 'offline', 'paused'); node.classList.add(currentState);
+        }
+        group.setAttribute('aria-label', `${label(b)}，${status(b)}，点击查看详情与控制`);
+        const texts = [
+          ['.bridge-name', shorten(label(b), 24)],
+          ['.bridge-channel-text', shorten(channels[0]?.topic || channels[0]?.name || (channels.length ? '已注册通道' : '未注册通道'), 26)],
+          ['.bridge-status-text', `${status(b)} · ${insts.length} 实例`],
+        ];
+        for (const [selector, text] of texts) { const node = group.querySelector(selector); if (node && node.textContent !== text) node.textContent = text; }
+      }
+    }
+
+    // Telemetry Pulses Animation Along Rails
+    function animateEvents(events) {
+      if (state.isDragging || !state.flowAnimation || reducedMotion.matches || document.hidden) return;
+      const pulses = [];
+
+      for (const e of events) {
+        if (e.kind !== 'message' && e.kind !== 'delivery') continue;
+        if (e.kind === 'delivery' && e.sent === false) {
+          // Sent failed: Flash target rail in red, no success particle!
+          const targetBridge = endpointBridge(e.to);
+          if (targetBridge) {
+            const rail = $(`rail-${targetBridge.key}`);
+            if (rail) {
+              rail.style.stroke = 'var(--red)';
+              setTimeout(() => { rail.style.stroke = ''; }, 600);
+            }
+          }
+          continue;
+        }
+
+        const id = e.kind === 'message' ? e.from : e.to;
+        const b = endpointBridge(id);
+        if (!b) continue;
+
+        const rail = $(`rail-${b.key}`);
+        if (!rail || !asArray(b.instances).length) continue;
+
+        pulses.push({ rail, delivery: e.kind === 'delivery' });
+      }
+
+      const pulsesG = $('pulses-g');
+      for (const { rail, delivery } of pulses.slice(-MAX_PULSES)) {
+        const circle = svgEl('circle', { class: `pulse-particle ${delivery ? 'delivery' : ''}` });
+        const len = rail.getTotalLength();
+        const start = performance.now();
+        const duration = 1200;
+
+        pulsesG.append(circle);
+        function step(now) {
+          if (!circle.isConnected || !state.flowAnimation || reducedMotion.matches || document.hidden) {
+            circle.remove(); return;
+          }
+          const progress = Math.min(1, (now - start) / duration);
+          // Message: Bridge -> Hub (progress 0 -> 1); Delivery: Hub -> Bridge (progress 1 -> 0)
+          const p = rail.getPointAtLength(len * (delivery ? 1 - progress : progress));
+          circle.setAttribute('cx', p.x);
+          circle.setAttribute('cy', p.y);
+          if (progress < 1) requestAnimationFrame(step);
+          else circle.remove();
+        }
+        requestAnimationFrame(step);
+      }
+    }
+
+    // Select Bridge and Open Inspector
+    function captureDraft() {
+      if (!state.dirty || !state.selected || $('annotation-form').dataset.key !== state.selected) return;
+      state.drafts.set(state.selected, { bridgeName: $('bridge-name-input').value, programs: $('program-names-input').value });
+    }
+
+    function openInspector(opener = document.activeElement, focusHeading = false) {
+      const drawer = $('inspector-drawer'), wasOpen = drawer.classList.contains('open');
+      if (!wasOpen) inspectorOpener = opener && !drawer.contains(opener) ? { node: opener, id: opener.id } : null;
+      drawer.inert = false; drawer.setAttribute('aria-hidden', 'false'); drawer.classList.add('open');
+      if (!wasOpen || focusHeading) $('ins-title').focus({ preventScroll: true });
+    }
+
+    function closeInspector({ returnFocus = true } = {}) {
+      captureDraft();
+      const drawer = $('inspector-drawer'), focusedInside = drawer.contains(document.activeElement);
+      drawer.inert = true; drawer.setAttribute('aria-hidden', 'true'); drawer.classList.remove('open');
+      state.selected = null; state.selectedProgram = null; state.dirty = false;
+      if (returnFocus && focusedInside) {
+        const original = inspectorOpener?.node?.isConnected ? inspectorOpener.node : inspectorOpener?.id ? $(inspectorOpener.id) : null;
+        (original || $('hud-search-input'))?.focus({ preventScroll: true });
+      }
+    }
+
+    function selectBridge(key, opener = document.activeElement) {
+      const sameBridge = state.selected === key && !state.selectedProgram;
+      const wasInside = $('inspector-drawer').contains(document.activeElement);
+      if (!sameBridge) captureDraft();
+      state.selected = key;
+      state.selectedProgram = null;
+      if (!sameBridge) state.dirty = false;
+      renderInspector(!sameBridge);
+      applyHighlightTopology();
+
+      openInspector(opener, !sameBridge && wasInside);
+      $('stream-bridge-filter').value = key;
+      state.streamSignature = '';
+      renderStream();
+    }
+
+    function selectProgram(progId, opener = document.activeElement) {
+      const sameProgram = state.selectedProgram === progId && !state.selected;
+      const wasInside = $('inspector-drawer').contains(document.activeElement);
+      if (!sameProgram) captureDraft();
+      state.selected = null;
+      state.selectedProgram = progId;
+      state.dirty = false;
+      renderInspector(!sameProgram);
+      applyHighlightTopology();
+      openInspector(opener, !sameProgram && wasInside);
+    }
+
+    // Inspector Drawer Rendering
+    function renderInspector(force = false) {
+      const b = selectedBridge();
+      const p = selectedProgram();
+      const drawer = $('inspector-drawer');
+
+      if (!b && !p) {
+        closeInspector();
+        return;
+      }
+
+      if (p) {
+        $('ins-bridge-content')?.classList.add('hidden');
+        $('ins-program-content')?.classList.remove('hidden');
+
+        setText('ins-title', p.name);
+        setText('ins-key', `外部程序注记 · ID: ${p.id}${p.unmarked ? ' (待标注)' : ''}`);
+
+        const bCount = p.bridgeKeys.size;
+        setText('ins-prog-bridge-count', `${bCount} 座`);
+        const listEl = $('ins-prog-bridges-list');
+        if (inspectorProgramKey !== p.key) {
+          listEl.replaceChildren(); programBridgeCards.clear(); inspectorProgramKey = p.key;
+        }
+        for (const [key, entry] of programBridgeCards) {
+          if (!p.bridgeKeys.has(key)) {
+            const focused = entry.card.contains(document.activeElement);
+            entry.card.remove(); programBridgeCards.delete(key);
+            if (focused && !drawer.inert) $('ins-title').focus({ preventScroll: true });
+          }
+        }
+
+        if (bCount === 0) {
+          listEl.append(el('div', 'muted', '暂无关联的 Mod 桥。'));
+        } else {
+          for (const bKey of p.bridgeKeys) {
+            const br = bridges().find(item => item.key === bKey);
+            let entry = programBridgeCards.get(bKey);
+            if (!entry) {
+            const card = el('div', 'section-block');
+            card.style.padding = '8px 10px';
+            card.style.marginBottom = '6px';
+            card.style.cursor = 'pointer';
+            card.style.background = 'rgba(255, 255, 255, 0.03)';
+            card.style.border = '1px solid rgba(255, 255, 255, 0.08)';
+            card.style.borderRadius = '6px';
+
+            const topRow = el('div');
+            topRow.style.display = 'flex';
+            topRow.style.alignItems = 'center';
+            topRow.style.justifyContent = 'space-between';
+
+            const nameBox = el('div');
+            nameBox.style.display = 'flex';
+            nameBox.style.alignItems = 'center';
+            nameBox.style.gap = '6px';
+
+            const dot = el('span', `bridge-dot ${br ? stateClass(br) : 'offline'}`);
+            dot.style.display = 'inline-block';
+            dot.style.width = '8px';
+            dot.style.height = '8px';
+            dot.style.borderRadius = '50%';
+
+            const title = el('strong', '', br ? label(br) : bKey);
+            title.style.fontSize = '12px';
+            nameBox.append(dot, title);
+
+            const jumpBtn = el('button', 'action-btn', '切换到此桥 →');
+            jumpBtn.type = 'button';
+            jumpBtn.style.padding = '2px 8px';
+            jumpBtn.style.fontSize = '10px';
+            jumpBtn.style.flex = 'none';
+
+            topRow.append(nameBox, jumpBtn);
+
+            const subRow = el('div', 'muted', br ? `${bKey} · ${status(br)} · ${asArray(br.instances).length} 实例` : `${bKey} (未上线)`);
+            subRow.style.fontSize = '10px';
+            subRow.style.marginTop = '4px';
+
+            card.append(topRow, subRow);
+            card.addEventListener('click', () => {
+              selectBridge(bKey, jumpBtn);
+              flyToNode('bridge', bKey);
+            });
+            listEl.append(card);
+            entry = { card, dot, title, subRow, jumpBtn }; programBridgeCards.set(bKey, entry);
+            }
+            entry.dot.className = `bridge-dot ${br ? stateClass(br) : 'offline'}`;
+            entry.title.textContent = br ? label(br) : bKey;
+            entry.subRow.textContent = br ? `${bKey} · ${status(br)} · ${asArray(br.instances).length} 实例` : `${bKey} (未接入)`;
+          }
+        }
+
+        const flyBtn = $('btn-prog-fly');
+        if (flyBtn) {
+          flyBtn.onclick = () => flyToNode('program', p.key);
+        }
+        return;
+      }
+
+      // Bridge Mode
+      $('ins-bridge-content')?.classList.remove('hidden');
+      $('ins-program-content')?.classList.add('hidden');
+
+      setText('ins-title', label(b));
+      setText('ins-key', b.key);
+
+      const disabled = !state.fresh || state.busy.has(b.key) || b.manageable === false;
+      $('ins-toggle').disabled = disabled;
+      $('ins-disconnect').disabled = disabled || !asArray(b.instances).length;
+      $('annotation-save').disabled = !state.fresh || state.busy.has(b.key);
+
+      // Action button classes & texts
+      $('ins-toggle').textContent = b.paused ? '恢复接入' : '暂停接入';
+      $('ins-toggle').className = `action-btn ${b.paused ? 'resume' : 'pause'}`;
+      setText('ins-help-text', b.manageable === false
+        ? '此项仅为用户注记，尚无已授权或已连接的通讯身份，暂不可控制接入。'
+        : b.paused
+        ? '已暂停：该主体全部实例已被断开，后续重连均被拦截；Hub 重启后依然生效。'
+        : '断开本次连接仅关闭当前连接 ID，允许其立即自动重连；过期 ID 不会误断新连接。');
+
+      // Subscriptions
+      const subContainer = $('ins-subscriptions');
+      subContainer.replaceChildren();
+      const instIds = new Set(asArray(b.instances).map(i => i.bridgeId));
+      const subs = asArray(state.data?.hub?.subscriptions).filter(s => instIds.has(s.bridgeId));
+
+      if (!subs.length) {
+        subContainer.append(el('div', 'muted', '暂无在线订阅；离线不代表信息已被消费。'));
+      } else {
+        for (const s of subs) {
+          const card = el('div', 'section-block', '');
+          card.style.marginBottom = '6px';
+          card.append(
+            el('div', 'mono', s.id + ' · ' + (asArray(s.filters).join(', ') || '无过滤器')),
+            el('div', 'watermark-grid', '')
+          );
+          const grid = card.querySelector('.watermark-grid');
+          for (const [t, val] of [['ACK 水位', s.cursor], ['已发送', s.sentUpTo], ['待 ACK', s.pending]]) {
+            const wm = el('div', 'wm-card');
+            wm.append(el('span', '', t), el('strong', '', formatCount(val)));
+            grid.append(wm);
+          }
+          subContainer.append(card);
+        }
+      }
+
+      // Channels
+      const chanContainer = $('ins-channels');
+      chanContainer.replaceChildren();
+      let chanCount = 0;
+      for (const i of asArray(b.instances)) {
+        for (const c of asArray(i.channels)) {
+          const badge = el('div', 'channel-badge');
+          const dir = c.publish && c.subscribe ? '双向通讯' : c.publish ? '输入枢纽' : c.subscribe ? '从枢纽抽取' : 'Mod 声明';
+          badge.append(
+            el('span', 'topic', c.topic || c.name || c.id || '未命名通道'),
+            el('span', 'dir', `${dir}${c.kind ? ' · ' + c.kind : ''} · 实例: ${i.bridgeId}`)
+          );
+          chanContainer.append(badge);
+          chanCount++;
+        }
+      }
+      if (!chanCount) chanContainer.append(el('div', 'muted', '暂无通道注册。通道由 mod 动态声明。'));
+
+      // ACL Whitelist
+      const aclPub = $('ins-acl-pub'); aclPub.replaceChildren();
+      const aclSub = $('ins-acl-sub'); aclSub.replaceChildren();
+      for (const p of asArray(b.allow?.publish)) aclPub.append(el('span', 'acl-pill', p));
+      for (const s of asArray(b.allow?.subscribe)) aclSub.append(el('span', 'acl-pill', s));
+      if (!aclPub.childNodes.length) aclPub.append(el('span', 'muted', '未授权'));
+      if (!aclSub.childNodes.length) aclSub.append(el('span', 'muted', '未授权'));
+
+      // Form: Bridge Name & Programs
+      const form = $('annotation-form');
+      if (force || form.dataset.key !== b.key) {
+        const draft = state.drafts.get(b.key);
+        form.dataset.key = b.key;
+        $('bridge-name-input').value = draft?.bridgeName ?? label(b);
+        $('program-names-input').value = draft?.programs ?? asArray(b.programs).map(p => p.id + ' | ' + str(p.name || p.id)).join('\n');
+        state.dirty = !!draft;
+      } else if (!state.dirty && !['bridge-name-input', 'program-names-input'].includes(document.activeElement?.id)) {
+        $('bridge-name-input').value = label(b);
+        $('program-names-input').value = asArray(b.programs).map(p => p.id + ' | ' + str(p.name || p.id)).join('\n');
+      }
+      setText('annotation-dirty', state.dirty ? '注记未保存' : '仅保存管理注记');
+    }
+
+    // Bridge Filter Dropdown in Stream Drawer
+    function renderBridgeFilter() {
+      const signature = JSON.stringify(bridges().map(b => [b.key, label(b)]));
+      if (signature === state.bridgeSelectSignature) return;
+      state.bridgeSelectSignature = signature;
+
+      const sel = $('stream-bridge-filter');
+      const prev = sel.value;
+      sel.replaceChildren(el('option', '', '所有通讯桥'));
+      sel.firstChild.value = '';
+
+      for (const b of bridges()) {
+        const opt = el('option', '', label(b));
+        opt.value = b.key;
+        sel.append(opt);
+      }
+      if (bridges().some(b => b.key === prev)) sel.value = prev;
+    }
+
+    // Stream Table & Ticker Rendering
+    function eventType(e) {
+      if (e.kind === 'delivery' && e.sent === false) return '投递失败';
+      const labels = {
+        message: '输入', delivery: '投递', retained: '留存', ack: 'ACK', caught_up: '追平',
+        pause: '暂停', paused: '暂停', resume: '恢复', resumed: '恢复', disconnect: '断开',
+        gap: '缺口', release: '释放保护', 'bridge.attached': '接入', 'bridge.detached': '断开',
+        'bridge.rejected': '拒绝', 'management.pause': '暂停', 'management.resume': '恢复',
+        'management.disconnect': '断开', 'management.annotation': '注记', 'message.released': '释放保护'
+      };
+      return labels[e.kind] || str(e.kind || '通讯');
+    }
+
+    function eventRoute(e) {
+      if (e.kind === 'message' || e.kind === 'retained') return endpointName(e.from) + ' → 枢纽';
+      if (e.kind === 'delivery') return '枢纽 → ' + endpointName(e.to) + (e.sent === false ? ' (写入连接失败)' : '');
+      if (e.kind === 'subscribe') return endpointName(e.bridgeId) + ' 抽取主题: ' + asArray(e.filters).join(', ');
+      if (e.kind === 'caught_up') return endpointName(e.bridgeId) + ' 追平至水位: ' + str(e.cursor ?? '—');
+      if (e.bridgeId || e.key || e.principal) return endpointName(e.bridgeId || e.key || e.principal) + (e.code ? ' · ' + e.code : '');
+      return str(e.message || e.reason || e.code || '通讯流转记录');
+    }
+
+    function concernsBridge(e, key) {
+      if (!key) return true;
+      const ids = [e.from, e.to, e.bridgeId, e.key, e.principal, ...asArray(e.deliveredTo)];
+      return ids.some(id => str(id) === str(key) || endpointBridge(id)?.key === key);
+    }
+
+    function streamRowKey(event) { return JSON.stringify([state.epoch, state.view, state.view === 'activity' ? event.eventId : event.seq]); }
+
+    function createStreamRow(key) {
+      const tr = el('tr'), timeCell = el('td', 'muted'), kindCell = el('td'), kindTag = el('span', 'stream-kind-tag');
+      const topicCell = el('td'), topicText = el('div', 'mono'), routeText = el('div', 'muted'), seqCell = el('td'), sizeCell = el('td', 'mono muted');
+      kindCell.append(kindTag); topicCell.append(topicText, routeText); tr.append(timeCell, kindCell, topicCell, seqCell, sizeCell); tr.dataset.flowKey = key;
+      return { tr, timeCell, kindTag, topicText, routeText, seqCell, sizeCell, seqButton: null, seq: null, event: null, epoch: state.epoch, view: state.view };
+    }
+
+    function updateStreamRow(entry, event) {
+      entry.event = event; entry.timeCell.textContent = time(event.at);
+      entry.kindTag.className = `stream-kind-tag ${/error|gap|denied/.test(event.kind) || (event.kind === 'delivery' && event.sent === false) ? 'error' : event.kind}`;
+      entry.kindTag.textContent = eventType(event); entry.topicText.textContent = event.topic || eventType(event);
+      entry.routeText.textContent = eventRoute(event); entry.sizeCell.textContent = bytes(event.bytes);
+      if (Number.isSafeInteger(event.seq) && event.seq > 0) {
+        entry.seq = event.seq;
+        if (!entry.seqButton) {
+          entry.seqButton = el('button', 'seq-btn'); entry.seqButton.type = 'button';
+          entry.seqButton.addEventListener('click', () => viewMessage(entry.seq)); entry.seqCell.replaceChildren(entry.seqButton);
+        }
+        entry.seqButton.textContent = '#' + event.seq;
+        entry.seqButton.setAttribute('aria-label', '查看序号 ' + event.seq + ' 的原始通讯帧');
+      } else { entry.seq = null; entry.seqButton = null; entry.seqCell.textContent = '—'; }
+    }
+
+    function renderStream() {
+      if (!state.data) return;
+      const query = $('stream-search').value.trim().toLocaleLowerCase();
+      const filter = $('stream-bridge-filter').value;
+
+      const source = state.view === 'retained'
+        ? asArray(state.data.log?.records).map(r => ({ ...r, originalKind: r.kind, kind: 'retained' })).sort((a, b) => b.seq - a.seq)
+        : state.events.slice().reverse();
+
+      const matches = e =>
+        concernsBridge(e, filter) &&
+        (!query || [e.topic, e.seq, e.kind, e.originalKind, e.from, e.to, e.bridgeId, e.principal, e.key, eventRoute(e)].map(str).join(' ').toLocaleLowerCase().includes(query));
+      const found = source.filter(matches);
+
+      const rows = found.slice(0, MAX_ROWS);
+      const tbody = $('stream-table-body'), focused = tbody.contains(document.activeElement) ? document.activeElement : null;
+      const focusedKey = focused?.closest('tr')?.dataset.flowKey, focusedEntry = streamRows.get(focusedKey);
+      let pinnedFocus = false;
+      if (focusedEntry && focusedEntry.epoch === state.epoch && focusedEntry.view === state.view && matches(focusedEntry.event) && !rows.some(event => streamRowKey(event) === focusedKey)) {
+        if (rows.length >= MAX_ROWS) rows.pop(); rows.push(focusedEntry.event); pinnedFocus = true;
+      }
+      setText('stream-count', `${state.view === 'retained' ? '近期留存记录' : '近期采样'} · ${rows.length} / ${found.length}${pinnedFocus ? ' · 保留键盘焦点行' : ''}`);
+
+      // Update Mini Ticker
+      if (rows.length) {
+        const top = rows[0];
+        setText('stream-ticker', `[${time(top.at)}] ${eventType(top)}: ${top.topic || eventRoute(top)} (#${top.seq || '—'})`);
+      }
+
+      // 若流抽屉未展开，跳过庞大的 DOM 表格构造
+      if (!$('stream-drawer').classList.contains('expanded')) return;
+
+      const sig = JSON.stringify([state.view, query, filter, rows, bridges().map(b => [b.key, label(b)])]);
+      if (sig === state.streamSignature) return;
+      state.streamSignature = sig;
+
+      const visibleKeys = new Set();
+      let next = tbody.firstElementChild;
+      for (const e of rows) {
+        const key = streamRowKey(e); visibleKeys.add(key);
+        let entry = streamRows.get(key); if (!entry) { entry = createStreamRow(key); streamRows.set(key, entry); }
+        updateStreamRow(entry, e);
+        if (entry.tr !== next) tbody.insertBefore(entry.tr, next);
+        next = entry.tr.nextElementSibling;
+      }
+      for (const [key, entry] of streamRows) if (!visibleKeys.has(key)) { entry.tr.remove(); streamRows.delete(key); }
+      $('stream-empty').classList.toggle('hidden', !!rows.length);
+      if (focused && document.activeElement !== focused) (streamRows.get(focusedKey)?.seqButton || $('stream-search')).focus({ preventScroll: true });
+    }
+
+    // Retention Modal Data
+    function renderRetentionData() {
+      const log = state.data?.log || {};
+      const capacity = log.capacity || {};
+
+      setText('ret-protected-count', formatCount(log.protectedCount));
+      setText('ret-last-seq', '#' + formatCount(log.lastSeq ?? state.data?.hub?.lastSeq));
+      setText('ret-capacity-spec', Number.isFinite(capacity.segmentMaxBytes) && Number.isFinite(capacity.segmentMaxCount)
+        ? `${bytes(capacity.segmentMaxBytes)} / 段 × ${capacity.segmentMaxCount} 段`
+        : '未配置固定容量');
+      setText('ret-usage-text', Number.isFinite(log.bytes)
+        ? `当前日志占用: ${bytes(log.bytes)} · 共 ${formatCount(log.segmentCount)} 段 · 留存 ${formatCount(log.retainedCount)} 条`
+        : '');
+      setText('ret-oldest-seq', Number.isFinite(log.oldestSeq)
+        ? `最早可抽取记录序号: #${log.oldestSeq}`
+        : '当前暂无可抽取记录');
+      setText('ret-segment-room', Number.isFinite(log.unusedSegmentSlots)
+        ? `未使用段位: ${log.unusedSegmentSlots} · 活动段距轮转目标: ${bytes(log.activeSegmentTargetRemainingBytes)}（非精确可写容量）`
+        : '');
+      setText('ret-blockers', asArray(log.oldestProtectedOwners).map(owner =>
+        `${owner.principal == null ? '身份未知（旧记录）' : str(owner.principal)} · ${formatCount(owner.count)} 条 · #${owner.firstSeq}–#${owner.lastSeq}`).join('\n') || '最旧段没有受保护的提供者记录');
+      const blobs = state.data?.blobs;
+      setText('ret-blob-usage', blobs
+        ? `预约 ${str(blobs.reservedBytesExact)} B / ${str(blobs.limits?.maxTotalBytes)} B · ${formatCount(blobs.count)} / ${formatCount(blobs.limits?.maxObjects)} 个对象 · 未完成 ${formatCount(blobs.uploadingCount)} 个`
+        : '附件状态不可用');
+      setText('ret-blob-room', blobs
+        ? `剩余 ${str(blobs.remainingBytes)} B / ${formatCount(blobs.remainingObjectSlots)} 个对象位 · 可按需回收 ${str(blobs.reclaimableBytes)} B / ${formatCount(blobs.reclaimableObjectCount)} 个（已释放且未被提交占用）`
+        : '');
+      const gapFailures = state.data?.hub?.counters?.gapLogFailures;
+      setText('ret-gap-failures', Number.isFinite(gapFailures)
+        ? `本次枢纽进程缺口落盘失败: ${gapFailures} 次；最近详情见 /status。计数重启归零。`
+        : '');
+
+      setText('ret-warning-text', log.maintenanceError
+        ? '日志存储异常：' + str(log.maintenanceError)
+        : log.nextRotationBlocked
+        ? '下次段轮转受到受保护记录阻挡；触及容量上限后新发布将返回 LOG_CAPACITY。'
+        : '');
+    }
+
+    // Bridge Admission Action (Pause / Resume / Disconnect)
+    async function action(b, actName) {
+      if (!b || !state.fresh || state.busy.has(b.key) || b.manageable === false) return;
+      const key = b.key;
+      state.busy.add(key);
+      renderInspector();
+
+      try {
+        const body = { key, action: actName };
+        if (actName === 'disconnect') {
+          body.connectionIds = asArray(b.instances).map(i => i.connectionId).filter(id => typeof id === 'string' && id.length);
+        }
+
+        const res = await request('/manage/api/bridge', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Management-Token': state.data.csrfToken },
+          body: JSON.stringify(body)
+        });
+
+        const msg = actName === 'pause'
+          ? `${label(b)} 已持久暂停接入，全部实例已断开；留存信息继续受保护。`
+          : actName === 'resume'
+          ? `${label(b)} 接入许可已恢复，等待 mod 自行重连。`
+          : `${label(b)} 已断开 ${formatCount(res.disconnected)} 个当前连接；mod 可自动重连。`;
+
+        toast(msg, 'neutral', true);
+        await refresh({ afterMutation: true });
+      } catch (err) {
+        toast('操作失败：' + err.message, 'error', true);
+      } finally {
+        state.busy.delete(key);
+        renderInspector();
+      }
+    }
+
+    // Save Annotation Form
+    async function saveAnnotation(e) {
+      e.preventDefault();
+      const b = selectedBridge();
+      if (!b || !state.fresh || state.busy.has(b.key)) return;
+      const submittedDraft = { bridgeName: $('bridge-name-input').value, programs: $('program-names-input').value };
+
+      const programs = [], seen = new Set();
+      for (const line of $('program-names-input').value.split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        const sep = line.indexOf('|');
+        const id = (sep < 0 ? line : line.slice(0, sep)).trim();
+        const name = (sep < 0 ? id : line.slice(sep + 1).trim()) || id;
+        if (!id || seen.has(id)) {
+          toast('程序标识不能为空，且不能在同一桥中重复。', 'error', true);
+          $('program-names-input').focus(); return;
+        }
+        if (id.length > 120 || name.length > 120 || programs.length >= 16) {
+          toast('每座桥最多标注 16 项程序，标识与名称各不超过 120 字符。', 'error', true);
+          $('program-names-input').focus(); return;
+        }
+        programs.push({ id, name });
+        seen.add(id);
+      }
+
+      const key = b.key;
+      const bridgeName = $('bridge-name-input').value.trim();
+      state.busy.add(key);
+      renderInspector();
+
+      try {
+        await request('/manage/api/annotation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Management-Token': state.data.csrfToken },
+          body: JSON.stringify({ key, bridgeName, programs })
+        });
+        const latestDraft = state.drafts.get(key);
+        const unchanged = !latestDraft || latestDraft.bridgeName === submittedDraft.bridgeName && latestDraft.programs === submittedDraft.programs;
+        if (unchanged) state.drafts.delete(key);
+        if (state.selected === key) state.dirty = !unchanged;
+        toast('程序与桥注记已成功保存。', 'neutral', true);
+        await refresh({ afterMutation: true });
+      } catch (err) {
+        toast('注记保存失败：' + err.message, 'error', true);
+      } finally {
+        state.busy.delete(key);
+        renderInspector();
+      }
+    }
+
+    // Raw Message Viewer Modal
+    async function viewMessage(seq) {
+      const serial = ++state.messageRequest;
+      setText('msg-dialog-title', `原始通讯帧 · #${seq}`);
+      setText('msg-content', '正在读取…');
+      if (!$('message-dialog').open) $('message-dialog').showModal();
+
+      try {
+        const original = await request('/manage/api/message?seq=' + encodeURIComponent(seq), {}, true);
+        if (serial !== state.messageRequest || !$('message-dialog').open) return;
+        setText('msg-content', original);
+      } catch (err) {
+        if (serial === state.messageRequest && $('message-dialog').open) {
+          setText('msg-content', '无法读取原文：' + err.message);
+        }
+      }
+    }
+
+    // Pan & Zoom Engine
+    const viewportG = $('viewport');
+    const MIN_SCALE = 0.05; // 5% 超微缩放，支持上千节点星系全景
+    const MAX_SCALE = 6.0;  // 600% 超高清缩放，支持微观卡片极限特写
+
+    let transformRaf = false;
+    function requestTransformUpdate() {
+      if (transformRaf) return;
+      transformRaf = true;
+      requestAnimationFrame(() => {
+        updateTransform();
+        transformRaf = false;
+      });
+    }
+
+    // High-Performance Viewport Frustum Culling with Spatial Hysteresis
+    let lastCullX = -99999;
+    let lastCullY = -99999;
+    let lastCullScale = -1;
+
+    function updateViewportCulling(force = false) {
+      const { x, y, scale } = state.viewport;
+
+      // 平移迟滞缓存（Hysteresis）：小幅度位移（< 60px）且缩放未改变时直接跳过全量遍历
+      // 利用大面积冗余安全外边距，确保边缘元素绝无跳变，消除频繁触发的视锥剔除
+      const dx = Math.abs(x - lastCullX);
+      const dy = Math.abs(y - lastCullY);
+      if (!force && scale === lastCullScale && dx < 60 && dy < 60) {
+        return;
+      }
+      lastCullX = x;
+      lastCullY = y;
+      lastCullScale = scale;
+
+      // 视锥安全外边距自适应扩大为 450px~600px，彻底覆盖单次拖拽位移范围
+      const marginX = Math.max(450, window.innerWidth * 0.45) / scale;
+      const marginY = Math.max(320, window.innerHeight * 0.45) / scale;
+      const minX = -x / scale - marginX;
+      const maxX = (window.innerWidth - x) / scale + marginX;
+      const minY = -y / scale - marginY;
+      const maxY = (window.innerHeight - y) / scale + marginY;
+
+      const selKey = state.selected;
+      const selProg = state.selectedProgram;
+      const hovBridge = state.hoveredBridge;
+      const hovProg = state.hoveredProgram;
+
+      // 1. Cull Bridge Nodes and Rails using SVG visibility
+      for (const [key, pos] of state.nodePositions) {
+        const inView = pos.x >= minX && pos.x <= maxX && pos.y >= minY && pos.y <= maxY;
+        const isLinkedToProg = Boolean(selProg && state.programPositions.get(selProg)?.bridgeKeys.has(key));
+        const visible = inView || key === selKey || key === hovBridge || isLinkedToProg;
+        if (pos.visible !== visible) {
+          pos.visible = visible;
+          const vis = visible ? '' : 'hidden';
+          if (pos.el) pos.el.style.visibility = vis;
+          if (pos.rail) pos.rail.style.visibility = vis;
+        }
+      }
+
+      // 2. Cull Program Nodes
+      for (const [progId, pos] of state.programPositions) {
+        const inView = pos.x >= minX && pos.x <= maxX && pos.y >= minY && pos.y <= maxY;
+        const isLinkedToSel = Boolean(selKey && pos.bridgeKeys?.has(selKey));
+        const isSel = progId === selProg;
+        const visible = inView || isSel || progId === hovProg || isLinkedToSel;
+        if (pos.visible !== visible) {
+          pos.visible = visible;
+          const vis = visible ? '' : 'hidden';
+          if (pos.el) pos.el.style.visibility = vis;
+        }
+      }
+
+      // 3. Cull Bezier Annotation Links using cached memory state
+      for (const [progId, p] of state.programPositions) {
+        if (!p.links) continue;
+        for (const item of p.links) {
+          const bPos = state.nodePositions.get(item.bKey);
+          const linkVisible = Boolean(
+            p.visible ||
+            bPos?.visible ||
+            item.highlighted
+          );
+          const vis = linkVisible ? '' : 'hidden';
+          if (item.link.style.visibility !== vis) {
+            item.link.style.visibility = vis;
+          }
+        }
+      }
+    }
+
+    let lastAppliedScale = -1;
+    let lastAppliedLod = '';
+
+    function getLodForScale(scale) {
+      if (scale < 0.50) return 'lod-nano';
+      if (scale < 1.00) return 'lod-macro';
+      if (scale < 1.65) return 'lod-medium';
+      return 'lod-detail';
+    }
+
+    function applyLodClass(scale) {
+      const newLod = getLodForScale(scale);
+      if (newLod !== lastAppliedLod) {
+        lastAppliedLod = newLod;
+        const svgEl = $('canvas-svg');
+        svgEl.classList.toggle('lod-nano', newLod === 'lod-nano');
+        svgEl.classList.toggle('lod-macro', newLod === 'lod-macro');
+        svgEl.classList.toggle('lod-medium', newLod === 'lod-medium');
+        svgEl.classList.toggle('lod-detail', newLod === 'lod-detail');
+      }
+      return newLod;
+    }
+
+    function updateTransform(forceLod = false) {
+      const { x, y, scale } = state.viewport;
+
+      // 1. GPU 硬件加速层直接位移 (translate3d 促成 Blink 独立合成层)
+      viewportG.style.transform = `translate3d(${x}px, ${y}px, 0px) scale(${scale})`;
+
+      // 2. 仅在 scale 改变时更新 HUD 缩放文字与 LOD 阶梯，平移时绝不触碰 DOM 类名与属性
+      if (forceLod || scale !== lastAppliedScale) {
+        lastAppliedScale = scale;
+        setText('zoom-indicator', Math.round(scale * 100) + '%');
+        applyLodClass(scale);
+      }
+
+      // 3. 执行平滑视锥剔除
+      updateViewportCulling(forceLod);
+    }
+
+    let zoomTargetScale = null;
+    let zoomAnchorX = 0;
+    let zoomAnchorY = 0;
+    let zoomRaf = null;
+
+    function smoothZoomStep() {
+      if (zoomTargetScale === null) return;
+      const current = state.viewport.scale;
+      const diff = zoomTargetScale - current;
+      if (Math.abs(diff) < 0.005) {
+        state.viewport.scale = zoomTargetScale;
+        zoomTargetScale = null;
+        zoomRaf = null;
+        container.classList.remove('is-panning');
+        updateTransform(true);
+        return;
+      }
+      container.classList.add('is-panning');
+      // 0.52 灵敏阻尼逼近，只需 3~4 帧极速平滑收敛，彻底告别 30 帧漫长掉帧
+      const step = current + diff * 0.52;
+      state.viewport.x = zoomAnchorX - (zoomAnchorX - state.viewport.x) * (step / current);
+      state.viewport.y = zoomAnchorY - (zoomAnchorY - state.viewport.y) * (step / current);
+      state.viewport.scale = step;
+
+      // 在平滑缩放过渡期间，仅执行纯 GPU 变换，跳过中间帧昂贵的全量视锥剔除遍历
+      viewportG.style.transform = `translate3d(${state.viewport.x}px, ${state.viewport.y}px, 0px) scale(${state.viewport.scale})`;
+      setText('zoom-indicator', Math.round(step * 100) + '%');
+
+      // 更新 LOD 类名（仅在跨越阈值时触发一次）
+      let newLod = 'lod-detail';
+      if (step < 0.65) newLod = 'lod-macro';
+      else if (step < 1.35) newLod = 'lod-medium';
+      if (newLod !== lastAppliedLod) {
+        lastAppliedLod = newLod;
+        const svgEl = $('canvas-svg');
+        svgEl.classList.toggle('lod-macro', newLod === 'lod-macro');
+        svgEl.classList.toggle('lod-medium', newLod === 'lod-medium');
+        svgEl.classList.toggle('lod-detail', newLod === 'lod-detail');
+      }
+
+      zoomRaf = requestAnimationFrame(smoothZoomStep);
+    }
+
+    function smoothZoomTo(targetScale, clientX = window.innerWidth / 2, clientY = window.innerHeight / 2) {
+      const clamped = Math.min(MAX_SCALE, Math.max(MIN_SCALE, targetScale));
+      if (clamped === state.viewport.scale) return;
+      zoomTargetScale = clamped;
+      zoomAnchorX = clientX;
+      zoomAnchorY = clientY;
+      if (!zoomRaf) {
+        zoomRaf = requestAnimationFrame(smoothZoomStep);
+      }
+    }
+
+    function zoomTo(targetScale, clientX = window.innerWidth / 2, clientY = window.innerHeight / 2) {
+      if (zoomRaf) {
+        cancelAnimationFrame(zoomRaf);
+        zoomRaf = null;
+        zoomTargetScale = null;
+      }
+      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, targetScale));
+      if (newScale === state.viewport.scale) return;
+      state.viewport.x = clientX - (clientX - state.viewport.x) * (newScale / state.viewport.scale);
+      state.viewport.y = clientY - (clientY - state.viewport.y) * (newScale / state.viewport.scale);
+      state.viewport.scale = newScale;
+      updateTransform(true);
+    }
+
+    function fitAll() {
+      // 真实包围盒（包含世界枢纽中心与各卡片实际包围余量）
+      let minX = -180, maxX = 180, minY = -180, maxY = 180;
+      for (const pos of state.nodePositions.values()) {
+        minX = Math.min(minX, pos.x - 130);
+        maxX = Math.max(maxX, pos.x + 130);
+        minY = Math.min(minY, pos.y - 65);
+        maxY = Math.max(maxY, pos.y + 65);
+      }
+      for (const pos of state.programPositions.values()) {
+        minX = Math.min(minX, pos.x - 100);
+        maxX = Math.max(maxX, pos.x + 100);
+        minY = Math.min(minY, pos.y - 35);
+        maxY = Math.max(maxY, pos.y + 35);
+      }
+
+      // 避开顶部 HUD 与底部 Stream 栏，并预留舒适的安全呼吸边距，彻底避免边缘卡片被截断
+      const hudH = 75;
+      const bottomH = 75;
+      const marginX = 90; // 左右各预留 90px 留白
+      const availW = Math.max(300, window.innerWidth - marginX * 2);
+      const availH = Math.max(200, window.innerHeight - (hudH + bottomH));
+
+      const totalW = Math.max(100, maxX - minX);
+      const totalH = Math.max(100, maxY - minY);
+      const scaleX = availW / totalW;
+      const scaleY = availH / totalH;
+      const targetScale = Math.min(1.0, Math.max(MIN_SCALE, Math.min(scaleX, scaleY) * 0.94));
+
+      const targetCenterX = (minX + maxX) / 2;
+      const targetCenterY = (minY + maxY) / 2;
+      const availCenterY = (hudH + (window.innerHeight - bottomH)) / 2;
+
+      state.viewport.scale = targetScale;
+      state.viewport.x = window.innerWidth / 2 - targetCenterX * targetScale;
+      state.viewport.y = availCenterY - targetCenterY * targetScale;
+      updateTransform();
+    }
+
+    function centerHub() {
+      state.viewport.x = window.innerWidth / 2;
+      state.viewport.y = window.innerHeight / 2;
+      state.viewport.scale = 1.0;
+      updateTransform();
+    }
+
+    function flyToNode(type, id) {
+      let targetX = 0, targetY = 0, targetEl = null;
+      if (type === 'hub') {
+        targetX = 0; targetY = 0;
+        targetEl = $('hub-node');
+      } else if (type === 'bridge') {
+        const pos = state.nodePositions.get(id);
+        if (!pos) return;
+        targetX = pos.x; targetY = pos.y;
+        targetEl = $(`node-${id}`);
+        selectBridge(id);
+      } else if (type === 'program') {
+        const pos = state.programPositions.get(id);
+        if (!pos) return;
+        targetX = pos.x; targetY = pos.y;
+        targetEl = $(`pnode-${safeId(id)}`);
+        selectProgram(id);
+      }
+
+      const startX = state.viewport.x;
+      const startY = state.viewport.y;
+      const startScale = state.viewport.scale;
+
+      const targetScale = Math.min(1.3, Math.max(0.9, startScale));
+      const endX = window.innerWidth / 2 - targetX * targetScale;
+      const endY = window.innerHeight / 2 - targetY * targetScale;
+
+      const startTime = performance.now();
+      const duration = 380;
+
+      function animateFly(now) {
+        const t = Math.min(1, (now - startTime) / duration);
+        const ease = 1 - Math.pow(1 - t, 3);
+        state.viewport.x = startX + (endX - startX) * ease;
+        state.viewport.y = startY + (endY - startY) * ease;
+        state.viewport.scale = startScale + (targetScale - startScale) * ease;
+        viewportG.style.transform = `translate3d(${state.viewport.x}px, ${state.viewport.y}px, 0px) scale(${state.viewport.scale})`;
+        if (t < 1) {
+          requestAnimationFrame(animateFly);
+        } else {
+          updateTransform(true);
+          if (targetEl) {
+            targetEl.classList.remove('target-flash');
+            void targetEl.offsetWidth;
+            targetEl.classList.add('target-flash');
+            setTimeout(() => targetEl.classList.remove('target-flash'), 1600);
+          }
+        }
+      }
+      requestAnimationFrame(animateFly);
+    }
+
+    // Top HUD Search Box & Fast Fly-To-Node Navigation
+    const searchInput = $('hud-search-input');
+    const searchDropdown = $('hud-search-dropdown');
+
+    function updateSearchDropdown() {
+      const q = searchInput.value.trim().toLowerCase();
+      if (!q) {
+        searchDropdown.classList.add('hidden');
+        searchDropdown.replaceChildren();
+        return;
+      }
+
+      const results = [];
+      for (const b of bridges()) {
+        const l = label(b).toLowerCase();
+        const k = str(b.key).toLowerCase();
+        if (l.includes(q) || k.includes(q)) {
+          results.push({ type: 'bridge', id: b.key, title: label(b), sub: b.key });
+        }
+      }
+      for (const [pId, p] of state.programPositions) {
+        const n = str(p.name).toLowerCase();
+        const id = str(p.id).toLowerCase();
+        if (n.includes(q) || id.includes(q)) {
+          results.push({ type: 'program', id: pId, title: p.name, sub: `${p.bridgeKeys.size} 座关联桥 · ${p.id}` });
+        }
+      }
+
+      searchDropdown.replaceChildren();
+      if (results.length === 0) {
+        const empty = el('div', 'hud-search-item', '无匹配的桥或程序');
+        empty.style.color = 'var(--muted)';
+        searchDropdown.append(empty);
+      } else {
+        results.slice(0, 10).forEach(r => {
+          const item = el('div', 'hud-search-item');
+          const left = el('div');
+          left.style.overflow = 'hidden';
+          left.style.textOverflow = 'ellipsis';
+          left.style.whiteSpace = 'nowrap';
+          const title = el('div', '', r.title);
+          title.style.fontWeight = '700';
+          const sub = el('div', '', r.sub);
+          sub.style.fontSize = '9px';
+          sub.style.color = 'var(--muted)';
+          sub.style.fontFamily = 'var(--mono)';
+          left.append(title, sub);
+
+          const tag = el('span', `tag ${r.type}`, r.type === 'bridge' ? '桥' : '程序');
+          item.append(left, tag);
+          item.addEventListener('click', () => {
+            searchDropdown.classList.add('hidden');
+            searchInput.value = '';
+            flyToNode(r.type, r.id);
+          });
+          searchDropdown.append(item);
+        });
+      }
+      searchDropdown.classList.remove('hidden');
+    }
+
+    searchInput.addEventListener('input', updateSearchDropdown);
+    searchInput.addEventListener('focus', () => {
+      if (searchInput.value.trim()) updateSearchDropdown();
+    });
+    searchInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        const first = searchDropdown.querySelector('.hud-search-item');
+        if (first && !first.textContent.includes('无匹配')) first.click();
+      } else if (e.key === 'Escape') {
+        searchDropdown.classList.add('hidden');
+      }
+    });
+    document.addEventListener('click', e => {
+      if (!e.target.closest('#hud-search-box')) {
+        searchDropdown.classList.add('hidden');
+      }
+    });
+
+    const container = $('canvas-container');
+    let isDragging = false;
+    let hasMoved = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+    let startClientX = 0;
+    let startClientY = 0;
+
+    // 惯性动力学物理引擎（Inertial Momentum Engine）
+    let velocityX = 0;
+    let velocityY = 0;
+    let lastMoveTime = 0;
+    let lastClientX = 0;
+    let lastClientY = 0;
+    let momentumRaf = null;
+
+    function stopMomentum() {
+      if (momentumRaf) {
+        cancelAnimationFrame(momentumRaf);
+        momentumRaf = null;
+      }
+      velocityX = 0;
+      velocityY = 0;
+    }
+
+    function stepMomentum() {
+      // 0.91 动力学指数阻尼，模拟现实惯性滑行
+      velocityX *= 0.91;
+      velocityY *= 0.91;
+      state.viewport.x += velocityX;
+      state.viewport.y += velocityY;
+      viewportG.style.transform = `translate3d(${state.viewport.x}px, ${state.viewport.y}px, 0px) scale(${state.viewport.scale})`;
+
+      if (Math.hypot(velocityX, velocityY) > 0.3) {
+        momentumRaf = requestAnimationFrame(stepMomentum);
+      } else {
+        stopMomentum();
+        container.classList.remove('is-panning');
+        updateViewportCulling(true);
+      }
+    }
+
+    let dragCullRaf = false;
+    let dragLastCullX = 0;
+    let dragLastCullY = 0;
+
+    container.addEventListener('mousedown', e => {
+      // 仅响应鼠标主键（左键）
+      if (e.button !== 0) return;
+      // 排除 UI 浮层控件上的拖拽交互（HUD、侧边抽屉、底部抽屉、弹窗、输入框等）
+      if (e.target.closest('#top-hud, #inspector-drawer, #stream-drawer, #zoom-controls, #canvas-legend, dialog, button, input, select, textarea')) {
+        return;
+      }
+      stopMomentum();
+      isDragging = true;
+      state.isDragging = true;
+      hasMoved = false;
+      startClientX = e.clientX;
+      startClientY = e.clientY;
+      lastClientX = e.clientX;
+      lastClientY = e.clientY;
+      lastMoveTime = performance.now();
+      velocityX = 0;
+      velocityY = 0;
+      dragStartX = e.clientX - state.viewport.x;
+      dragStartY = e.clientY - state.viewport.y;
+      dragLastCullX = state.viewport.x;
+      dragLastCullY = state.viewport.y;
+      container.style.cursor = 'grabbing';
+    });
+
+    window.addEventListener('mousemove', e => {
+      if (!isDragging) return;
+      const now = performance.now();
+      const dt = Math.max(1, now - lastMoveTime);
+      const instVx = (e.clientX - lastClientX) / dt * 16;
+      const instVy = (e.clientY - lastClientY) / dt * 16;
+      // 速度平滑滤波
+      velocityX = velocityX * 0.4 + instVx * 0.6;
+      velocityY = velocityY * 0.4 + instVy * 0.6;
+      lastClientX = e.clientX;
+      lastClientY = e.clientY;
+      lastMoveTime = now;
+
+      const dx = e.clientX - startClientX;
+      const dy = e.clientY - startClientY;
+      if (!hasMoved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+        hasMoved = true;
+        container.classList.add('is-panning');
+      }
+      if (hasMoved) {
+        state.viewport.x = e.clientX - dragStartX;
+        state.viewport.y = e.clientY - dragStartY;
+        // 关键性能与手感突破：零延迟即时硬件位移！消除 rAF 滞后，让画布 100% 绝对物理级贴附鼠标！
+        viewportG.style.transform = `translate3d(${state.viewport.x}px, ${state.viewport.y}px, 0px) scale(${state.viewport.scale})`;
+
+        // 拖拽期间绝不同步执行昂贵的全量 culling 遍历！
+        // 仅在超长持续拖拽（单次滑行超过 400px）时，在下一帧 rAF 中低优先级异步补充边缘卡片
+        const distSinceCull = Math.hypot(state.viewport.x - dragLastCullX, state.viewport.y - dragLastCullY);
+        if (distSinceCull > 400 && !dragCullRaf) {
+          dragCullRaf = true;
+          requestAnimationFrame(() => {
+            if (isDragging) {
+              updateViewportCulling(false);
+              dragLastCullX = state.viewport.x;
+              dragLastCullY = state.viewport.y;
+            }
+            dragCullRaf = false;
+          });
+        }
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (!isDragging) return;
+      isDragging = false;
+      state.isDragging = false;
+      container.style.cursor = '';
+      if (hasMoved) {
+        // 拖拽位移有效（超过 3px），在捕获阶段拦截接下来的原生 click 事件，彻底防止意外选中卡片
+        const stopClick = ev => {
+          ev.stopPropagation();
+          ev.preventDefault();
+          window.removeEventListener('click', stopClick, true);
+        };
+        window.addEventListener('click', stopClick, true);
+        setTimeout(() => window.removeEventListener('click', stopClick, true), 60);
+
+        // 如果用户甩动手势速度足够，触发顺滑自然的惯性滑行（保持 is-panning 直至滑行停止）
+        if (Math.hypot(velocityX, velocityY) > 2) {
+          momentumRaf = requestAnimationFrame(stepMomentum);
+        } else {
+          container.classList.remove('is-panning');
+          updateViewportCulling(true);
+        }
+      } else {
+        container.classList.remove('is-panning');
+      }
+      if (refreshAgain) {
+        refreshAgain = false;
+        refresh();
+      }
+    });
+
+    window.addEventListener('blur', () => {
+      if (isDragging) {
+        isDragging = false;
+        state.isDragging = false;
+        container.classList.remove('is-panning');
+        container.style.cursor = '';
+        stopMomentum();
+        updateViewportCulling(true);
+      }
+    });
+
+    let wheelZoomRaf = null;
+    let wheelPendingScale = null;
+    let wheelAnchorX = 0;
+    let wheelAnchorY = 0;
+    let wheelSettleTimer = null;
+    let wheelDebounceTimer = null;
+
+    container.addEventListener('wheel', e => {
+      e.preventDefault();
+      stopMomentum();
+
+      // 支持触控板水平/双指滑动平移画布
+      if (!e.ctrlKey && Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 1) {
+        state.viewport.x -= e.deltaX;
+        viewportG.style.transform = `translate3d(${state.viewport.x}px, ${state.viewport.y}px, 0px) scale(${state.viewport.scale})`;
+        clearTimeout(wheelDebounceTimer);
+        wheelDebounceTimer = setTimeout(() => updateViewportCulling(true), 120);
+        return;
+      }
+
+      // 滚轮缩放：根据滚轮步进即时计算目标比例（对齐 CAD / Figma / Google Maps 的即时精准物理手感）
+      // 支持高回报率滚轮与触控板微小 delta
+      const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+      const current = wheelPendingScale !== null ? wheelPendingScale : state.viewport.scale;
+      const nextScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, current * zoomFactor));
+      if (nextScale === current) return;
+
+      wheelPendingScale = nextScale;
+      wheelAnchorX = e.clientX;
+      wheelAnchorY = e.clientY;
+
+      container.classList.add('is-panning');
+
+      if (!wheelZoomRaf) {
+        wheelZoomRaf = requestAnimationFrame(() => {
+          wheelZoomRaf = null;
+          if (wheelPendingScale === null) return;
+          const target = wheelPendingScale;
+          wheelPendingScale = null;
+
+          const oldScale = state.viewport.scale;
+          state.viewport.x = wheelAnchorX - (wheelAnchorX - state.viewport.x) * (target / oldScale);
+          state.viewport.y = wheelAnchorY - (wheelAnchorY - state.viewport.y) * (target / oldScale);
+          state.viewport.scale = target;
+
+          viewportG.style.transform = `translate3d(${state.viewport.x}px, ${state.viewport.y}px, 0px) scale(${state.viewport.scale})`;
+          setText('zoom-indicator', Math.round(target * 100) + '%');
+          applyLodClass(target);
+
+          clearTimeout(wheelSettleTimer);
+          wheelSettleTimer = setTimeout(() => {
+            container.classList.remove('is-panning');
+            updateViewportCulling(true);
+          }, 140);
+        });
+      }
+    }, { passive: false });
+
+    // Window Resize
+    window.addEventListener('resize', () => {
+      if (!isDragging) fitAll();
+    });
+
+    // Event Bindings
+    $('btn-refresh').addEventListener('click', () => refresh({ manual: true }));
+    $('btn-fit').addEventListener('click', fitAll);
+    $('btn-center').addEventListener('click', centerHub);
+    $('btn-zoom-in').addEventListener('click', () => {
+      const base = zoomTargetScale !== null ? zoomTargetScale : state.viewport.scale;
+      smoothZoomTo(base * 1.3);
+    });
+    $('btn-zoom-out').addEventListener('click', () => {
+      const base = zoomTargetScale !== null ? zoomTargetScale : state.viewport.scale;
+      smoothZoomTo(base / 1.3);
+    });
+
+    // Hub Core Click: Open Retention Dialog
+    $('hub-node').addEventListener('click', () => {
+      renderRetentionData();
+      $('retention-dialog').showModal();
+    });
+    $('hub-node').addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        renderRetentionData();
+        $('retention-dialog').showModal();
+      }
+    });
+
+    // Flow Animation Toggle
+    $('btn-flow-anim').addEventListener('click', () => {
+      state.flowAnimation = !state.flowAnimation;
+      $('btn-flow-anim').classList.toggle('active', state.flowAnimation);
+      if (!state.flowAnimation) {
+        $('pulses-g').replaceChildren();
+      }
+    });
+    if (state.flowAnimation) $('btn-flow-anim').classList.add('active');
+
+    // Dialog & Drawers Toggles
+    $('btn-retention-toggle').addEventListener('click', () => {
+      renderRetentionData();
+      $('retention-dialog').showModal();
+    });
+    $('ret-close').addEventListener('click', () => $('retention-dialog').close());
+
+    const streamDrawer = $('stream-drawer');
+    function toggleStreamDrawer() {
+      const isExp = streamDrawer.classList.toggle('expanded');
+      const body = $('stream-body'), focusedInside = body.contains(document.activeElement);
+      body.inert = !isExp; body.setAttribute('aria-hidden', String(!isExp));
+      if (!isExp && focusedInside) $('btn-stream-toggle-inner').focus({ preventScroll: true });
+      $('btn-stream-toggle-inner').textContent = isExp ? '▼ 收起' : '▲ 展开';
+      $('btn-stream-toggle').classList.toggle('active', isExp);
+      if (isExp) {
+        state.streamSignature = '';
+        renderStream();
+      }
+    }
+    $('btn-stream-toggle').addEventListener('click', toggleStreamDrawer);
+    $('stream-bar').addEventListener('click', e => {
+      if (e.target.closest('button')) return;
+      toggleStreamDrawer();
+    });
+    $('btn-stream-toggle-inner').addEventListener('click', toggleStreamDrawer);
+
+    // Inspector Drawer Bindings
+    $('ins-close').addEventListener('click', () => {
+      closeInspector();
+      applyHighlightTopology();
+    });
+
+    // Canvas background click deselect
+    container.addEventListener('click', e => {
+      if (e.target === container || e.target.id === 'canvas-svg' || e.target.tagName === 'svg' || e.target.closest('#orbit-guide-g') || e.target.closest('#rails-g') || e.target.closest('#annotation-links-g')) {
+        if (state.selected || state.selectedProgram) {
+          closeInspector({ returnFocus: false });
+          applyHighlightTopology();
+        }
+      }
+    });
+
+    $('ins-toggle').addEventListener('click', () => {
+      const b = selectedBridge();
+      if (b) action(b, b.paused ? 'resume' : 'pause');
+    });
+    $('ins-disconnect').addEventListener('click', () => {
+      action(selectedBridge(), 'disconnect');
+    });
+
+    $('annotation-form').addEventListener('submit', saveAnnotation);
+    $('annotation-form').addEventListener('input', () => {
+      state.dirty = true;
+      captureDraft();
+      setText('annotation-dirty', '注记尚未保存');
+    });
+
+    // Stream Console Tabs & Filters
+    $('tab-activity').addEventListener('click', () => {
+      state.view = 'activity';
+      $('tab-activity').setAttribute('aria-pressed', 'true');
+      $('tab-retained').setAttribute('aria-pressed', 'false');
+      state.streamSignature = '';
+      renderStream();
+    });
+    $('tab-retained').addEventListener('click', () => {
+      state.view = 'retained';
+      $('tab-activity').setAttribute('aria-pressed', 'false');
+      $('tab-retained').setAttribute('aria-pressed', 'true');
+      state.streamSignature = '';
+      renderStream();
+    });
+    $('stream-search').addEventListener('input', renderStream);
+    $('stream-bridge-filter').addEventListener('change', renderStream);
+
+    // Raw Message Modal Close
+    $('msg-close').addEventListener('click', () => $('message-dialog').close());
+    $('message-dialog').addEventListener('close', () => {
+      ++state.messageRequest;
+      setText('msg-content', '');
+    });
+
+    // Visibility Handling
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) refresh();
+    });
+
+    // The overlay boundary follows actual HUD size, including narrow-screen wrapping.
+    const hud = document.querySelector('.top-hud');
+    function updateHudBoundary() { document.documentElement.style.setProperty('--hud-bottom', `${Math.ceil(hud.getBoundingClientRect().bottom)}px`); }
+    const hudObserver = new ResizeObserver(updateHudBoundary);
+    hudObserver.observe(hud); window.addEventListener('resize', updateHudBoundary); updateHudBoundary();
+
+    // Initialize Viewport Position & Fetch
+    fitAll();
+    refresh();
+  </script>
+</body>
+</html>

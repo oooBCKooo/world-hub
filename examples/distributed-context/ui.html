@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>世界枢纽 · 二期界面程序</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,"Microsoft YaHei",sans-serif;background:#10151c;color:#e5ecf4}*{box-sizing:border-box}body{max-width:1080px;margin:36px auto;padding:0 24px}h1{font-size:26px;margin-bottom:8px}p{line-height:1.7;color:#aebccc}.bar{display:flex;justify-content:space-between;gap:12px;align-items:center;margin:24px 0}.badge{padding:7px 12px;border:1px solid #34475a;border-radius:16px;background:#1a2734;font-size:14px}form,.turn{border:1px solid #2e4050;border-radius:12px;background:#16202b;padding:20px;margin:16px 0}label{display:block;font-weight:600;margin-bottom:10px}textarea{width:100%;min-height:110px;padding:12px;border:1px solid #40596d;border-radius:8px;background:#0f1822;color:#edf3f9;font:inherit;resize:vertical}button{margin-top:14px;padding:10px 20px;border:0;border-radius:8px;background:#78c6fb;color:#092136;font:inherit;font-weight:600;cursor:pointer}button:disabled{opacity:.45;cursor:wait}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.75;background:#0f1822;padding:14px;border-radius:8px}small,.meta{color:#98acc0;font-size:13px}.error{color:#ffaca4;white-space:pre-wrap}.turn h2{font-size:18px;margin:0 0 12px}details{margin-top:15px}summary{cursor:pointer;color:#b4d9f2}.empty{padding:22px 0;color:#a5b4c4}.status{color:#a4d5ff}#problem{min-height:24px}@media(max-width:620px){body{margin:20px auto;padding:0 14px}.bar{align-items:flex-start;flex-direction:column}}
+</style>
+<h1>二期界面程序</h1>
+<p>输入交互文本，查看多个来源程序提供的系统提示词、对话历史与资料，以及 dsh harness 的返回。每个程序都通过自己的 mod 与枢纽通讯。</p>
+<div class="bar"><span id="connection" class="badge">正在连接界面程序…</span><small id="peer"></small></div>
+<form id="prompt-form"><label for="prompt">交互文本</label><textarea id="prompt" maxlength="32768" placeholder="例如：根据所提供的上下文，用一句话回答问题。" required></textarea><button id="send" type="submit">发送</button><p id="problem" class="error" role="status"></p><small>一次处理一个请求；接收回执表示 dsh 已接受请求，最终状态由 dsh 的 turn/end 返回。</small></form>
+<main id="transcript" aria-live="polite"><p class="empty">还没有交互记录。</p></main>
+<details><summary>通讯诊断</summary><pre id="diagnostics"></pre></details>
+<script>
+const labels={context_publishing:'发布上下文请求中',context_pending:'等待所有上下文来源',context_publish_unknown:'上下文请求结果待确认',harness_publishing:'发布 harness 请求中',harness_pending:'等待 dsh 接收',accepted:'dsh 已接收，等待结果',running:'dsh 正在运行',completed:'已完成',error:'失败',unknown:'harness 结果待确认',abandoned_unknown:'已结束等待，记录已保留'};
+let token='', refreshing=false, transcriptSnapshot='';
+const terminal=new Set(['completed','error','abandoned_unknown']);
+const make=(tag,text,cls)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node};
+function render(data){
+  token=data.csrfToken;
+  document.querySelector('#connection').textContent=data.diagnostics.connected?'mod 已连接枢纽':'mod 与枢纽连接中断';
+  document.querySelector('#peer').textContent=data.diagnostics.bridge||'';
+  document.querySelector('#send').disabled=data.requests.some(r=>!terminal.has(r.status));
+  const target=document.querySelector('#transcript');
+  const nextSnapshot=JSON.stringify(data.requests);
+  if(nextSnapshot!==transcriptSnapshot){
+  const opened=new Set([...target.querySelectorAll('details[data-request-id][open]')].map(details=>details.dataset.requestId));
+  target.replaceChildren();
+  if(!data.requests.length)target.append(make('p','还没有交互记录。','empty'));
+  for(const request of [...data.requests].reverse()){
+    const card=make('article',undefined,'turn');
+    card.append(make('h2',labels[request.status]||request.status,'status'),make('div',`会话 ${request.sessionId} · 请求 ${request.requestId}`,'meta'),make('pre',request.text));
+    if(request.context){
+      const details=make('details');details.dataset.requestId=request.requestId;details.open=opened.has(request.requestId);details.append(make('summary','本次提供的上下文'));
+      if(request.context.provenance?.length){details.append(make('h2','上下文来源'));for(const part of request.context.provenance)details.append(make('div',part.providerId,'meta'),make('pre',JSON.stringify(part.source)))}
+      details.append(make('h2','系统提示词'),make('pre',request.context.systemPrompt||'（空）'));
+      details.append(make('h2','本次交互之前的对话历史'));
+      if(!request.context.messages?.length)details.append(make('p','（无历史对话）','meta'));
+      for(const message of request.context.messages||[])details.append(make('div',message.role==='user'?'用户':'助手','meta'),make('pre',message.content));
+      if(request.context.text!==undefined)details.append(make('h2','选定附加材料'),make('pre',request.context.text));
+      details.append(make('small',JSON.stringify(request.context.source)));card.append(details);
+    }
+    else if(request.contextParts){const details=make('details');details.dataset.requestId=request.requestId;details.open=opened.has(request.requestId);details.append(make('summary','已收到的上下文来源'));for(const [providerId,part] of Object.entries(request.contextParts))details.append(make('div',providerId,'meta'),make('pre',JSON.stringify(part.source)));details.append(make('p',`需要来源：${data.diagnostics.contextProviders.join('、')}`,'meta'));card.append(details)}
+    if(request.output)card.append(make('h2','dsh 返回'),make('pre',request.output));
+    if(request.error)card.append(make('p',`${request.error.code}：${request.error.message}`,'error'));
+    if(request.lateError)card.append(make('p',`迟到的 dsh 信息：${request.lateError.code}：${request.lateError.message}`,'error'));
+    if(request.lateOutcome)card.append(make('p',`结束等待后收到 dsh 结束通知：${request.lateOutcome}`,'meta'));
+    if(['unknown','context_publish_unknown','context_pending'].includes(request.status)){
+      const waitingContext=request.status==='context_pending';
+      const button=make('button',waitingContext?'结束上下文等待，保留已收信息':'结束等待，保留未知结果');
+      button.type='button';button.addEventListener('click',()=>endWait(request.requestId,button));
+      card.append(make('p',waitingContext?'只结束界面等待；来源程序仍可返回信息，不会发送取消请求。':'只结束界面等待；不会取消 dsh 执行','meta'),button);
+    }
+    target.append(card);
+  }
+  transcriptSnapshot=nextSnapshot;
+  }
+  document.querySelector('#diagnostics').textContent=JSON.stringify(data.diagnostics,null,2);
+}
+async function refresh(){if(refreshing)return;refreshing=true;try{const response=await fetch('/api/state',{cache:'no-store'});if(!response.ok)throw new Error(`界面状态读取失败 (${response.status})`);render(await response.json())}catch(error){document.querySelector('#connection').textContent='无法连接界面程序';document.querySelector('#problem').textContent=error.message}finally{refreshing=false}}
+async function endWait(requestId,button){button.disabled=true;try{const response=await fetch('/api/end-wait',{method:'POST',headers:{'Content-Type':'application/json','X-UI-Token':token},body:JSON.stringify({requestId})});const result=await response.json();if(!response.ok)throw new Error(`${result.error?.code||response.status}：${result.error?.message||'结束等待失败'}`);document.querySelector('#problem').textContent='界面已结束等待，原请求与已收信息已保留；下一次发送会创建新的请求和会话。';await refresh()}catch(error){document.querySelector('#problem').textContent=error.message;button.disabled=false}}
+document.querySelector('#prompt-form').addEventListener('submit',async event=>{event.preventDefault();const problem=document.querySelector('#problem');problem.textContent='';document.querySelector('#send').disabled=true;try{const response=await fetch('/api/prompt',{method:'POST',headers:{'Content-Type':'application/json','X-UI-Token':token},body:JSON.stringify({text:document.querySelector('#prompt').value})});const result=await response.json();if(!response.ok)throw new Error(`${result.error?.code||response.status}：${result.error?.message||'发送失败'}`);document.querySelector('#prompt').value='';await refresh()}catch(error){problem.textContent=error.message;await refresh()}});
+refresh();setInterval(refresh,700);
+</script>
+</html>

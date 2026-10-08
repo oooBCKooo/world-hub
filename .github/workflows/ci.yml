@@ -1,0 +1,55 @@
+name: Verify repository
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate tracked repository sources and references
+        run: npm run check:repository
+      - name: Node-only conformance and independent-program scenarios
+        run: npm test
+      - name: Build source distribution
+        run: npm run build -- --output .artifacts/packages/world-hub-source
+      - name: Preserve test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-evidence
+          path: .artifacts/evidence
+          if-no-files-found: ignore
+
+  cross-language:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install the Python bridge dependency
+        run: python -m pip install -r sdk/python/requirements.txt
+      - name: Cross-language scenarios and adapter acceptance
+        run: npm run test:cross-language
+      - name: Preserve test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-language-evidence
+          path: .artifacts/evidence
+          if-no-files-found: ignore
