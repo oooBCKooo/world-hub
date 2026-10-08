@@ -85,11 +85,21 @@ try {
   check('面板登记的桥 id 是 ui.dashboard', dashReady.bridge === 'ui.dashboard', String(dashReady.bridge));
 
   await until(async () => (await h.status()).bridges.length === 3, { what: '3 bridges attached' });
-  snap = await h.status();
+  // welcome/ready only establishes the connection. Registration and subscribe
+  // complete later, so observe the program's real receipt before reading the
+  // subscription table; an online bridge alone is not this barrier.
+  const sourceSubscription = JSON.parse(await dashboard.waitLine((line) => {
+    try { return JSON.parse(line).event === 'subscribed'; } catch { return false; }
+  }));
+  snap = await until(async () => {
+    if (dashboard.exited) throw new Error(`dashboard exited before its subscription was visible: ${JSON.stringify(dashboard.exited)}`);
+    const state = await h.status();
+    return state.subscriptions.some((sub) => sub.id === sourceSubscription.subscription && sub.bridgeId === dashReady.identity) ? state : null;
+  }, { what: 'dashboard acknowledged subscription visible in Hub status' });
   // 面板走凭据模式：身份由枢纽分配为 "ui.dashboard:<n>"，同一凭据可开多个实例。
   const dashBridge = snap.bridges.find((b) => b.bridgeId.startsWith('ui.dashboard'));
   check('面板拿到了枢纽分配的实例身份', !!dashBridge && /^ui\.dashboard:\d+$/.test(dashBridge.bridgeId), JSON.stringify(snap.bridges.map((b) => b.bridgeId)));
-  const dashSub = snap.subscriptions.find((s) => s.bridgeId.startsWith('ui.dashboard'));
+  const dashSub = snap.subscriptions.find((s) => s.id === sourceSubscription.subscription && s.bridgeId === dashReady.identity);
   check('面板订阅了来源主题', !!dashSub && dashSub.filters.includes('source/#'), JSON.stringify(dashSub?.filters));
   check('面板订阅在枢纽侧有游标', !!dashSub && Number.isInteger(dashSub.cursor), JSON.stringify(dashSub));
 
