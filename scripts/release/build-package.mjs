@@ -67,7 +67,8 @@ export async function buildPackage({ output, runtimeDirectory = null, sourceRoot
   await copy('scripts/launcher-support.mjs', 'tooling');
   await copy('scripts/release/verify-package.mjs', 'tooling');
   await copy('config/hub.json', 'configuration');
-  await add('package.json', JSON.stringify({ name: 'world-hub-bundle', version, private: true, type: 'module', engines: { node: '>=22.4.0' }, scripts: { start: 'node scripts/launcher.mjs', check: 'node scripts/launcher.mjs --check', 'verify:package': 'node scripts/release/verify-package.mjs' } }, null, 2) + '\n', 'tooling');
+  await copy('LICENSE', 'license');
+  await add('package.json', JSON.stringify({ name: 'world-hub-bundle', version, private: true, type: 'module', license: 'MIT', engines: { node: '>=22.4.0' }, scripts: { start: 'node scripts/launcher.mjs', check: 'node scripts/launcher.mjs --check', 'verify:package': 'node scripts/release/verify-package.mjs' } }, null, 2) + '\n', 'tooling');
   await add('README.md', portableReadme(version, kind), 'documentation');
   await add('start.cmd', wrapper('start'), 'tooling');
   await add('check.cmd', wrapper('check'), 'tooling');

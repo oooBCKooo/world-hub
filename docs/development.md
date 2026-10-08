@@ -2,6 +2,8 @@
 
 从仓库根目录执行命令。Hub、管理界面与 Node 桥使用 Node.js 22.4.0 或以上；本项目固定分发运行时为 22.23.2。Hub 没有 npm 运行依赖。
 
+全局 npm 安装提供 `world-hub` CLI 与三个语言 SDK，不带这里的测试和业务示例。JavaScript SDK 使用 npm 命名导出，Python 和 PowerShell SDK 按文件路径使用并自行准备运行环境。需要修改代码、运行完整回归或构建用途整合包时，克隆 [GitHub 源码仓库](https://github.com/oooBCKooo/world-hub)；CLI 与 SDK 用法见[npm 包](npm.md)。源码采用 [MIT 许可](../LICENSE)，分发时保留许可文本。
+
 ```powershell
 npm run check
 npm start

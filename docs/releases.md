@@ -2,6 +2,14 @@
 
 分发包只带明确清单中的现行 Hub、管理界面、通用 SDK、当前文档与小型隔离演示。默认只启动通讯枢纽；完整示例业务、DSH、模型、测试装置和工作流程序不作为必装业务。
 
+项目源码与文档按 [MIT 许可](../LICENSE) 分发，各类生成包保留根 `LICENSE`。Windows 便携包另带官方 Node 的 `runtime/LICENSE`，两份许可独立保留。第三方依赖与运行时的归属见[仓库结构](repository.md)。
+
+## npm 与 ZIP 分发
+
+npm 包提供 Hub CLI 和 JavaScript、Python、PowerShell 三个 SDK，使用方式见[npm 包](npm.md)。JavaScript SDK 有 npm 导出入口；另外两个 SDK 仍使用自己的语言环境，不由 Hub 加载。包使用明确的源码文件清单，不携带官方 Node 二进制、个人配置、通讯数据、测试装置或业务演示。默认首次部署在调用者自己的工作目录初始化配置和存储；升级 npm 安装不会覆盖这份部署数据。
+
+ZIP 分发适合独立目录部署或 Windows 便携使用。用途演示整合包另含外部业务程序，仍由自己的启动入口运行；它们不由 npm CLI 或默认 Hub 部署自动启动。
+
 ## 从源码构建
 
 轻量源码分发无需下载运行时：
@@ -60,6 +68,8 @@ npm run build:demos -- --profile modular-assistant --runtime .artifacts/runtime/
 升级前先停止旧实例，解压新包到新目录，保留旧包回退，再复制自己的配置和完整持久数据。外部自定义路径由用户迁移，不以新默认配置覆盖自己的接线。启动、停止、搬迁、读取和 ACK 都不是 release。没有对全部历史版本、降级、断电耐久、跨机器或长期高负载的自动保证。
 
 ## 分发验收
+
+npm 发布前运行 `npm run test:npm`，以实际 tarball 在中文空格路径中进行独立本地与全局前缀安装，检查命令入口、数据目录、管理界面、JavaScript 导出和真实桥通讯。也可用 `node scripts/release/npm-package-acceptance.mjs` 单独生成并验收 tarball；输出包与报告留在忽略的 `.artifacts/npm/`，该工具不执行发布。
 
 `scripts/release/` 提供可重跑的包级工具，输入实际解压目录和新的包外证据目录。例如：
 

@@ -3,6 +3,7 @@
 .artifacts/
 dist/
 data/
+world-hub-data/
 .hub/
 **/.hub/
 **/.state/

@@ -1,5 +1,7 @@
 # Node JavaScript mod 桥
 
+本 SDK 采用仓库 [MIT 许可](../../LICENSE)。通过 npm 的稳定导出入口使用时，安装与导入方法见[npm 包](../../docs/npm.md)；下文相对路径用于源码仓库。
+
 `bridge-kit.mjs` 是供外部程序选用的 Node 桥；`blob-client.mjs` 提供外部文件／流上传与下载。Hub 不加载这些程序接口。运行需要 Node 22.4.0 或以上，没有 npm 依赖。浏览器使用独立的 `src/management/manual-bridge.mjs`，不能直接导入含 Node 文件 API 的模块。
 
 最小登记与发布示例见[接入说明](../../docs/onboarding.md)。先登记对应身份和主题 ACL，先监听 `error`／`denied`，再用 try/catch 处理异步 API；诊断事件不能替代 Promise 的拒绝处理。

@@ -84,21 +84,21 @@ async function inspectStoragePath(file, expectedDirectory) {
   }
 }
 
-export async function checkEnvironment(bundleRoot, args, { nodeVersion = process.versions.node } = {}) {
+export async function checkEnvironment(bundleRoot, args, { nodeVersion = process.versions.node, rawConfig, configPath: suppliedConfigPath } = {}) {
   const [major, minor] = nodeVersion.split('.').map(Number);
   if (!Number.isInteger(major) || !Number.isInteger(minor) || major < 22 || (major === 22 && minor < 4)) {
     throw new Error(`需要 Node.js 22.4.0 或更高版本，当前为 ${nodeVersion}；便携运行时固定为 22.23.2`);
   }
   const root = resolve(bundleRoot);
   for (const item of REQUIRED_FILES) await requireFile(resolve(root, item), '整合包文件');
-  const configPath = resolve(root, args.config);
-  await requireFile(configPath, '配置文件');
-  const raw = JSON.parse(await readFile(configPath, 'utf8'));
+  const configPath = suppliedConfigPath ?? resolve(root, args.config);
+  if (rawConfig === undefined) await requireFile(configPath, '配置文件');
+  const raw = rawConfig === undefined ? JSON.parse(await readFile(configPath, 'utf8')) : rawConfig;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('配置文件的根必须为 JSON 对象');
   // Loading the original normalizer keeps config semantics identical and performs
   // no persistence. Do not import hub-server here: that is an executable entry.
-  const { loadConfig } = await import(pathToFileURL(join(root, 'src/hub/lib/store.mjs')).href);
-  const config = loadConfig(configPath);
+  const { normalizeConfig } = await import(pathToFileURL(join(root, 'src/hub/lib/store.mjs')).href);
+  const config = normalizeConfig(raw, configPath);
   const port = args.port ?? config.transport.port;
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('transport.port 必须为 0 至 65535 的整数');
   if (typeof config.transport.host !== 'string' || !config.transport.host.trim()) throw new Error('transport.host 必须为非空字符串');

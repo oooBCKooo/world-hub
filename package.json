@@ -1,7 +1,29 @@
 {
   "name": "world-hub",
-  "version": "0.12.0",
-  "private": true,
+  "version": "0.13.0",
+  "license": "MIT",
+  "author": "oooBCKooo",
+  "repository": { "type": "git", "url": "git+https://github.com/oooBCKooo/world-hub.git" },
+  "homepage": "https://github.com/oooBCKooo/world-hub#readme",
+  "bugs": { "url": "https://github.com/oooBCKooo/world-hub/issues" },
+  "keywords": ["mod", "bridge", "websocket", "messaging", "hub"],
+  "bin": { "world-hub": "bin/world-hub.mjs" },
+  "exports": {
+    ".": "./sdk/javascript/bridge-kit.mjs",
+    "./bridge": "./sdk/javascript/bridge-kit.mjs",
+    "./blob": "./sdk/javascript/blob-client.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "bin/world-hub.mjs",
+    "src/**/*.mjs", "src/**/*.html", "src/**/*.css",
+    "sdk/javascript/bridge-kit.mjs", "sdk/javascript/blob-client.mjs", "sdk/javascript/README.md",
+    "sdk/python/hub_bridge.py", "sdk/python/requirements.txt", "sdk/python/README.md",
+    "sdk/powershell/HubBridge.psm1", "sdk/powershell/HubBridge.cs", "sdk/powershell/README.md",
+    "config/hub.json", "scripts/launcher.mjs", "scripts/launcher-support.mjs",
+    "docs/**/*.md", "docs/images/hub-topology.jpg", "docs/images/hub-workbench.jpg"
+  ],
+  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" },
   "type": "module",
   "description": "Communications crossroads for external programs connected through bidirectional mod bridges.",
   "engines": {
@@ -17,6 +39,7 @@
     "test:dsh": "node scripts/verify.mjs --suite dsh",
     "test:cross-language": "node scripts/verify.mjs --suite cross-language",
     "test:distribution": "node --test --test-timeout=60000 scripts/release/distribution.test.mjs",
+    "test:npm": "node --test --test-timeout=120000 tests/integration/npm/*.test.mjs",
     "test:demos": "node scripts/verify.mjs --suite demos",
     "test:recovery": "node scripts/test-recovery.mjs",
     "build": "node scripts/release/build-package.mjs",

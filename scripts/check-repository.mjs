@@ -7,20 +7,57 @@ import { dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const directories = ['src', 'sdk', 'config', 'examples', 'tests', 'scripts', 'docs', '.github'];
-const rootFiles = ['README.md', 'package.json', '.gitignore', '.gitattributes'];
+const directories = ['bin', 'src', 'sdk', 'config', 'examples', 'tests', 'scripts', 'docs', '.github'];
+const rootFiles = ['README.md', 'LICENSE', 'package.json', '.gitignore', '.gitattributes'];
 const required = [...rootFiles, 'config/hub.json', 'src/hub/hub-server.mjs', 'src/hub/ws-server.mjs',
   'src/management/console.html', 'sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-client.mjs',
   'sdk/python/hub_bridge.py', 'sdk/python/requirements.txt', 'sdk/powershell/HubBridge.psm1',
   'sdk/powershell/HubBridge.cs', 'docs/specs/index.md', 'docs/onboarding.md',
-  'scripts/launcher.mjs', 'scripts/verify.mjs', 'scripts/release/build-package.mjs', '.github/workflows/ci.yml'];
+  'bin/world-hub.mjs', 'scripts/launcher.mjs', 'scripts/verify.mjs', 'scripts/release/build-package.mjs', '.github/workflows/ci.yml'];
 const extensions = new Set(['.mjs', '.js', '.html', '.css', '.json', '.md', '.py', '.txt', '.psm1', '.cs', '.ps1', '.yml', '.yaml']);
-const forbiddenSegments = new Set(['.local', '.artifacts', 'dist', 'data', '.hub', '.state', 'node_modules', '__pycache__', '.venv']);
+const forbiddenSegments = new Set(['.local', '.artifacts', 'dist', 'data', 'world-hub-data', '.hub', '.state', 'node_modules', '__pycache__', '.venv']);
+const screenshotPath = /^docs\/images\/[a-z0-9][a-z0-9._-]*\.(?:png|jpg)$/;
+const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const jpegStartOfFrame = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const failures = [];
 const reject = (path, reason) => failures.push({ path, reason });
 const exists = async path => { try { return await lstat(path); } catch (error) { if (error.code === 'ENOENT') return null; throw error; } };
 const posix = path => path.replaceAll('\\', '/');
+
+function screenshotDimensions(path, bytes) {
+  if (path.endsWith('.png')) {
+    if (bytes.length < 33 || !bytes.subarray(0, 8).equals(pngSignature)
+        || bytes.readUInt32BE(8) !== 13 || bytes.toString('ascii', 12, 16) !== 'IHDR') {
+      throw new Error('Screenshot PNG has an invalid signature or dimension header');
+    }
+    if (bytes.length < 45 || bytes.readUInt32BE(bytes.length - 12) !== 0
+        || bytes.toString('ascii', bytes.length - 8, bytes.length - 4) !== 'IEND') {
+      throw new Error('Screenshot PNG has no final IEND marker');
+    }
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  }
+  if (bytes.length < 12 || bytes.readUInt16BE(0) !== 0xffd8 || bytes.readUInt16BE(bytes.length - 2) !== 0xffd9) {
+    throw new Error('Screenshot JPEG has an invalid start or end marker');
+  }
+  let offset = 2;
+  while (offset < bytes.length - 2) {
+    if (bytes[offset++] !== 0xff) throw new Error('Screenshot JPEG has an invalid marker');
+    while (offset < bytes.length && bytes[offset] === 0xff) offset++;
+    const marker = bytes[offset++];
+    if (marker === 0xd9 || marker === 0xda) break;
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+    if (offset + 2 > bytes.length) throw new Error('Screenshot JPEG has a truncated marker');
+    const size = bytes.readUInt16BE(offset);
+    if (size < 2 || offset + size > bytes.length) throw new Error('Screenshot JPEG has an invalid marker length');
+    if (jpegStartOfFrame.has(marker)) {
+      if (size < 8) throw new Error('Screenshot JPEG has a truncated dimension header');
+      return { width: bytes.readUInt16BE(offset + 5), height: bytes.readUInt16BE(offset + 3) };
+    }
+    offset += size;
+  }
+  throw new Error('Screenshot JPEG has no supported dimension header');
+}
 
 async function collect(directory = '') {
   const result = [];
@@ -61,7 +98,8 @@ for (const path of paths) {
   if (segments.some(segment => forbiddenSegments.has(segment)) || /(?:\.bak|\.tmp|\.log|\.zip|\.py[co]|\.local\.json)$/i.test(path)
       || /(?:^|\/)(?:\.env(?:\..*)?|smoke-results\.json|self-check-result\.json|local[^/]*\.json)$/i.test(path)) reject(path, 'Local, generated or private file');
   if (path.startsWith('config/') && path !== 'config/hub.json') reject(path, 'Only the reference configuration can be published');
-  if (!rootFiles.includes(path) && !extensions.has(extname(path))) reject(path, 'Unexpected source file type');
+  const screenshot = screenshotPath.test(path);
+  if (!rootFiles.includes(path) && !extensions.has(extname(path)) && !screenshot) reject(path, 'Unexpected source file type');
   const key = path.toLowerCase();
   if (cases.has(key)) reject(path, 'Filename conflicts on case-insensitive filesystems');
   cases.set(key, path);
@@ -70,6 +108,15 @@ for (const path of paths) {
   const bytes = await readFile(join(root, path));
   entries.push({ path, bytes: bytes.length, sha256: hash(bytes) });
   if (bytes.length > 2 * 1024 * 1024) reject(path, 'Unexpectedly large source file');
+  if (screenshot) {
+    try {
+      const { width, height } = screenshotDimensions(path, bytes);
+      if (!width || !height || width > 8192 || height > 8192 || width * height > 32 * 1024 * 1024) {
+        reject(path, 'Screenshot dimensions exceed the publication limit');
+      }
+    } catch (error) { reject(path, error.message); }
+    continue;
+  }
   let content;
   try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
   catch { reject(path, 'Source is not UTF-8 text'); continue; }

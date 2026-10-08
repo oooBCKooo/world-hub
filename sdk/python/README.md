@@ -1,5 +1,7 @@
 # Python mod 桥
 
+本 SDK 采用仓库 [MIT 许可](../../LICENSE)。另行安装的 `websockets` 遵循自身许可，未作为本项目源码复制或重新许可。
+
 `hub_bridge.py` 直接使用 Python `websockets` 的同步客户端连接 Hub，不转交 Node。安装桥依赖：
 
 ```powershell

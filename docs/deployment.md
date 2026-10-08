@@ -4,6 +4,8 @@
 
 ## 现行入口与部署范围
 
+通过 npm 安装可使用 `world-hub` CLI，安装、初始化和 JavaScript SDK 入口见[npm 包](npm.md)。下列 `npm start`、`npm run check` 等命令是克隆源码仓库后的入口。
+
 从仓库根目录执行 `npm run check` 做只读配置与环境检查，`npm start` 使用部署启动器，`npm run hub` 直接启动原服务。浏览器访问启动输出的 `/manage`，Ctrl+C 停止自己启动的服务。自定义配置可用 `node scripts/launcher.mjs --config <path>`；只调试服务用 `node src/hub/hub-server.mjs --config <path>`。源码和分发包使用相同 `src/`、`sdk/`、`config/` 路径，开发与演示命令见[开发](development.md)。
 
 配置加载在打开存储前拒绝非法日志容量、ACL 容器、条目、权限数组和过滤器；原服务与启动器检查共用验证。工作台提供主体草稿、筛选和明确的过期／历史连接状态，方法见[操作体验](specs/operations.md)，不改变提供者的留存许可。

@@ -30,7 +30,7 @@ const documentationFiles = [
 export const DEMO_SOURCE_FILES = Object.freeze([
   ...APPLICATION_FILES, ...SDK_FILES, ...DEMO_FILES, ...lifecycleFiles,
   'scripts/release/verify-package.mjs', 'scripts/release/verify-demo-package.mjs',
-  'config/hub.json', ...documentationFiles,
+  'config/hub.json', 'LICENSE', ...documentationFiles,
 ]);
 
 const profileDetails = {
@@ -165,12 +165,12 @@ export async function buildDemoPackages({ profile = 'all', outputRoot, runtimeDi
       files.push({ path: local, size: Buffer.byteLength(bytes), sha256: hash(bytes), role });
     }
     for (const [local, bytes] of inputs) {
-      const role = documentationFiles.includes(local) ? 'documentation' : DEMO_FILES.includes(local) ? 'example'
+      const role = local === 'LICENSE' ? 'license' : documentationFiles.includes(local) ? 'documentation' : DEMO_FILES.includes(local) ? 'example'
         : lifecycleFiles.includes(local) || local.startsWith('scripts/') ? 'tooling'
           : local === 'config/hub.json' ? 'configuration' : 'application';
       await add(local, bytes, role);
     }
-    await add('package.json', JSON.stringify({ name: `world-hub-demo-${id}`, version, private: true, type: 'module',
+    await add('package.json', JSON.stringify({ name: `world-hub-demo-${id}`, version, private: true, type: 'module', license: 'MIT',
       engines: { node: '>=22.4.0' }, scripts: {
         start: `node examples/purpose-demos/run-demo.mjs --profile ${id} --open`,
         check: `node examples/purpose-demos/run-demo.mjs --profile ${id} --check`,
