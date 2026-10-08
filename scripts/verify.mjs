@@ -13,11 +13,11 @@ let suite = 'node', evidenceRoot = join(root, '.artifacts/evidence');
 const seen = new Set();
 for (let index = 0; index < args.length; index += 2) {
   const option = args[index], value = args[index + 1];
-  if (!['--suite', '--evidence'].includes(option) || !value || seen.has(option)) throw new Error('usage: node scripts/verify.mjs [--suite node|dsh|cross-language] [--evidence directory]');
+  if (!['--suite', '--evidence'].includes(option) || !value || seen.has(option)) throw new Error('usage: node scripts/verify.mjs [--suite node|dsh|cross-language|demos] [--evidence directory]');
   seen.add(option);
   if (option === '--suite') suite = value; else evidenceRoot = resolve(value);
 }
-if (!['node', 'dsh', 'cross-language'].includes(suite)) throw new Error(`unknown suite: ${suite}`);
+if (!['node', 'dsh', 'cross-language', 'demos'].includes(suite)) throw new Error(`unknown suite: ${suite}`);
 const directory = join(evidenceRoot, `${suite}-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID()}`);
 await mkdir(directory, { recursive: true });
 const report = { suite, startedAt: new Date().toISOString(), node: process.version, platform: process.platform, arch: process.arch,
@@ -67,6 +67,11 @@ try {
     await execute('Independent-program directed transfer', ['examples/directed-transfer/run-phase4.mjs']);
     await execute('Three-program route', ['examples/three-programs/run-three.mjs']);
     await execute('Source distribution allowlist, integrity and safe outputs', nodeTests(['scripts/release/distribution.test.mjs']), { test: true });
+  } else if (suite === 'demos') {
+    await execute('Purpose demos: real external programs, bidirectional actions, distributed context and world rounds', nodeTests([
+      'tests/integration/purpose-demos/scenarios.test.mjs', 'tests/integration/purpose-demos/launcher.test.mjs',
+    ]), { test: true });
+    await execute('Purpose bundles: allowlist, fixed profiles, integrity and safe build outputs', nodeTests(['scripts/release/demo-distribution.test.mjs']), { test: true });
   } else if (suite === 'dsh') {
     report.dsh = requireDshInstall();
     await execute('Explicit local DSH integration', nodeTests(['tests/integration/context/harness-program.test.mjs', 'tests/integration/context/phase2-e2e.test.mjs', 'tests/integration/context/phase2-lifecycle.test.mjs', 'tests/integration/directed-transfer/dsh-scenario.test.mjs']), { test: true });

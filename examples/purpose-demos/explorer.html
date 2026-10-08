@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>World Hub · 用途探索</title><link rel="stylesheet" href="/explorer.css"><script type="module" src="/explorer.js"></script></head>
+<body>
+  <header><a class="brand" href="/">WORLD HUB <span>PLAYGROUND</span></a><nav><a id="manage" target="_blank" rel="noopener">枢纽管理 ↗</a><a href="/api/export" download>下载探索记录 ↓</a></nav></header>
+  <main>
+    <section class="intro"><div><div class="eyebrow">外部程序 · 真实 mod · 可替换的组合</div><h1 id="title">正在连接演示…</h1><p id="description"></p><p class="boundary">业务由各程序运行。枢纽只负责信息的接纳、寻址、留存与抽取。</p></div><div class="signal"><span id="connection" class="pill">连接中</span><div><b id="count">—</b><small>枢纽信息序号</small></div></div></section>
+    <section aria-labelledby="program-heading"><div class="section-title"><h2 id="program-heading">程序与桥</h2><span id="endpoint"></span></div><div id="programs" class="programs"></div><div class="hub"><i></i><span>WORLD HUB</span><small>通讯十字路口</small><span id="hub-count"></span></div></section>
+    <div class="workspace">
+      <section class="panel controls" aria-labelledby="action-heading"><div class="section-title"><h2 id="action-heading">试一试</h2><span>界面自身也是外部程序</span></div><label for="action">选择操作</label><select id="action"></select><p id="action-description"></p><div id="route" class="route"></div><label for="body">发送的 JSON 信息 <small>可修改后再发送</small></label><textarea id="body" spellcheck="false" rows="9"></textarea><button id="send" type="button">通过 mod 发送</button><p id="message" role="status" aria-live="polite"></p><div class="hint">请求会等待目标程序回应。注入的回执仅表示枢纽接纳，执行结果以目标程序发布的信息为准。读取与 ACK 不释放原始信息。</div></section>
+      <section class="panel output" aria-labelledby="result-heading"><div class="section-title"><h2 id="result-heading">程序返回的成果</h2><span id="result-label">等待操作</span></div><pre id="result">选择左侧操作，查看实际经过多座 mod 桥的程序返回。</pre></section>
+    </div>
+    <section class="panel flow" aria-labelledby="flow-heading"><div class="section-title"><h2 id="flow-heading">信息流</h2><span>展示最近 120 条 · 点击展开信封</span></div><div id="failures" role="status"></div><div id="events"></div></section>
+    <footer><span id="profile"></span><span>本地探索会话 · 退出启动终端可停止所属程序 · 每次启动独立数据目录</span></footer>
+  </main>
+</body></html>

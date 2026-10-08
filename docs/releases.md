@@ -26,6 +26,17 @@ node scripts/release/verify-package.mjs --root dist/world-hub-win-x64
 
 构建输出目录、ZIP、`.sha256` 与 `.build.json` 都是生成文件，不提交源码仓库。manifest 记录软件版本、wire、原始文件的角色、大小和 SHA-256。源码按显式允许清单复制；文档若链接未携带的源码测试／示例，会在分发副本中标为未携带，不修改源码文档。
 
+## 按用途构建演示整合包
+
+另外提供 `event-desk`、`modular-assistant`、`digital-world` 三个用途演示包，包含独立业务程序与浏览器探索界面。它们用于开发者探索，不改变默认 Hub 部署，也不把模型、harness 或世界运行放进 Hub。
+
+```powershell
+npm run build:demos
+npm run build:demos -- --profile modular-assistant --runtime .artifacts/runtime/node-win-x64 --output-root dist/assistant-portable
+```
+
+默认构建三个源码包；`--runtime` 选择已按上述方法校验的官方 Node 运行时，生成 Windows x64 便携包。每个包的 `start.cmd` 启动自己的演示，`check.cmd` 只读检查，`verify.cmd` 只校验完整性。输出仍写入 `dist/`，已有目标拒绝覆盖，运行数据只有 `data/**` 可变。完整操作、模块替换和验证边界见[用途演示指南](examples/purpose-demos.md)。
+
 ## 启动与检查
 
 完整解压后运行 `start.cmd`，它优先使用包内运行时，以包根 `config/hub.json` 启动并打开管理地址。终端保持运行，Ctrl+C 停止。源码包无自带运行时，使用 PATH 中 Node；Hub 没有 npm 运行依赖。Python、PowerShell 桥的环境由接入程序安排，不是启动 Hub 的前提。

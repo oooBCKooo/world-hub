@@ -1,10 +1,11 @@
 # 验证范围与命令
 
-所有命令从源码仓库根目录执行。每次运行保存自己的结果到 `.artifacts/evidence/`，报告给出环境、实际命令、退出码和范围；该目录被 Git 忽略。测试通过不表示任意第三方桥、任意语言或外部业务通过。
+所有命令从源码仓库根目录执行。`scripts/verify.mjs` 的统一入口在 `.artifacts/evidence/` 保存报告，给出环境、实际命令、退出码和范围；直接运行单项测试时应另行保存这些证据。该目录被 Git 忽略。测试通过不表示任意第三方桥、任意语言或外部业务通过。
 
 | 测试集合 | 命令 | 需要的环境 |
 | --- | --- | --- |
 | 默认 Node 通讯与管理回归、独立多程序场景 | `npm test` 或 `npm run verify` | Node 22；默认无需 DSH、Python、pwsh |
+| 三个用途演示的独立程序和通讯链路 | `npm run test:demos` | Node 22；无需模型账号或 DSH |
 | JS／Python／PowerShell 互操作和三个候选桥 profile | `npm run test:cross-language` | Node、Python + websockets、PowerShell 7 |
 | 真实已安装 DSH 的隔离测试模型集成 | `npm run test:dsh` | Node、显式 `PEROS_DSH_ROOT` |
 | 一座候选桥 | `node tests/bridge-acceptance/run.mjs --bridge tests/bridge-acceptance/python.json` | manifest 所需环境 |

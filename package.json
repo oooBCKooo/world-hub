@@ -1,6 +1,6 @@
 {
   "name": "world-hub",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "private": true,
   "type": "module",
   "description": "Communications crossroads for external programs connected through bidirectional mod bridges.",
@@ -17,8 +17,10 @@
     "test:dsh": "node scripts/verify.mjs --suite dsh",
     "test:cross-language": "node scripts/verify.mjs --suite cross-language",
     "test:distribution": "node --test --test-timeout=60000 scripts/release/distribution.test.mjs",
+    "test:demos": "node scripts/verify.mjs --suite demos",
     "test:recovery": "node scripts/test-recovery.mjs",
     "build": "node scripts/release/build-package.mjs",
+    "build:demos": "node scripts/release/build-demo-packages.mjs",
     "verify:package": "node scripts/release/verify-package.mjs",
     "demo:management": "node examples/management/run-management-demo.mjs",
     "demo:events": "node examples/event-panel/run-demo.mjs",
@@ -26,6 +28,9 @@
     "demo:workflow": "node examples/workflows/run-flows.mjs --demo",
     "demo:context": "node examples/distributed-context/run-phase2.mjs --fixture",
     "demo:three": "node examples/three-programs/run-three.mjs",
+    "demo:events-explorer": "node examples/purpose-demos/run-demo.mjs --profile event-desk --open",
+    "demo:assistant-explorer": "node examples/purpose-demos/run-demo.mjs --profile modular-assistant --open",
+    "demo:world-explorer": "node examples/purpose-demos/run-demo.mjs --profile digital-world --open",
     "check:repository": "node scripts/check-repository.mjs"
   }
 }

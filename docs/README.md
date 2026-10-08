@@ -11,6 +11,7 @@
 | 修改代码和维护合同 | [开发](development.md) |
 | 选择测试与解释结果 | [验证](verification.md) |
 | 构建、检查、迁移分发包 | [分发](releases.md) |
+| 按用途探索事件面板、模块化助手和数字世界 | [用途演示整合包](examples/purpose-demos.md) |
 | 多来源系统提示词、对话与 harness 示例 | [分布式上下文](examples/distributed-context.md) |
 | 多轮、每轮多程序的工作流示例 | [工作流](examples/workflows.md) |
 

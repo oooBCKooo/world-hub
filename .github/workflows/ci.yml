@@ -21,6 +21,8 @@ jobs:
         run: npm run check:repository
       - name: Node-only conformance and independent-program scenarios
         run: npm test
+      - name: Purpose demos and demo distribution
+        run: npm run test:demos
       - name: Build source distribution
         run: npm run build -- --output .artifacts/packages/world-hub-source
 
