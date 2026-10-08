@@ -3,6 +3,7 @@ import { asObject, boundedInteger, channel, openState, respondOrPublish } from '
 
 export async function startEventDeskPeer(context) {
   if (context.peer.id === 'aggregator') return startAggregator(context);
+  if (!['sensor', 'market'].includes(context.peer.id)) throw new Error('此来源由自己的独立程序入口实现');
   const sensor = context.peer.id === 'sensor';
   const state = await openState(context.stateDir, 'source-state.json', sensor
     ? { version: 1, intervalMs: 1400, offset: 0, count: 0, last: null }
@@ -50,14 +51,21 @@ export async function startEventDeskPeer(context) {
 
 async function startAggregator(context) {
   const state = await openState(context.stateDir, 'summary-state.json', { version: 1, received: 0, latest: {}, recent: [] });
-  const queryTopic = context.topic('summary'), sources = [context.topic('sensor/sample'), context.topic('market/sample')], updatedTopic = context.topic('summary/updated');
-  await context.openBridge('main', { channels: [...sources.map(name => channel(name, { publish: false, subscribe: true })), channel(queryTopic, { subscribe: true }), channel(updatedTopic)],
-    filters: [...sources, queryTopic], operations: ['publish', 'request', 'inject'],
-    onDelivery: async (message, bridge) => {
-      if ((message.operation ?? 'publish') === 'publish' && sources.includes(message.topic)) {
-        const source = message.topic === sources[0] ? 'sensor' : 'market';
+  const queryTopic = context.topic('summary'), sourceFilter = context.topic('+/sample'), updatedTopic = context.topic('summary/updated');
+  let tail = Promise.resolve();
+  const serialize = work => { const pending = tail.then(work); tail = pending.catch(() => {}); return pending; };
+  // This is the aggregator's application contract for independently introduced
+  // sources. Its subscription accepts new sources without a Hub category list.
+  await context.openBridge('main', { channels: [channel(queryTopic, { subscribe: true }), channel(updatedTopic)],
+    filters: [sourceFilter, queryTopic], operations: ['publish', 'request', 'inject'],
+    onDelivery: (message, bridge) => serialize(async () => {
+      const prefix = context.topic(''), parts = message.topic.split('/');
+      if ((message.operation ?? 'publish') === 'publish' && message.topic.startsWith(prefix) && parts.length === 4 && parts[3] === 'sample') {
+        const source = parts[2];
+        if (asObject(message.body).source !== source) throw new Error('来源样本必须遵循 source 与主题一致的汇总合同');
         const next = state.value; next.received++;
-        next.latest[source] = { value: message.body, from: message.from, seq: message.seq };
+        Object.defineProperty(next.latest, source, { enumerable: true, configurable: true, writable: true,
+          value: { value: message.body, from: message.from, topic: message.topic, seq: message.seq } });
         next.recent.push({ source, seq: message.seq, at: new Date().toISOString() }); next.recent = next.recent.slice(-40);
         await state.save(next);
         await bridge.publishConfirmed(updatedTopic, { kind: 'demo.summary-updated', received: next.received, latest: next.latest });
@@ -66,5 +74,6 @@ async function startAggregator(context) {
         if (body.command !== undefined && body.command !== 'snapshot') throw new Error('汇总程序仅支持 snapshot');
         await respondOrPublish(bridge, message, { ok: true, kind: 'demo.multi-source-summary', ...state.value }, null);
       }
-    } });
+    }) });
+  context.defer(() => tail);
 }

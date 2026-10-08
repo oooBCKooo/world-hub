@@ -1,46 +1,76 @@
-# 用途演示源码
+# 用途演示源码：改组合，看成果
 
-这是一组独立外部程序，用于探索世界枢纽的组合方式。Hub 只负责通讯；事件采集、参数控制、上下文组装、harness、世界状态、规则及 NPC 均在这些程序中实现。
+这组独立外部程序展示三种组合方式：把新的来源纳入同一面板、为上下文增加提供者并切换执行器、由多个程序逐轮产生世界变化。Hub 只转送约定信息；业务、状态和组合策略由各程序拥有。
 
-从仓库根目录运行：
+从源码仓库根目录选择一套：
 
 ```powershell
-node examples/purpose-demos/run-demo.mjs --profile event-desk --open
-node examples/purpose-demos/run-demo.mjs --profile modular-assistant --open
-node examples/purpose-demos/run-demo.mjs --profile digital-world --open
+npm run demo:events-explorer
+npm run demo:assistant-explorer
+npm run demo:world-explorer
 ```
 
-每次选择一个场景；默认写入独立运行目录。只读检查用 `--check` 替代 `--open`，停止时在所属终端按 Ctrl+C 并等待退出。完整的启动、构建、修改及验证指南见 [用途演示整合包](../../docs/examples/purpose-demos.md)。
+Node.js 22.4+ 即可启动，无需安装运行依赖。顶部“跟着这条路线试一遍”的步骤按钮只准备操作，再按“运行这个操作”真实发出信息；也可在“我想做什么？”中选择其他动作。表单可改参数，原始 JSON 与信封可展开。完整步骤和包运行说明见[动手探索指南](../../docs/examples/purpose-demos.md)。
 
-| 场景 | 外部程序负责的用途 |
-| --- | --- |
-| `event-desk` | 多来源事件输入、浏览器查看、回传参数修改 |
-| `modular-assistant` | 分布式系统提示词／对话／材料、上下文组装、确定性本地 harness、结果显示 |
-| `digital-world` | 独立世界状态、规则／行动、NPC、多轮结果显示 |
+| 场景 | 动手路线 | 应观察的真实成果 |
+| --- | --- | --- |
+| `event-desk` | 读取两源 → 启用第三种来源 → 再读汇总 | 新交通主题由独立来源登记，汇总增加交通读数；传感器另有控制桥 |
+| `modular-assistant` | 运行三源上下文 → 加入第四来源 → 换用清单执行器 | 来源与完整上下文增加 `extension`，执行器身份与成果形式改变 |
+| `digital-world` | 推进三轮 → 注入 NPC 倾向 → 运行休整回合 | 导演逐轮调用 NPC／规则／状态，起始状态、逐轮回执与最终变化对应 |
 
-助手演示不调用在线模型或 DSH。替换成真实 harness 是外部模块开发工作；Hub 不选择模型，不读取模型凭据，也不执行工具。
+扩展来源和替代执行器是已随演示启动的预置独立程序：交通初始只监听控制，启用后登记采样主题；助手由组装程序选择参与本轮的材料和执行器。这里没有任意可执行文件的自动热插拔。两个执行器均为确定性本地实现，返回 `modelInvoked: false`；需要真实模型或 DSH 时，由自己的外部执行器接入。
 
-## 文件与开发入口
+## 文件与替换入口
 
 | 文件 | 负责的内容 |
 | --- | --- |
-| [profiles.mjs](profiles.mjs) | 外部场景的程序与桥、动作、主题及定向目标 |
-| [run-demo.mjs](run-demo.mjs) | 创建新会话目录，启动并关闭本次拥有的 Hub 与外部程序 |
-| [peer.mjs](peer.mjs) | 根据 `--profile`、`--peer` 启动一个外部程序角色 |
-| [common.mjs](common.mjs) | 外部程序共用的桥、收发与状态文件工具 |
-| [event-desk.mjs](event-desk.mjs) | 两个来源的采样与参数、汇总订阅 |
-| [modular-assistant.mjs](modular-assistant.mjs) | 三个上下文提供者、上下文组装、模板 harness |
-| [digital-world.mjs](digital-world.mjs) | 世界状态、NPC、行动规则及多轮导演 |
-| [explorer.mjs](explorer.mjs) | 独立探索界面的 HTTP 入口与双向 mod |
-| [explorer.html](explorer.html)、[explorer.js](explorer.js)、[explorer.css](explorer.css) | 浏览器展示与操作 |
+| [profiles.mjs](profiles.mjs) | 外部程序、桥、操作、演练步骤、主题和目标；可声明独立 Node `entryFile` |
+| [run-demo.mjs](run-demo.mjs) | 建立新会话，生成接线配置，拥有并关闭本次 Hub／外部程序 |
+| [peer.mjs](peer.mjs) | 默认业务入口与独立入口共用的启动、ready、关闭约定 |
+| [common.mjs](common.mjs) | 双向桥、请求回应、状态文件及共用业务校验 |
+| [event-desk.mjs](event-desk.mjs) | 环境、行情和汇总；汇总按 `+/sample` 接收来源 |
+| [traffic-source.mjs](traffic-source.mjs) | 独立交通进程，控制输出、登记新采样主题和发布读数 |
+| [modular-assistant.mjs](modular-assistant.mjs) | 系统／对话／资料提供者、外部组装与模板执行器 |
+| [extension-material.mjs](extension-material.mjs) | 独立扩展材料提供者，实现相同材料请求合同 |
+| [checklist-harness.mjs](checklist-harness.mjs) | 独立清单执行器，实现相同上下文输入／回答输出合同 |
+| [digital-world.mjs](digital-world.mjs) | 独立世界状态、规则、NPC 与多轮导演 |
+| [explorer.mjs](explorer.mjs) | 独立浏览器界面程序的 HTTP 入口及双向 mod |
+| [explorer.html](explorer.html)、[explorer.js](explorer.js)、[explorer.css](explorer.css) | 引导操作、用途成果和可观察的通讯记录 |
 
-同一个业务文件通过不同 `--peer` 启动成独立进程；代码的组织方式不规定接入程序必须采用这种形态。传感器用两座桥，其余示例角色各用一座桥；探索界面也是通过自己的桥进行通讯的普通外部程序。
+默认业务文件通过不同 `--peer` 启动为独立进程；独立扩展文件使用自己的业务实现和入口。这样的源码组织不规定接入程序必须采取同一形态。传感器有采样与控制两座桥；探索界面也通过自己的桥通讯。
 
-修改时先画出程序与桥的对应关系，核对调用方、提供者、输入输出格式和主题权限。新的来源、角色或 `body.kind` 由 mod／程序接入，业务意义由参与程序约定。提供者决定何时释放信息，读取、回应和退出都不自动释放。
+## 从一个模块开始改
+
+| 想替换的程序 | 双方约定的合同入口 | 核对什么 |
+| --- | --- | --- |
+| 事件来源 | `<来源>/sample` 发布；需要控制时处理 `<来源>/control` | 实际发布桥 `from`、消息 `seq`、汇总 `latest` 与读数变化 |
+| 材料提供者 | `context/<提供者>` 的 `snapshot` 请求，返回 `text` 与 `revision` | `sources` 回执与 `context.materials` 包含该来源 |
+| 执行器 | `harness/run` 请求含 `context`、`sources`；返回 `answer` 与实现信息 | 实际执行器主体、请求／响应序号、结果与上下文对应 |
+| NPC／规则／状态 | `npc/plan`、`rules/step`、`world/state` | 导演 `receipts`、每轮 `timeline`、最终状态 |
+
+以上是演示业务的合同摘要，完整字段与错误返回以对应实现为准。主题前缀为 `demo/<场景>/`；寻址目标是程序的认证主体，桥名用于核对接线。Hub 的通用协议见[通讯规格](../../docs/specs/protocol.md)，各语言桥见[接入指南](../../docs/onboarding.md)。
+
+1. 先运行原场景并保存一次结果，确认输入、返回和程序身份。
+2. 写自己的实现，保留相邻程序所需的业务合同；更改信息格式时，同时调整外部调用方或消费者。
+3. 在 `profiles.mjs` 声明程序与桥，给新 Node 入口设置 `entryFile`；入口参照现有独立扩展实现相同参数、ready 和退出约定。演示选择材料与执行器的合法名称由外部组装程序约定，也要同步调整。
+4. 授予新身份所需的主题权限，让自己的 mod 登记主题并处理信息。无需给 Hub 新增业务 `kind`。
+5. 重新运行原链路与新增链路，查证真实来源、消息序号和成果，再构建分享包。
+
+这套启动器拥有 Node 进程。Python、其他运行时或已有软件须自行启动，或调整外部启动器与接线；修改名称不会自动适配其启动和业务合同。参考 `config/hub.json` 不参与本次演示会话，实际配置由启动器生成在本次运行目录。
+
+## 会话、检查与构建
+
+每次启动使用新的运行目录。也可以直接选择场景、只读检查或指定尚不存在的目录：
 
 ```powershell
+node examples/purpose-demos/run-demo.mjs --profile event-desk --check
+node examples/purpose-demos/run-demo.mjs --profile modular-assistant --state-dir './my-new-session' --open
 npm run test:demos
 npm run build:demos -- --profile event-desk
 ```
 
-测试和构建针对已有场景。换模块、增桥、改语言或扩展业务后，需单独验证新链路；不要把原始演示通过扩大为任意组合均已通过。
+`--check` 不启动程序、不建立文件。正常启动保留终端，在所属终端按 Ctrl+C 并等待关闭。Hub 记录与各外部程序状态分别保存，读取、ACK、回应、暂停和退出不等于提供者释放。每次新会话也不自动续接旧业务。
+
+“本界面观察到的信息”是界面实际有权观察的消息；其他程序之间的定向调用通过返回的 `sources`、`harness`、`receipts` 查证。测试、浏览器操作和 ZIP 解压验收各自记录，不能把完整性检查扩大为业务通过或任意组合通过。
+
+源码按 [MIT 许可](../../LICENSE)使用；便携包的 Node.js 与其他接入程序遵守各自许可。构建、数据文件、生命周期和适用范围见[完整探索指南](../../docs/examples/purpose-demos.md)。

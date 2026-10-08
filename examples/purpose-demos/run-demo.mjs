@@ -15,7 +15,8 @@ const required = ['package.json', 'config/hub.json', 'src/hub/hub-server.mjs', '
   'src/debug/page.mjs', ...['console.html', 'management-http.mjs', 'management-state.mjs', 'manual-bridge.mjs', 'manual-console.mjs', 'manual-experience-state.mjs', 'manual-console.css'].map(name => `src/management/${name}`),
   'sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-client.mjs',
   'tests/helpers/owned-program.mjs', 'examples/distributed-context/hub-process.mjs',
-  ...['profiles.mjs', 'peer.mjs', 'common.mjs', 'event-desk.mjs', 'modular-assistant.mjs', 'digital-world.mjs', 'explorer.mjs', 'explorer.html', 'explorer.css', 'explorer.js']
+  ...['profiles.mjs', 'peer.mjs', 'common.mjs', 'event-desk.mjs', 'modular-assistant.mjs', 'digital-world.mjs',
+    'traffic-source.mjs', 'extension-material.mjs', 'checklist-harness.mjs', 'explorer.mjs', 'explorer.html', 'explorer.css', 'explorer.js']
     .map(name => `examples/purpose-demos/${name}`)];
 
 export function parseDemoArgs(argv) {
@@ -132,7 +133,7 @@ export async function startPurposeDemo({ profile: id, stateDirectory = null, ope
     const peers = [];
     for (const peer of profile.peers) {
       const stateDir = join(sessionDir, 'programs', peer.id); await mkdir(stateDir, { recursive: true });
-      const child = await startOwnedProgram(join(root, 'examples/purpose-demos/peer.mjs'), {
+      const child = await startOwnedProgram(join(root, 'examples/purpose-demos', peer.entryFile ?? 'peer.mjs'), {
         args: ['--profile', profile.id, '--peer', peer.id, '--endpoint', hub.ready.endpoint,
           '--credential', DEMO_TOKEN, '--state-dir', stateDir], cwd: root });
       children.push(child); peers.push({ id: peer.id, label: peer.label, pid: child.child.pid, ready: child.ready });

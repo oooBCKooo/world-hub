@@ -70,6 +70,7 @@ try {
   } else if (suite === 'demos') {
     await execute('Purpose demos: real external programs, bidirectional actions, distributed context and world rounds', nodeTests([
       'tests/integration/purpose-demos/scenarios.test.mjs', 'tests/integration/purpose-demos/launcher.test.mjs',
+      'tests/integration/purpose-demos/explorer-view.test.mjs',
     ]), { test: true });
     await execute('Purpose bundles: allowlist, fixed profiles, integrity and safe build outputs', nodeTests(['scripts/release/demo-distribution.test.mjs']), { test: true });
   } else if (suite === 'dsh') {

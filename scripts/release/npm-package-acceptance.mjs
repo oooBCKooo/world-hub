@@ -43,7 +43,8 @@ function allowedPackageFile(path) {
     'sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-client.mjs', 'sdk/javascript/README.md',
     'sdk/python/hub_bridge.py', 'sdk/python/requirements.txt', 'sdk/python/README.md',
     'sdk/powershell/HubBridge.psm1', 'sdk/powershell/HubBridge.cs', 'sdk/powershell/README.md',
-    'docs/images/hub-topology.jpg', 'docs/images/hub-workbench.jpg'].includes(path)
+    'docs/images/hub-topology.jpg', 'docs/images/hub-workbench.jpg',
+    'docs/images/demo-event-desk.jpg', 'docs/images/demo-modular-assistant.jpg', 'docs/images/demo-digital-world.jpg'].includes(path)
     || /^src\/.+\.(?:mjs|js|html|css|json)$/.test(path)
     || /^docs\/.+\.md$/.test(path);
 }

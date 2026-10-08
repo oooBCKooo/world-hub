@@ -51,11 +51,12 @@ test('explorer serves actual assets, rejects invalid operations, and exports pro
   const directory = await workspace(t); const app = await session(t, join(directory, '中文 空格 会话'));
   const base = app.ready.url;
   const response = await fetch(base), page = await response.text();
-  assert.equal(response.status, 200); assert.match(page, /程序与桥/);
+  assert.equal(response.status, 200); assert.match(page, /id="programs"/);
+  assert.match(page, /id="dashboard"/); assert.match(page, /运行这个操作/);
   assert.match(response.headers.get('content-security-policy'), /frame-ancestors 'none'/);
   for (const asset of ['explorer.css', 'explorer.js']) assert.equal((await fetch(new URL(asset, base))).status, 200);
   const state = await (await fetch(new URL('api/state', base))).json();
-  assert.equal(state.explorer.connected, true); assert.equal(state.hubStatus.bridges.length, 5);
+  assert.equal(state.explorer.connected, true); assert.equal(state.hubStatus.bridges.length, 6);
   const action = state.profile.actions.find(value => value.id === 'sensor-reading');
   const post = (body, headers = {}) => fetch(new URL('api/action', base), { method: 'POST',
     headers: { 'content-type': 'application/json', 'x-demo-token': state.operationToken, ...headers }, body });

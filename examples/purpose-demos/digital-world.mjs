@@ -84,6 +84,7 @@ async function startDirector(context) {
       return result.response.body;
     };
     let snapshot = await call('state', 'world/state', { command: 'snapshot' });
+    const initialState = structuredClone(snapshot.world);
     for (let round = 1; round <= rounds; round++) {
       const npcPlan = await call('npc', 'npc/plan', { world: snapshot.world, runId, round });
       const proposal = await call('rules', 'rules/step', { world: snapshot.world, action, npcPlan, runId, round });
@@ -91,7 +92,7 @@ async function startDirector(context) {
       const step = { round, world: snapshot.world, revision: snapshot.revision, action, npc: npcPlan.description, description: proposal.description };
       timeline.push(step); await bridge.publishConfirmed(progress, { kind: 'demo.world-round', runId, ...step });
     }
-    const result = { ok: true, kind: 'demo.world-run', runId, rounds, action, timeline, finalState: snapshot.world, revision: snapshot.revision, receipts,
+    const result = { ok: true, kind: 'demo.world-run', runId, rounds, action, initialState, timeline, finalState: snapshot.world, revision: snapshot.revision, receipts,
       businessOwner: 'external-director-and-world-programs', resultFile: state.path };
     const next = state.value; next.completed++; next.lastResult = result; await state.save(next);
     await respondOrPublish(bridge, message, result, complete);

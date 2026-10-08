@@ -15,14 +15,15 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const DEMO_PROFILE_IDS = Object.freeze(['event-desk', 'modular-assistant', 'digital-world']);
 export const DEMO_FILES = Object.freeze([
   ...['profiles.mjs', 'peer.mjs', 'common.mjs', 'event-desk.mjs', 'modular-assistant.mjs',
-    'digital-world.mjs', 'run-demo.mjs', 'explorer.mjs', 'explorer.html', 'explorer.css', 'explorer.js']
+    'digital-world.mjs', 'traffic-source.mjs', 'extension-material.mjs', 'checklist-harness.mjs',
+    'run-demo.mjs', 'explorer.mjs', 'explorer.html', 'explorer.css', 'explorer.js']
     .map(name => `examples/purpose-demos/${name}`),
 ]);
 const lifecycleFiles = ['tests/helpers/owned-program.mjs', 'examples/distributed-context/hub-process.mjs'];
 const documentationFiles = [
   'examples/purpose-demos/README.md', 'sdk/javascript/README.md', 'sdk/python/README.md',
   'sdk/powershell/README.md', 'docs/README.md', 'docs/onboarding.md', 'docs/development.md',
-  'docs/deployment.md', 'docs/verification.md', 'docs/repository.md', 'docs/releases.md',
+  'docs/deployment.md', 'docs/verification.md', 'docs/repository.md', 'docs/releases.md', 'docs/npm.md',
   'docs/examples/distributed-context.md', 'docs/examples/workflows.md', 'docs/examples/purpose-demos.md',
   ...['index', 'boundaries', 'protocol', 'reliability-access', 'directed-and-bulk', 'management',
     'bridge-interoperability', 'manual-workbench', 'operations'].map(name => `docs/specs/${name}.md`),
@@ -36,20 +37,20 @@ export const DEMO_SOURCE_FILES = Object.freeze([
 const profileDetails = {
   'event-desk': {
     title: '多来源事件与双向控制台',
-    purpose: '传感器和行情程序提供事件，汇总程序抽取并汇总；同一个传感器程序分别通过数据桥与控制桥接入。',
-    actions: '观察多个来源的事件，再请求传感器当前信息或注入设置，检查事件与返回值的变化。',
+    purpose: '传感器和行情程序提供事件，再启用独立交通来源；汇总程序纳入新增主题，同一个传感器程序分别通过数据桥与控制桥接入。',
+    actions: '按界面实验路线，先读取两个来源，再接入独立交通来源，观察第三张来源卡片；修改传感器参数并对照后续读数。',
     modules: 'event-desk.mjs',
   },
   'modular-assistant': {
     title: '分布式上下文与模块化智能助手',
-    purpose: '系统提示词、用户对话和材料由三个程序提供，组合程序调用它们，再调用独立 harness 程序返回结果。',
-    actions: '输入用户对话并发起交互，观察三个来源、上下文组合和 harness 返回结果的通讯链。',
+    purpose: '从三个程序抽取系统提示、用户对话和材料，再加入独立扩展材料；组合程序选择模板或清单执行器返回成果。',
+    actions: '先组合三个上下文来源，再加入独立扩展材料；切换清单执行器，对照来源、执行器身份和成果形式。',
     modules: 'modular-assistant.mjs',
   },
   'digital-world': {
     title: '外部程序组成的动态数字世界',
     purpose: '世界状态、规则、NPC 和导演分别运行；导演每轮调用多个程序，世界状态由状态程序持有。',
-    actions: '推进世界回合并读取状态，观察导演、规则、NPC 与状态程序之间的多轮信息流。',
+    actions: '查看起始世界状态，推进三个回合或运行休整回合；对照每轮行动、状态变化和各程序返回的步骤回执。',
     modules: 'digital-world.mjs',
   },
 };
@@ -94,7 +95,7 @@ function bundleReadme(version, kind, profile) {
   const detail = profileDetails[profile];
   return `# 世界枢纽 ${version} 用途演示：${detail.title}\n\n${detail.purpose}\n\n${kind === 'windows-x64-portable'
     ? 'Windows x64 便携包，自带经官方 SHA-256 核对的 Node 22.23.2 与完整许可证。无需安装 npm 依赖。'
-    : '源码包，需要 Node 22.4.0 或更高版本。无需安装 npm 依赖。'}\n\n## 运行与探索\n\n1. 完整解压到可写目录；不要在 ZIP 预览窗口中启动。\n2. 首次先运行 \`check.cmd\` 检查环境，再运行 \`verify.cmd\` 检查包内源文件与 SHA-256 清单。\n3. 双击 \`start.cmd\`，浏览器打开演示界面；启动终端显示界面和枢纽的实际地址。默认使用空闲本机端口，不占用正式枢纽的数据目录。\n4. ${detail.actions}\n5. 在启动终端按 Ctrl+C，等待演示所属子进程收起。\n\n从其他工作目录也可运行这些脚本。终端直接启动：\`node examples/purpose-demos/run-demo.mjs --profile ${profile}\`；便携包可把 \`node\` 替换为 \`runtime\\node.exe\`。加 \`--open\` 自动打开浏览器。本包的 \`demo-profile.json\` 固定 \`${profile}\`，启动其他 profile 会被拒绝。\n\n## 业务与数据边界\n\n三个演示均由独立外部程序通过 mod 桥通讯。枢纽只负责接入、路由、保存与传送；上下文组合、模型调用、回合推进、NPC 和世界状态都在外部程序。\n\n智能助手演示中的 harness 使用确定性模板生成示例结果，没有真实智能模型、模型联网请求或全局 DSH 依赖。它用来展示接线和替换点，不能当作智能效果验收。事件与数字世界也是演示数据和简化业务。\n\n本包只附源码与参考接线，不附旧数据、私人配置、凭据、全局工具或测试证据。运行时新增数据均位于 \`data/\` 下。提供者未释放的枢纽记录仍保留；读取、ACK、停止与重启不等于释放。参考 \`config/hub.json\` 用于查看正常接线形态，演示启动器创建本次演示自己的配置。\n\n## 开发者修改入口\n\n- [完整探索指南](examples/purpose-demos/README.md)：各场景程序、桥、主题与操作。\n- [用途说明](docs/examples/purpose-demos.md)：适用方向与验证范围。\n- [场景注册](examples/purpose-demos/profiles.mjs)：外部程序声明与接线。\n- [当前业务模块](examples/purpose-demos/${detail.modules})：本场景的业务实现；替换独立程序或桥适配层。\n- [程序启动入口](examples/purpose-demos/peer.mjs)、[浏览器程序](examples/purpose-demos/explorer.mjs)、[桥 SDK](sdk/javascript/README.md)。\n- [通讯规格](docs/specs/protocol.md)与[枢纽边界](docs/specs/boundaries.md)。\n\n修改源码后完整性检查会提示差异，这是正常的修改检测。重新发布请在源码仓库运行 \`npm run build:demos\` 构建新包，禁止覆盖现有包；不要手动改 SHA 清单来掩盖未知损坏。\`verify.cmd\` 只检查文件完整性，端到端场景验收由源码仓库的测试命令执行。只有 \`data/**\` 可作为新增运行数据，包内配置、profile 与源码均参与校验。清单随文件一起被篡改时不提供发布者签名保证。\n\n这些本机示例展示有限资源下的组合能力；未宣称无限容量、跨机器可靠性、完整智能系统或完整数字世界已通过验收。\n`;
+    : '源码包，需要 Node 22.4.0 或更高版本。无需安装 npm 依赖。'}\n\n## 运行与探索\n\n1. 完整解压到可写目录；不要在 ZIP 预览窗口中启动。\n2. 首次先运行 \`check.cmd\` 检查环境，再运行 \`verify.cmd\` 检查包内源文件与 SHA-256 清单。\n3. 双击 \`start.cmd\`，浏览器打开演示界面；启动终端显示界面和枢纽的实际地址。默认使用空闲本机端口，不占用正式枢纽的数据目录。\n4. ${detail.actions}\n5. 在启动终端按 Ctrl+C，等待演示所属子进程收起。\n\n从其他工作目录也可运行这些脚本。终端直接启动：\`node examples/purpose-demos/run-demo.mjs --profile ${profile}\`；便携包可把 \`node\` 替换为 \`runtime\\node.exe\`。加 \`--open\` 自动打开浏览器。本包的 \`demo-profile.json\` 固定 \`${profile}\`，启动其他 profile 会被拒绝。\n\n## 业务与数据边界\n\n三个演示均由独立外部程序通过 mod 桥通讯。枢纽只负责接入、路由、保存与传送；上下文组合、模型调用、回合推进、NPC 和世界状态都在外部程序。\n\n智能助手演示包含模板与清单两种确定性本地执行器，没有真实智能模型、模型联网请求或全局 DSH 依赖。它展示预置独立程序之间的来源扩展与执行器切换；自己的程序仍需实现桥与应用通讯合同。事件与数字世界也是演示数据和简化业务。\n\n本包只附源码与参考接线，不附旧数据、私人配置、凭据、全局工具或测试证据。运行时新增数据均位于 \`data/\` 下。提供者未释放的枢纽记录仍保留；读取、ACK、停止与重启不等于释放。参考 \`config/hub.json\` 用于查看正常接线形态，演示启动器创建本次演示自己的配置。\n\n## 开发者修改入口\n\n- [完整探索指南](examples/purpose-demos/README.md)：各场景程序、桥、主题与操作。\n- [用途说明](docs/examples/purpose-demos.md)：适用方向与验证范围。\n- [场景注册](examples/purpose-demos/profiles.mjs)：外部程序声明与接线。\n- [当前业务模块](examples/purpose-demos/${detail.modules})：本场景的业务实现；替换独立程序或桥适配层。\n- [程序启动入口](examples/purpose-demos/peer.mjs)、[浏览器程序](examples/purpose-demos/explorer.mjs)、[桥 SDK](sdk/javascript/README.md)。\n- [通讯规格](docs/specs/protocol.md)与[枢纽边界](docs/specs/boundaries.md)。\n\n修改源码后完整性检查会提示差异，这是正常的修改检测。重新发布请在源码仓库运行 \`npm run build:demos\` 构建新包，禁止覆盖现有包；不要手动改 SHA 清单来掩盖未知损坏。\`verify.cmd\` 只检查文件完整性，端到端场景验收由源码仓库的测试命令执行。只有 \`data/**\` 可作为新增运行数据，包内配置、profile 与源码均参与校验。清单随文件一起被篡改时不提供发布者签名保证。\n\n这些本机示例展示有限资源下的组合能力；未宣称无限容量、跨机器可靠性、完整智能系统或完整数字世界已通过验收。\n`;
 }
 
 async function prepareRuntimeFiles(runtimeDirectory) {

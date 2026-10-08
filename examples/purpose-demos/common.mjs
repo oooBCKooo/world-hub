@@ -75,6 +75,7 @@ export function createContext({ profile, peer, endpoint, credential, stateDir })
       await Promise.all([...bridges.values()].map(bridge => bridge.close('purpose demo stopped')));
     },
     ready() { return { event: 'ready', profile: profile.id, peer: peer.id, principal: principalFor(profile.id, peer.id), pid: process.pid,
+      programEntry: peer.entryFile ?? 'peer.mjs', implementation: peer.implementation ?? `${profile.sourceFile}:${peer.id}`,
       stateDir, bridges: [...bridges].map(([id, bridge]) => ({ id, bridgeId: bridge.welcome?.bridge, declaredId: bridge.bridgeId,
         principal: bridge.welcome?.principal, session: bridge.welcome?.session, subscriptions: bridge.subscriptions, channels: bridge.channels })) }; },
   };

@@ -198,6 +198,22 @@ export async function acceptDemoArchive({ archive, evidence = join(repository, '
       assert.equal(resolve(ready.nodeExecutable), resolve(report.runtime));
       assert.equal(ready.pids.length, profile.peers.length + 2); assert.equal(new Set(ready.pids).size, ready.pids.length);
       assert.ok(ready.pids.every(pid => Number.isSafeInteger(pid) && pid > 0 && pidAlive(pid)));
+      const inspected = launch(powershell, ['-NoProfile', '-NonInteractive', '-Command',
+        "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false); $peerIds=ConvertFrom-Json -InputObject $env:WORLD_HUB_DEMO_OWNED_PIDS; $rows=@(foreach ($peerId in $peerIds) { Get-CimInstance -ClassName Win32_Process -Filter ('ProcessId=' + [int]$peerId) -ErrorAction Stop | Select-Object ProcessId,ParentProcessId,ExecutablePath,CommandLine }); ConvertTo-Json -InputObject $rows -Depth 4 -Compress"],
+      { cwd, env: { ...env, WORLD_HUB_DEMO_OWNED_PIDS: JSON.stringify(ready.peers.map(peer => peer.pid)) } });
+      const processInfo = JSON.parse((await finishCommand(inspected)).stdout);
+      assert.ok(Array.isArray(processInfo)); assert.equal(processInfo.length, profile.peers.length);
+      for (const peer of ready.peers) {
+        const declared = profile.peers.find(item => item.id === peer.id), actual = processInfo.find(item => item.ProcessId === peer.pid);
+        assert.ok(declared && actual, 'Each declared peer has its own live OS process');
+        const entry = declared.entryFile ?? 'peer.mjs';
+        assert.equal(peer.ready.pid, peer.pid); assert.equal(peer.ready.programEntry, entry);
+        assert.equal(actual.ParentProcessId, ready.pid, 'Launcher owns the peer process');
+        assert.equal(resolve(actual.ExecutablePath).toLowerCase(), resolve(report.runtime).toLowerCase());
+        const entryPath = join(bundle, 'examples/purpose-demos', entry).replaceAll('\\', '/').toLowerCase();
+        assert.ok(actual.CommandLine.replaceAll('\\', '/').toLowerCase().includes(entryPath), 'Actual OS command line runs the declared independent program entry');
+      }
+      report.peerProcesses = processInfo; await save('peer-processes.json', processInfo);
       assert.ok(inside(join(bundle, 'data'), ready.stateDirectory), 'Session state remains under package data/');
       base = ready.url; assert.match(base, /^http:\/\/127\.0\.0\.1:\d+\/$/);
       const assets = [];
@@ -206,7 +222,7 @@ export async function acceptDemoArchive({ archive, evidence = join(repository, '
         assert.equal(response.status, 200); const bytes = Buffer.from(await response.arrayBuffer()); assert.ok(bytes.length > 0);
         assets.push({ path: path || '/', bytes: bytes.length, sha256: sha(bytes) });
       }
-      await save('ready.json', ready); return { ready, assets };
+      await save('ready.json', ready); return { ready, assets, independentProcessEntries: processInfo.length };
     });
     const state = async () => {
       const response = await fetch(new URL('api/state', base), { signal: AbortSignal.timeout(5000) });
@@ -214,10 +230,10 @@ export async function acceptDemoArchive({ archive, evidence = join(repository, '
     };
     let token;
     const completed = []; report.actions = completed;
-    async function action(id) {
+    async function action(id, body) {
       const declaration = profile.actions.find(item => item.id === id); assert.ok(declaration);
       const response = await fetch(new URL('api/action', base), { method: 'POST', headers: { 'content-type': 'application/json', 'x-demo-token': token },
-        body: JSON.stringify({ id }), signal: AbortSignal.timeout(35000) });
+        body: JSON.stringify({ id, ...(body === undefined ? {} : { body }) }), signal: AbortSignal.timeout(35000) });
       const payload = await response.json(); assert.equal(response.status, 200, JSON.stringify(payload)); assert.equal(payload.ok, true, JSON.stringify(payload));
       const result = payload.result; assert.equal(result.action, id); assert.ok(result.receipt.seq > 0);
       assert.equal(result.target.principal, declaration.target.principal);
@@ -241,6 +257,7 @@ export async function acceptDemoArchive({ archive, evidence = join(repository, '
       return { actions: completed.map(result => ({ id: result.action, seq: result.receipt.seq, responded: Boolean(result.response), injectionObserved: Boolean(result.observedExecution) })) };
     });
     await step('repeated use produces additional results and changed external state', async () => {
+      let compositionProof;
       if (profile.id === 'event-desk') {
         const reading = await action('sensor-reading'); assert.equal(reading.response.body.offset, 8);
         assert.equal(reading.response.body.intervalMs, 900); assert.equal(Object.keys(reading.response.body.bridgeMapping).length, 2);
@@ -252,6 +269,34 @@ export async function acceptDemoArchive({ archive, evidence = join(repository, '
         const sensor = ready.peers.find(peer => peer.id === 'sensor'); assert.equal(sensor.ready.bridges.length, 2);
         assert.equal(new Set(sensor.ready.bridges.map(bridge => bridge.session)).size, 2);
         assert.equal(new Set(sensor.ready.bridges.map(bridge => bridge.principal)).size, 1);
+        const traffic = ready.peers.find(peer => peer.id === 'traffic');
+        assert.equal(traffic.ready.programEntry, 'traffic-source.mjs');
+        assert.ok(!traffic.ready.bridges[0].channels.some(channel => channel.name === 'demo/event-desk/traffic/sample'), 'New topic is absent at initial peer readiness');
+        const paused = (await action('traffic-disable', { command: 'disable' })).response.body;
+        assert.equal(paused.enabled, false); assert.equal(paused.topicRegistered, true);
+        await pause(1250);
+        assert.equal((await action('traffic-reading')).response.body.count, paused.count, 'External source actually pauses');
+        const history = (await action('summary')).response.body;
+        assert.ok(history.latest.traffic.seq > 0, 'Pausing preserves previously supplied information');
+        const activated = (await action('traffic-enable', { command: 'enable' })).response.body;
+        assert.equal(activated.enabled, true); assert.equal(activated.topicRegistered, true);
+        assert.equal(activated.declaredTopic, 'demo/event-desk/traffic/sample');
+        assert.equal(activated.principal, traffic.ready.principal);
+        // The program reports its configured bridge declaration; deliveries
+        // below identify the authenticated live bridge assigned by the Hub.
+        assert.equal(activated.bridge, traffic.ready.bridges[0].declaredId);
+        assert.ok(activated.count > paused.count);
+        await until(state, data => data.events.some(event => event.body?.kind === 'demo.summary-updated'
+          && event.body.latest.traffic?.seq > history.latest.traffic.seq), 'New independently provided traffic sample reaches external aggregator');
+        const threeSources = (await action('summary')).response.body;
+        assert.deepEqual(Object.keys(threeSources.latest).sort(), ['market', 'sensor', 'traffic']);
+        assert.equal(threeSources.latest.traffic.from, traffic.ready.bridges[0].bridgeId);
+        assert.equal(threeSources.latest.traffic.topic, activated.declaredTopic);
+        assert.equal(threeSources.latest.traffic.value.kind, 'demo.traffic-reading');
+        assert.ok(threeSources.latest.traffic.value.vehicles > 0);
+        assert.ok(threeSources.latest.traffic.seq > history.latest.traffic.seq);
+        compositionProof = { type: 'new-independent-source-and-topic', peer: traffic, retainedBeforeResume: history.latest.traffic,
+          registeredTopic: activated.declaredTopic, latest: threeSources.latest };
       } else if (profile.id === 'modular-assistant') {
         const result = (await action('compose')).response.body;
         assert.equal(result.modelInvoked, false); assert.equal(result.mode, 'deterministic-template');
@@ -261,16 +306,60 @@ export async function acceptDemoArchive({ archive, evidence = join(repository, '
         assert.equal(new Set(result.sources.map(item => item.principal)).size, 3);
         assert.ok(result.sources.every(item => item.requestSeq < item.responseSeq));
         assert.ok(result.harness.requestSeq < result.harness.responseSeq); assert.ok(result.answer.length > 0);
+        const baseline = ready.peers.find(peer => peer.id === 'harness'), extension = ready.peers.find(peer => peer.id === 'extension');
+        const replacement = ready.peers.find(peer => peer.id === 'checklist');
+        assert.notEqual(baseline.pid, replacement.pid); assert.notEqual(baseline.ready.programEntry, replacement.ready.programEntry);
+        assert.equal(extension.ready.programEntry, 'extension-material.mjs'); assert.equal(replacement.ready.programEntry, 'checklist-harness.mjs');
+        const prompt = '请列出可以独立替换的模块，并考虑新增的扩展约束。';
+        const original = (await action('compose-extension', { prompt, materialProviders: ['material', 'extension'], harnessProvider: 'harness' })).response.body;
+        const replaced = (await action('compose-checklist', { prompt, materialProviders: ['material', 'extension'], harnessProvider: 'checklist' })).response.body;
+        assert.deepEqual(original.sources.map(item => item.provider), ['system', 'dialogue', 'material', 'extension']);
+        assert.deepEqual(replaced.sources.map(item => item.provider), ['system', 'dialogue', 'material', 'extension']);
+        for (const answer of [original, replaced]) {
+          assert.equal(answer.modelInvoked, false); assert.equal(answer.context.messages.at(-1).content, prompt);
+          assert.equal(new Set(answer.sources.map(item => item.principal)).size, 4);
+          for (const source of answer.sources) {
+            const provider = ready.peers.find(peer => peer.id === source.provider); assert.ok(provider);
+            assert.equal(source.principal, provider.ready.principal); assert.equal(source.bridge, provider.ready.bridges[0].bridgeId);
+            assert.ok(source.requestSeq > 0 && source.requestSeq < source.responseSeq);
+          }
+          assert.ok(answer.harness.requestSeq > 0 && answer.harness.requestSeq < answer.harness.responseSeq);
+          assert.equal(answer.context.materials.at(-1).text, profile.actions.find(item => item.id === 'extension-update').body.text);
+          assert.ok(answer.answer.includes(answer.context.materials.at(-1).text));
+        }
+        assert.equal(original.harness.principal, baseline.ready.principal); assert.equal(original.harness.bridge, baseline.ready.bridges[0].bridgeId);
+        assert.equal(replaced.harness.principal, replacement.ready.principal); assert.equal(replaced.harness.bridge, replacement.ready.bridges[0].bridgeId);
+        assert.equal(original.executorImplementation, 'context-echo-template'); assert.equal(replaced.executorImplementation, 'source-checklist');
+        assert.equal(original.mode, 'deterministic-template'); assert.equal(replaced.mode, 'deterministic-checklist');
+        assert.deepEqual(original.context.materials, replaced.context.materials); assert.equal(original.context.systemPrompt, replaced.context.systemPrompt);
+        assert.notEqual(original.answer, replaced.answer); assert.match(replaced.answer, /模块检查清单/);
+        assert.equal(replaced.checklist.length, 4);
+        for (const item of replaced.checklist) {
+          const source = replaced.sources.find(source => source.provider === item.provider); assert.ok(source);
+          for (const key of ['principal', 'requestSeq', 'responseSeq']) assert.equal(item[key], source[key]);
+        }
+        assert.ok(replaced.context.messages.some(item => item.role === 'assistant' && item.content === original.answer), 'Real dialogue program retains the previous interaction');
+        compositionProof = { type: 'four-sources-and-independent-executor-replacement', sharedPrompt: prompt,
+          sourceCountBefore: result.sources.length, sourceCountAfter: replaced.sources.length,
+          baseline: { pid: baseline.pid, entry: baseline.ready.programEntry, harness: original.harness, implementation: original.executorImplementation, answer: original.answer },
+          replacement: { pid: replacement.pid, entry: replacement.ready.programEntry, harness: replaced.harness, implementation: replaced.executorImplementation, answer: replaced.answer },
+          sources: replaced.sources };
       } else if (profile.id === 'digital-world') {
         const advanced = (await action('advance')).response.body;
+        assert.deepEqual(advanced.initialState, { turn: 0, energy: 8, inventory: 0, position: 0, weather: '晴朗' });
         assert.equal(advanced.timeline.length, profile.actions.find(item => item.id === 'advance').body.rounds);
         assert.equal(advanced.finalState.turn, advanced.timeline.length); assert.ok(advanced.receipts.every(item => item.requestSeq < item.responseSeq));
         const rested = (await action('rest')).response.body;
+        assert.deepEqual(rested.initialState, advanced.finalState, 'Each new run starts from the actual external state');
         assert.ok(rested.finalState.turn > advanced.finalState.turn && rested.finalState.energy > advanced.finalState.energy);
         assert.ok(rested.timeline.every(item => item.npc.includes('两份补给')));
         const snapshot = (await action('world-snapshot')).response.body; assert.deepEqual(snapshot.world, rested.finalState);
+        compositionProof = { type: 'multi-round-external-state', initialState: advanced.initialState,
+          firstFinalState: advanced.finalState, nextInitialState: rested.initialState, finalState: rested.finalState,
+          timeline: [...advanced.timeline, ...rested.timeline], receipts: [...advanced.receipts, ...rested.receipts] };
       } else throw new Error('Unknown demo acceptance profile');
-      assert.ok(completed.length > profile.actions.length); return { completed: completed.length, repeatsProduceResults: true };
+      report.compositionProof = compositionProof; await save('composition-proof.json', compositionProof);
+      assert.ok(completed.length > profile.actions.length); return { completed: completed.length, repeatsProduceResults: true, compositionProof };
     });
     await step('downloaded export and external program state agree with outcomes', async () => {
       const response = await fetch(new URL('api/export', base), { signal: AbortSignal.timeout(5000) });
@@ -286,9 +375,20 @@ export async function acceptDemoArchive({ archive, evidence = join(repository, '
         assert.equal((await readState('programs/sensor/source-state.json')).offset, 8);
         assert.equal((await readState('programs/market/source-state.json')).base, 130);
         const aggregate = await readState('programs/aggregator/summary-state.json'); assert.ok(aggregate.latest.sensor && aggregate.latest.market);
+        assert.ok(aggregate.latest.traffic.seq > 0); assert.equal(aggregate.latest.traffic.value.kind, 'demo.traffic-reading');
+        const traffic = await readState('programs/traffic/traffic-state.json'); assert.equal(traffic.enabled, true); assert.ok(traffic.count > 0);
       } else if (profile.id === 'modular-assistant') {
         const composer = await readState('programs/composer/last-result.json'), harness = await readState('programs/harness/harness-state.json');
-        assert.equal(composer.completed, 2); assert.equal(harness.completed, 2); assert.equal(composer.lastResult.answer, completed.at(-1).response.body.answer);
+        const checklist = await readState('programs/checklist/checklist-state.json'), extension = await readState('programs/extension/extension-state.json');
+        const compositions = completed.filter(result => result.response?.body.kind === 'demo.distributed-assistant-result');
+        const templateRuns = compositions.filter(result => result.response.body.harnessProvider === 'harness');
+        const checklistRuns = compositions.filter(result => result.response.body.harnessProvider === 'checklist');
+        assert.equal(composer.completed, compositions.length); assert.equal(harness.completed, templateRuns.length);
+        assert.equal(checklist.completed, checklistRuns.length); assert.ok(templateRuns.length > 0 && checklistRuns.length > 0);
+        assert.equal(composer.lastResult.answer, compositions.at(-1).response.body.answer);
+        assert.equal(harness.lastResult.answer, templateRuns.at(-1).response.body.answer);
+        assert.equal(checklist.lastResult.answer, checklistRuns.at(-1).response.body.answer);
+        assert.equal(extension.text, profile.actions.find(item => item.id === 'extension-update').body.text);
         assert.equal((await readState('programs/dialogue/context-state.json')).messages.at(-1).content, composer.lastResult.answer);
       } else {
         const director = await readState('programs/director/last-run.json'), world = await readState('programs/state/world-state.json');
