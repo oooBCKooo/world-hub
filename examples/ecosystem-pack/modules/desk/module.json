@@ -1,0 +1,12 @@
+{
+  "format": "world-hub.module/v1",
+  "id": "demo.desk",
+  "version": "1.0.0",
+  "license": "MIT",
+  "platforms": ["win32-x64", "linux-x64", "darwin-arm64"],
+  "runtime": { "kind": "node", "entry": "program.mjs" },
+  "bridges": ["main"],
+  "provides": [],
+  "requires": [{ "id": "text.read", "version": "1.0.0" }, { "id": "text.statistics", "version": "1.0.0" }],
+  "permissions": { "filesystem": "instance-state", "network": ["hub-loopback", "loopback-listen"], "processes": "none" }
+}

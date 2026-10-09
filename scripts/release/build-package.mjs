@@ -19,6 +19,9 @@ export const SDK_FILES = ['sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-
   'sdk/powershell/HubBridge.psm1', 'sdk/powershell/HubBridge.cs'];
 export const SDK_DOCUMENTATION_FILES = Object.freeze(['sdk/javascript/README.md', 'sdk/python/README.md', 'sdk/powershell/README.md']);
 export const MODULE_CONTRACT_FILES = Object.freeze(['docs/modules/text-statistics.contract.json']);
+export const ECOSYSTEM_SCHEMA_FILES = Object.freeze(['docs/ecosystem/module.schema.json', 'docs/ecosystem/pack.schema.json', 'docs/ecosystem/pack-lock.schema.json']);
+export const ECOSYSTEM_RUNTIME_FILES = Object.freeze(['bin/world-hub-pack.mjs',
+  ...['index', 'runtime', 'package', 'paths', 'process', 'hub-process'].map(name => `scripts/runtime/${name}.mjs`)]);
 export const DOCUMENTATION_IMAGE_FILES = Object.freeze(
   ['hub-topology', 'hub-workbench', 'demo-event-desk', 'demo-modular-assistant', 'demo-digital-world', 'demo-capability-directory']
     .flatMap(name => [`docs/images/${name}.jpg`, `docs/images/${name}-en.jpg`]));
@@ -70,6 +73,8 @@ export async function buildPackage({ output, runtimeDirectory = null, sourceRoot
   for (const path of [...APPLICATION_FILES, ...SDK_FILES]) await copy(path, 'application');
   for (const path of SDK_DOCUMENTATION_FILES) await copy(path, 'documentation');
   for (const path of MODULE_CONTRACT_FILES) await copy(path, 'documentation-contract');
+  for (const path of ECOSYSTEM_SCHEMA_FILES) await copy(path, 'documentation-contract');
+  for (const path of ECOSYSTEM_RUNTIME_FILES) await copy(path, 'tooling');
   for (const path of EXAMPLE_FILES) await copy(path, 'example');
   await copy('scripts/launcher.mjs', 'tooling');
   await copy('scripts/launcher-support.mjs', 'tooling');
@@ -77,7 +82,8 @@ export async function buildPackage({ output, runtimeDirectory = null, sourceRoot
   await copy('config/hub.json', 'configuration');
   await copy('LICENSE', 'license');
   await add('package.json', JSON.stringify({ name: 'world-hub-bundle', version, private: true, type: 'module', license: 'MIT', engines: { node: '>=22.4.0' }, scripts: { start: 'node scripts/launcher.mjs', check: 'node scripts/launcher.mjs --check', 'verify:package': 'node scripts/release/verify-package.mjs' } }, null, 2) + '\n', 'tooling');
-  await add('README.md', portableReadme(version, kind).replace('\n\n', '\n\n[English](README.en.md)\n\n'), 'documentation');
+  await add('README.md', portableReadme(version, kind).replace('\n\n', '\n\n[English](README.en.md)\n\n')
+    + '\n## 可选外部程序包 Runtime\n\n本包另外携带 `bin/world-hub-pack.mjs`、独立 Runtime 与开放部署 Schema；可用 `node bin/world-hub-pack.mjs --help` 查看本地程序包检查、导入、启停和导出。便携包可把 node 换成 runtime\\node.exe。业务模块包另行取得，默认 Hub 启动不执行它们。按目标包锁准备自己的 Python 与依赖；本包没有 Python 便携运行时。权限是声明，工具不提供 OS 沙箱或自动安装。完整说明见[外部 Runtime](docs/ecosystem/runtime.md)与[开放部署规范](docs/ecosystem/pack-spec.md)。\n', 'documentation');
   await copy('README.en.md', 'documentation');
   await add('start.cmd', wrapper('start'), 'tooling');
   await add('check.cmd', wrapper('check'), 'tooling');

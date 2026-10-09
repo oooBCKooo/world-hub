@@ -43,3 +43,19 @@ jobs:
         run: python -m pip install -r sdk/python/requirements.txt
       - name: Cross-language scenarios and adapter acceptance
         run: npm run test:cross-language
+
+  ecosystem-runtime:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.2'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14.0'
+      - name: Install the declared Python dependency for the optional reference pack
+        run: python -m pip install -r sdk/python/requirements.txt
+      - name: External Runtime and source-pack integration acceptance
+        run: npm run test:ecosystem

@@ -15,6 +15,7 @@
 | 按用途探索事件面板、模块化助手、数字世界和能力替换 | [用途演示整合包](examples/purpose-demos.md) |
 | 独立编写可替换的能力提供者 | [提供者接入契约](modules/provider-contract.md)、[机器契约](modules/text-statistics.contract.json)、[JS SDK](../sdk/javascript/README.md) |
 | 外部能力目录、公开合同与独立处理器替换 | [能力目录示例](examples/capability-directory.md) |
+| 把本地独立程序部署成可重建整合包 | [开放部署声明](ecosystem/pack-spec.md)、[外部 Runtime](ecosystem/runtime.md)、[跨语言文本台](../examples/ecosystem-pack/README.md) |
 | 多来源系统提示词、对话与 harness 示例 | [分布式上下文](examples/distributed-context.md) |
 | 多轮、每轮多程序的工作流示例 | [工作流](examples/workflows.md) |
 

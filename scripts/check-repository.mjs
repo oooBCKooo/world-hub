@@ -18,6 +18,8 @@ const required = [...rootFiles, 'config/hub.json', 'src/hub/hub-server.mjs', 'sr
 const extensions = new Set(['.mjs', '.js', '.html', '.css', '.json', '.md', '.py', '.txt', '.psm1', '.cs', '.ps1', '.yml', '.yaml']);
 const forbiddenSegments = new Set(['.local', '.artifacts', 'dist', 'data', 'world-hub-data', '.hub', '.state', 'node_modules', '__pycache__', '.venv']);
 const screenshotPath = /^docs\/images\/[a-z0-9][a-z0-9._-]*\.(?:png|jpg)$/;
+const ecosystemLock = 'examples/ecosystem-pack/pack.lock';
+const ecosystemLicenses = new Set(['source', 'stats', 'desk'].map(name => `examples/ecosystem-pack/modules/${name}/LICENSE`));
 const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const jpegStartOfFrame = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -100,7 +102,8 @@ for (const path of paths) {
       || /(?:^|\/)(?:\.env(?:\..*)?|smoke-results\.json|self-check-result\.json|local[^/]*\.json)$/i.test(path)) reject(path, 'Local, generated or private file');
   if (path.startsWith('config/') && path !== 'config/hub.json') reject(path, 'Only the reference configuration can be published');
   const screenshot = screenshotPath.test(path);
-  if (!rootFiles.includes(path) && !extensions.has(extname(path)) && !screenshot) reject(path, 'Unexpected source file type');
+  if (!rootFiles.includes(path) && !extensions.has(extname(path)) && !screenshot
+      && path !== ecosystemLock && !ecosystemLicenses.has(path)) reject(path, 'Unexpected source file type');
   const key = path.toLowerCase();
   if (cases.has(key)) reject(path, 'Filename conflicts on case-insensitive filesystems');
   cases.set(key, path);
@@ -122,6 +125,16 @@ for (const path of paths) {
   try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
   catch { reject(path, 'Source is not UTF-8 text'); continue; }
   if (content.includes('\0')) reject(path, 'Binary data in source');
+  if (ecosystemLicenses.has(path) && hash(bytes) !== hash(await readFile(join(root, 'LICENSE')))) reject(path, 'Sample module license differs from the project MIT license');
+  if (path === ecosystemLock) {
+    try {
+      const lock = JSON.parse(content);
+      if (lock.format !== 'world-hub.pack-lock/v1' || !Array.isArray(lock.modules)
+          || lock.modules.length !== 3 || !lock.modules.every(module => ['modules/source', 'modules/stats', 'modules/desk'].includes(module.source))) {
+        reject(path, 'Only the public three-module sample lock is accepted');
+      }
+    } catch { reject(path, 'Sample pack.lock is not a JSON deployment lock'); }
+  }
   // Report filenames only. Never echo a matched credential into logs.
   if (/(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|AKIA[A-Z0-9]{16}|sk-[A-Za-z0-9]{32,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]{80,}?-----END)/.test(content)) reject(path, 'Possible real credential; review privately');
   if (/[A-Za-z]:[\\/](?:Users[\\/]|PerosProject[\\/]|AntigravityProject[\\/])/i.test(content)) reject(path, 'Personal machine path');

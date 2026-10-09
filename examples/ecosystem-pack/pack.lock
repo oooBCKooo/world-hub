@@ -1,0 +1,115 @@
+{
+  "format": "world-hub.pack-lock/v1",
+  "pack": {
+    "id": "demo.polyglot",
+    "version": "1.0.0",
+    "sha256": "8ec9cc512e8775366574b0c914a8db99b10e9fc2e94540656cd6d7cdf4c9486a"
+  },
+  "hubVersion": "0.15.0",
+  "platform": {
+    "os": "win32",
+    "arch": "x64"
+  },
+  "runtimes": {
+    "node": {
+      "version": "22.23.2"
+    },
+    "python": {
+      "version": "3.14.0",
+      "packages": {
+        "websockets": "15.0.1"
+      }
+    }
+  },
+  "modules": [
+    {
+      "id": "demo.desk",
+      "version": "1.0.0",
+      "source": "modules/desk",
+      "files": [
+        {
+          "path": "blob-client.mjs",
+          "sha256": "795790d6e52b852b1b89ac54357a97564bba4fff7275bb1ab009a7c871a5ab75"
+        },
+        {
+          "path": "bridge-kit.mjs",
+          "sha256": "29d48753667397ebde47d492f2d366b7fc646161f7115b5355e2923f871038c7"
+        },
+        {
+          "path": "index.html",
+          "sha256": "e8f91be941915be7f232df0e50eba09bbf487b8ad2b1fc8fcee29b43481e3ec6"
+        },
+        {
+          "path": "LICENSE",
+          "sha256": "e8ea5d5d1c47a3e1987afb046d86b55f4d3ef5bcb56ca0eb37ac7c7830a768c8"
+        },
+        {
+          "path": "module.json",
+          "sha256": "eeea5e2e6a53516494a5e42309be98207b365811352df9676e666bd2967a6255"
+        },
+        {
+          "path": "program.mjs",
+          "sha256": "4bd8a53248d6e045aebb7ea85287e257f4137ce785880c8510c410f0a816bff0"
+        },
+        {
+          "path": "ui.js",
+          "sha256": "fec6db388fbb7103b1a91c3130b1ad009a03ae49aad663a11c776f8a5c433306"
+        }
+      ]
+    },
+    {
+      "id": "demo.source",
+      "version": "1.0.0",
+      "source": "modules/source",
+      "files": [
+        {
+          "path": "blob-client.mjs",
+          "sha256": "795790d6e52b852b1b89ac54357a97564bba4fff7275bb1ab009a7c871a5ab75"
+        },
+        {
+          "path": "bridge-kit.mjs",
+          "sha256": "29d48753667397ebde47d492f2d366b7fc646161f7115b5355e2923f871038c7"
+        },
+        {
+          "path": "LICENSE",
+          "sha256": "e8ea5d5d1c47a3e1987afb046d86b55f4d3ef5bcb56ca0eb37ac7c7830a768c8"
+        },
+        {
+          "path": "module.json",
+          "sha256": "28fa03b397c8c7ec5a27611bf38ce6d2a5d771beebcea3daf825779af69b8dd9"
+        },
+        {
+          "path": "program.mjs",
+          "sha256": "80ae991e817c6dc3321191c30ddffb4189fe65bc7b7750c64c0b3428b9f3f276"
+        }
+      ]
+    },
+    {
+      "id": "demo.stats",
+      "version": "1.0.0",
+      "source": "modules/stats",
+      "files": [
+        {
+          "path": "hub_bridge.py",
+          "sha256": "ae5d4ef57e4e20f739bc32fadfb6a9c8ce079462eca203f6958a9e5d6ee7f3ce"
+        },
+        {
+          "path": "LICENSE",
+          "sha256": "e8ea5d5d1c47a3e1987afb046d86b55f4d3ef5bcb56ca0eb37ac7c7830a768c8"
+        },
+        {
+          "path": "module.json",
+          "sha256": "2cd0a5f9629358666f2af5d20928acd3b7a20c67b0331cc1fec09369bec14c73"
+        },
+        {
+          "path": "program.py",
+          "sha256": "4322a51627aab836d4552585c24778b399762a8977c4638e095b71e7676c34ae"
+        },
+        {
+          "path": "requirements.txt",
+          "sha256": "9ec828179a682425537349fb41440b48a47b1ef006b7b3e1d1542566d3ec6943"
+        }
+      ]
+    }
+  ]
+}

@@ -74,7 +74,7 @@ The demos use local events, a simplified world, and deterministic executors; no 
 
 To build a replaceable module from scratch against the same contract, start with the [provider integration contract](docs/modules/provider-contract.md) and [JavaScript SDK](sdk/javascript/README.md). The guide specifies business envelopes, capability registration and discovery, identity binding, leases, and result validation. The [machine-readable contract](docs/modules/text-statistics.contract.json) ships with npm, Hub bundles, and purpose demo bundles. Your deployer supplies the endpoint, separate identity credentials, and topic permissions, then configures the external catalog and composer. The Hub needs no new business types. The detailed provider guide is currently in Chinese.
 
-You can also build standalone source bundles or Windows portable bundles. See the [purpose demo guide](docs/examples/purpose-demos.md) for experiments, source editing entry points, and build instructions. The npm package contains the Hub, management interface, SDKs, and documentation; run purpose demos from the source repository or demo bundles.
+You can also build standalone source bundles or Windows portable bundles. See the [purpose demo guide](docs/examples/purpose-demos.md) for experiments, source editing entry points, and build instructions. The npm package contains the Hub, management interface, SDKs, optional external Runtime, and documentation; run purpose demos from the source repository or demo bundles.
 
 ## Design principles
 
@@ -155,7 +155,21 @@ To stop, press Ctrl+C in the owning terminal and wait for the process to exit. T
 
 `examples/` contains independent programs demonstrating bidirectional communication, multiple sources, multiple bridges, and workflows with multiple rounds. Examples connect through their own bridges, and each program implements its own business logic. The default launch starts only the Hub and management interface.
 
-The npm package contains the Hub, management interface, SDKs for three languages, reference configuration, and documentation. Source examples, tests, and bundle build tools are available in the GitHub repository and are not installed by npm. Clone the repository to run purpose demos or source tests.
+The npm package contains the Hub, management interface, SDKs for three languages, reference configuration, documentation, and the optional external `world-hub-pack` deployment tool. Source examples, tests, and bundle build tools are available in the GitHub repository and are not installed by npm. Clone the repository to run purpose demos or source tests.
+
+## Deploy independent programs as a pack
+
+The optional `world-hub-pack` tool imports reviewed local program packages into separate instances, then starts, observes, stops, restarts, and exports them. A module may carry several mod bridges. `module.json` declares program deployment, `pack.json` describes the composition, and `pack.lock` pins files, versions, platform, and preinstalled environments. These are [open external deployment declarations](docs/ecosystem/pack-spec.md); ordinary Hub programs do not have to adopt them.
+
+```powershell
+$review = world-hub-pack plan ./my-pack | ConvertFrom-Json
+world-hub-pack import ./my-pack --root ./pack-runtime --instance one
+world-hub-pack start --root ./pack-runtime --instance one --trust $review.digest
+```
+
+Review the contents, dependencies, and declared permissions before starting with the actual digest. Each instance has its own Hub, ports, credentials, and program state. Process status, self-reported health, and real bridge connections are observed separately. The [cross-language text desk pack](examples/ecosystem-pack/README.md) contains three real programs: a JavaScript text source, a Python statistics provider, and a JavaScript browser desk. The desk requests the source and statistics through the Hub and saves its own results, with Chinese and English UI. Its reference lock requires preinstalled Node 22.23.2, Python 3.14.0, and websockets 15.0.1.
+
+Runtime is an external deployment layer; the Hub remains a communication crossroads. This version uses explicit local sources and a separate Hub per instance. Permissions are declarations, with no OS sandbox, automatic dependency installation, online Workshop, or automatic business retry. See the [external Runtime guide](docs/ecosystem/runtime.md) for the CLI, public API, explicit re-locking, and data boundaries.
 
 ## Repository structure
 

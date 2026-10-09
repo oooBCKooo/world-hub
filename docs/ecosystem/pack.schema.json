@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/oooBCKooo/world-hub/docs/ecosystem/pack.schema.json",
+  "title": "Optional external program composition pack, v1",
+  "$comment": "Cross references, unique identities, concrete Hub topics, a cycle-free deployment DAG, exact contract bindings and effective ACLs require reference Runtime validation. These are external deployment choices, not Hub protocol requirements.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "id",
+    "version",
+    "title",
+    "license",
+    "topics",
+    "components",
+    "bindings",
+    "entry",
+    "startupTimeoutMs",
+    "healthTimeoutMs",
+    "stopTimeoutMs"
+  ],
+  "properties": {
+    "format": {
+      "const": "world-hub.pack/v1"
+    },
+    "id": {
+      "$ref": "#/$defs/id"
+    },
+    "version": {
+      "$ref": "#/$defs/version"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\u0000]+$"
+    },
+    "license": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000]+$"
+    },
+    "topics": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 64,
+      "propertyNames": {
+        "$ref": "#/$defs/id"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512,
+        "pattern": "^[^\\s\\u0000#+/]+(?:/[^\\s\\u0000#+/]+)*$"
+      }
+    },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "module",
+          "after",
+          "settings",
+          "bridges"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/id"
+          },
+          "module": {
+            "$ref": "#/$defs/id"
+          },
+          "after": {
+            "type": "array",
+            "maxItems": 31,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "settings": {
+            "type": "object"
+          },
+          "bridges": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 8,
+            "propertyNames": {
+              "$ref": "#/$defs/id"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "publish",
+                "subscribe"
+              ],
+              "properties": {
+                "publish": {
+                  "$ref": "#/$defs/topicAliases"
+                },
+                "subscribe": {
+                  "$ref": "#/$defs/topicAliases"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "bindings": {
+      "type": "array",
+      "maxItems": 1024,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to",
+          "contract"
+        ],
+        "properties": {
+          "from": {
+            "$ref": "#/$defs/id"
+          },
+          "to": {
+            "$ref": "#/$defs/id"
+          },
+          "contract": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "version"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[^\\u0000]+$"
+              },
+              "version": {
+                "$ref": "#/$defs/version"
+              }
+            }
+          }
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "component"
+      ],
+      "properties": {
+        "component": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "startupTimeoutMs": {
+      "$ref": "#/$defs/timeout"
+    },
+    "healthTimeoutMs": {
+      "$ref": "#/$defs/timeout"
+    },
+    "stopTimeoutMs": {
+      "$ref": "#/$defs/timeout"
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+    },
+    "version": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$"
+    },
+    "topicAliases": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/id"
+      }
+    },
+    "timeout": {
+      "type": "integer",
+      "minimum": 100,
+      "maximum": 60000
+    }
+  }
+}

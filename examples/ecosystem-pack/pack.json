@@ -1,0 +1,27 @@
+{
+  "format": "world-hub.pack/v1",
+  "id": "demo.polyglot",
+  "version": "1.0.0",
+  "title": "Cross-language text desk / 跨语言文本台",
+  "license": "MIT",
+  "topics": { "source": "sample/text/read", "stats": "sample/text/statistics" },
+  "components": [
+    { "id": "source", "module": "demo.source", "after": [],
+      "settings": { "text": "你好，世界 🌍\nHello World Hub\n" },
+      "bridges": { "main": { "publish": ["source"], "subscribe": ["source"] } } },
+    { "id": "stats", "module": "demo.stats", "after": [],
+      "settings": {},
+      "bridges": { "main": { "publish": ["stats"], "subscribe": ["stats"] } } },
+    { "id": "desk", "module": "demo.desk", "after": ["source", "stats"],
+      "settings": {},
+      "bridges": { "main": { "publish": ["source", "stats"], "subscribe": ["source", "stats"] } } }
+  ],
+  "bindings": [
+    { "from": "source", "to": "desk", "contract": { "id": "text.read", "version": "1.0.0" } },
+    { "from": "stats", "to": "desk", "contract": { "id": "text.statistics", "version": "1.0.0" } }
+  ],
+  "entry": { "component": "desk" },
+  "startupTimeoutMs": 10000,
+  "healthTimeoutMs": 3000,
+  "stopTimeoutMs": 3000
+}

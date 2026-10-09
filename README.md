@@ -74,7 +74,7 @@ npm run demo:events-explorer
 
 要从零开发遵守同一合同的可替换模块，请阅读[提供者接入契约](docs/modules/provider-contract.md)和[JavaScript SDK](sdk/javascript/README.md)。接入契约完整说明业务格式、能力登记与发现、身份绑定、租约和结果校验；[机器契约](docs/modules/text-statistics.contract.json)随 npm、Hub 整合包和用途演示包提供。部署方提供 endpoint、独立身份凭据与主题权限，再配置外部目录和组装器；枢纽无需增加业务种类。
 
-也可构建独立源码包或 Windows 便携整合包。逐步操作、源码修改入口和构建方法见[用途演示指南](docs/examples/purpose-demos.md)。npm 包只包含枢纽、管理界面、SDK 和文档；用途演示从源码仓库或演示整合包运行。
+也可构建独立源码包或 Windows 便携整合包。逐步操作、源码修改入口和构建方法见[用途演示指南](docs/examples/purpose-demos.md)。npm 包包含枢纽、管理界面、SDK、可选外部 Runtime 和文档；用途演示从源码仓库或演示整合包运行。
 
 ## 设计理念
 
@@ -155,7 +155,21 @@ node scripts/launcher.mjs --config config/local.json --port 8791
 
 `examples/`提供独立程序示例，展示双向、多来源、多桥及多轮工作流用法。示例通过自己的桥接入，业务由各程序实现。默认启动只启动Hub与管理界面。
 
-npm 包包含 Hub、管理界面、三个语言的 SDK、参考配置与文档；源码示例、测试和整合包构建工具在 GitHub 仓库中，不随 npm 安装。若要运行用途演示或源码测试，请先克隆仓库。
+npm 包包含 Hub、管理界面、三个语言的 SDK、参考配置、文档与可选的外部 `world-hub-pack` 部署工具；源码示例、测试和整合包构建工具在 GitHub 仓库中，不随 npm 安装。若要运行用途演示或源码测试，请先克隆仓库。
+
+## 把独立程序部署成整合包
+
+可选的 `world-hub-pack` 把一组已审阅的本地程序包导入为独立实例，统一启动、观察健康、停止、重启和导出。一个模块可携带多座 mod 桥；`module.json` 描述程序部署，`pack.json` 描述组合，`pack.lock` 锁定文件、版本、平台和预安装环境。它们是[开放的外部部署声明](docs/ecosystem/pack-spec.md)，不改变普通 Hub 程序的通讯形态。
+
+```powershell
+$review = world-hub-pack plan ./my-pack | ConvertFrom-Json
+world-hub-pack import ./my-pack --root ./pack-runtime --instance one
+world-hub-pack start --root ./pack-runtime --instance one --trust $review.digest
+```
+
+先检查 `plan` 的内容、依赖和权限声明，再使用实际摘要启动。每实例有自己的 Hub、端口、凭据和程序状态；进程、自报健康与真实桥连接分别显示。[跨语言文本台包](examples/ecosystem-pack/README.md)提供三个真实程序：JavaScript 原文来源、Python 统计、JavaScript 浏览器界面；界面经 Hub 请求来源和统计并自己保存成果，支持中文与 English。样例锁要求预安装 Node 22.23.2、Python 3.14.0 与 websockets 15.0.1。
+
+Runtime 是独立部署层，Hub 继续只做通讯十字路口。此版使用显式本地来源与每实例独立 Hub，权限是声明，未提供 OS 沙箱、自动依赖安装、在线 Workshop 或自动业务重试。完整 CLI／公开 API、锁更新及数据边界见[外部 Runtime](docs/ecosystem/runtime.md)。
 
 ## 仓库结构
 

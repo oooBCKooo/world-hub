@@ -9,6 +9,7 @@ npm 安装包的 `world-hub --check` 是部署前的只读环境与配置检查�
 | 默认 Node 通讯与管理回归、独立多程序场景 | `npm test` 或 `npm run verify` | Node 22；默认无需 DSH、Python、pwsh |
 | 四个用途演示的独立程序、通讯链路和 source 打包 | `npm run test:demos` | Node 22；无需模型账号或 DSH |
 | 外部能力目录、独立处理器替换与可解释故障 | `npm run test:capabilities` | Node 22；无模型账号或 DSH |
+| 可选外部 Runtime、真实 JS／Python 文本台、实例隔离与源码分发 | `npm run test:ecosystem` | 参考锁 Node 22.23.2、Python 3.14.0、websockets 15.0.1 |
 | npm CLI 与真实 tarball 隔离安装、启动、桥通讯及停机 | `npm run test:npm` | Node 22 + npm；不改用户全局安装，也不发布 |
 | JS／Python／PowerShell 互操作和三个候选桥 profile | `npm run test:cross-language` | Node、Python + websockets、PowerShell 7 |
 | 真实已安装 DSH 的隔离测试模型集成 | `npm run test:dsh` | Node、显式 `PEROS_DSH_ROOT` |
@@ -27,6 +28,14 @@ npm 安装包的 `world-hub --check` 是部署前的只读环境与配置检查�
 提供者接入材料包含[应用层接入契约](modules/provider-contract.md)、[机器契约](modules/text-statistics.contract.json)和[SDK 方法及独立请求／回应例子](../sdk/javascript/README.md)。能力集合中的 `ECOSYSTEM-11` 使用无项目历史的独立 AI 作者，只给冻结的这三份材料，从零生成新的提供者；验收以陌生模块 ID、主体和主题完成配置替换，并核对 Unicode、字节与 ID 边界、错误结构、授权、租约和重启恢复。固定程序与方法公开保留在源码测试装置中。这是 AI 文档隔离验收，不是已获得外部人类开发者的接入反馈；SDK 文件复制隔离、独立作者编写和实际业务完成分别保留证据。
 
 `ECOSYSTEM-10` 验证可信目录地址配置和持久恢复、缺失／非法租约字段拒绝、重复有效模块地址拒绝、过期旧广告不挡住新有效广告，以及切换 140 个查询主题后仍能执行。回应订阅按每步清理，ACK、等待结束和订阅移除均不 release。SDK 文档的 echo 提供者和调用方也曾按代码原文在真实 Hub 与独立进程中执行；它验证通用 SDK 示例，不替代统计模块验收。
+
+## 可选外部整合包 Runtime
+
+`npm run test:ecosystem` 选择 `tests/integration/ecosystem-runtime/` 的真实程序与分发检查。测试环境可通过 `WORLD_HUB_RUNTIME_TEST_PYTHON` 选择预安装解释器；依赖必须先由使用者准备。参考文本台以 JS 来源、Python 统计、JS 浏览器程序完成原文抽取、统计和成果保存；Runtime 只负责生命周期。
+
+该集合检查 CLI 导入与审阅摘要、真实通讯与应用结果、多实例配置／数据／凭据分离、停止／重启保留、导出后干净根目录重建、兼容模块配置替换、多桥，以及内容损坏、环境不符、权限声明、启动／健康／停机故障的拒绝或清理。源码分发另检查完整允许清单、模块锁定字节、Schema、CLI 在无仓库外部引用情况下检查样例，并拒绝额外生成文件。完整性检查、构建成功与实际解压包端到端运行分别取证，不能互相替代。
+
+进程存活、模块 `module-ready`、匹配 id 的 `module-health`、实际 Hub `/status` 中的桥身份／会话，以及每次应用成功是不同证据。部署权限声明没有 OS 强制隔离；解释器探针只检查用户选择的实际环境。这里不证明任意第三方程序安全、不证明跨机器运行，也不意味着业务超时后可安全重试。声明规范和运行接口见[开放部署规范](ecosystem/pack-spec.md)与[外部 Runtime](ecosystem/runtime.md)。
 
 ## 可选语言环境
 

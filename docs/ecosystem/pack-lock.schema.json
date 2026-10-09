@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/oooBCKooo/world-hub/docs/ecosystem/pack-lock.schema.json",
+  "title": "Exact local deployment source and environment lock, v1",
+  "$comment": "The file set and hashes cover carried module sources. Interpreter and Python dependency versions describe preinstalled environment compatibility; they do not prove identical binaries or OS isolation. Exact tree coverage, path safety and pack/module correspondence require the reference Runtime validator.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "pack",
+    "hubVersion",
+    "platform",
+    "runtimes",
+    "modules"
+  ],
+  "properties": {
+    "format": {
+      "const": "world-hub.pack-lock/v1"
+    },
+    "pack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "sha256"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "hubVersion": {
+      "$ref": "#/$defs/version"
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os",
+        "arch"
+      ],
+      "properties": {
+        "os": {
+          "type": "string", "minLength": 1, "maxLength": 32,
+          "pattern": "^[^\\u0000]+$"
+        },
+        "arch": {
+          "type": "string", "minLength": 1, "maxLength": 32,
+          "pattern": "^[^\\u0000]+$"
+        }
+      }
+    },
+    "runtimes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node"
+      ],
+      "properties": {
+        "node": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version"
+          ],
+          "properties": {
+            "version": {
+              "$ref": "#/$defs/version"
+            }
+          }
+        },
+        "python": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "packages"
+          ],
+          "properties": {
+            "version": {
+              "$ref": "#/$defs/version"
+            },
+            "packages": {
+              "type": "object",
+              "maxProperties": 32,
+              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$" },
+              "additionalProperties": { "$ref": "#/$defs/version" }
+            }
+          }
+        }
+      }
+    },
+    "modules": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "source",
+          "files"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/id"
+          },
+          "version": {
+            "$ref": "#/$defs/version"
+          },
+          "source": {
+            "$ref": "#/$defs/path"
+          },
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4096,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "sha256"
+              ],
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/path"
+                },
+                "sha256": {
+                  "$ref": "#/$defs/sha256"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+    },
+    "version": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))[^\\\\:\\u0000]+$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

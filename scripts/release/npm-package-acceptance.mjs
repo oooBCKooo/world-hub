@@ -12,6 +12,11 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const nonce = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID()}`;
 const safe = value => value.replaceAll('\\', '/');
+const ecosystemFiles = ['bin/world-hub-pack.mjs',
+  ...['index', 'package', 'paths', 'process', 'runtime', 'hub-process'].map(name => `scripts/runtime/${name}.mjs`),
+  'docs/ecosystem/pack-spec.md', 'docs/ecosystem/runtime.md',
+  ...['module', 'pack', 'pack-lock'].map(name => `docs/ecosystem/${name}.schema.json`)];
+const developerMaterial = ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md', ...ecosystemFiles];
 
 async function findNpmCli() {
   const candidates = [process.env.npm_execpath, join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js'),
@@ -48,7 +53,7 @@ function allowedPackageFile(path) {
     'docs/images/hub-topology-en.jpg', 'docs/images/hub-workbench-en.jpg',
     'docs/images/demo-event-desk-en.jpg', 'docs/images/demo-modular-assistant-en.jpg', 'docs/images/demo-digital-world-en.jpg',
     'docs/images/demo-capability-directory.jpg', 'docs/images/demo-capability-directory-en.jpg',
-    'docs/modules/text-statistics.contract.json'].includes(path)
+    'docs/modules/text-statistics.contract.json', ...ecosystemFiles].includes(path)
     || /^src\/.+\.(?:mjs|js|html|css|json)$/.test(path)
     || /^docs\/.+\.md$/.test(path);
 }
@@ -92,6 +97,8 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
     assert.equal(pkg.license, 'MIT'); assert.equal(pkg.bin?.['world-hub'], 'bin/world-hub.mjs');
     assert.equal(pkg.exports?.['.'], './sdk/javascript/bridge-kit.mjs');
     assert.equal(pkg.exports?.['./blob'], './sdk/javascript/blob-client.mjs');
+    assert.equal(pkg.exports?.['./runtime'], './scripts/runtime/index.mjs');
+    assert.equal(pkg.bin?.['world-hub-pack'], 'bin/world-hub-pack.mjs');
     assert.deepEqual(pkg.dependencies ?? {}, {}); assert.deepEqual(pkg.optionalDependencies ?? {}, {});
     await access(join(sourceRoot, 'LICENSE'));
     let archive;
@@ -104,7 +111,7 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
       assert.ok(report.pack.files.some(file => file.path === 'LICENSE'));
       assert.ok(report.pack.files.some(file => file.path === 'bin/world-hub.mjs'));
       assert.ok(report.pack.files.some(file => file.path === 'README.en.md'));
-      for (const path of ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md']) {
+      for (const path of developerMaterial) {
         assert.ok(report.pack.files.some(file => file.path === path), `Independent provider material is absent from the tarball: ${path}`);
       }
       archive = join(directory, report.pack.filename);
@@ -128,7 +135,7 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
       assert.equal(installed.name, pkg.name); assert.equal(installed.version, pkg.version); assert.equal(installed.license, 'MIT');
       assert.deepEqual(installed.bin, pkg.bin); assert.deepEqual(installed.exports, pkg.exports);
       assert.deepEqual(installed.dependencies ?? {}, {}); assert.deepEqual(installed.optionalDependencies ?? {}, {});
-      for (const path of ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md']) {
+      for (const path of developerMaterial) {
         assert.equal(hash(await readFile(join(installation, path))), hash(await readFile(join(sourceRoot, path))),
           `Provider material changed during npm packaging: ${path}`);
       }
@@ -143,7 +150,7 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
       'The public machine contract and compatibility example disagree');
     for (const entries of [beforeLocal, beforeGlobal]) {
       assert.ok(entries.some(file => file.path === 'README.en.md'), 'English README is absent from the installed package');
-      for (const path of ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md']) {
+      for (const path of developerMaterial) {
         assert.ok(entries.some(file => file.path === path), `Independent provider material is absent from the installed package: ${path}`);
       }
       assert.deepEqual(entries.filter(file => !allowedPackageFile(file.path)).map(file => file.path), [], 'Unexpected or generated installed file');
@@ -188,6 +195,11 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
       assert.equal(await asset.text(), await readFile(join(sourceRoot, path), 'utf8'), `Installed UI asset differs: ${path}`);
     }
     report.checks.push({ label: 'Installed bilingual UI serves the exact shared language module and both dictionaries', passed: true });
+    const runtimeCheckPath = join(localApp, 'runtime-check.mjs');
+    await writeFile(runtimeCheckPath, await readFile(join(sourceRoot, 'scripts/release/npm-runtime-check.mjs')));
+    const runtime = JSON.parse(await execute('Public installed Runtime API imports, starts, observes, stops and exports a real Node pack', process.execPath, [runtimeCheckPath], { cwd: workspace }));
+    assert.equal(runtime.passed, true); assert.equal(runtime.version, pkg.version); assert.equal(runtime.exited, true);
+    await execute('Installed optional pack CLI exposes its public command contract', process.execPath, [join(localPackage, 'bin/world-hub-pack.mjs'), '--help'], { cwd: workspace });
     const probe = join(localApp, 'sdk-probe.mjs');
     await writeFile(probe, `import assert from 'node:assert/strict';
 import { Bridge, WIRE_VERSION } from ${JSON.stringify(pkg.name)};
