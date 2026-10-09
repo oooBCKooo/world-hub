@@ -14,7 +14,7 @@ import { reserveEvidenceRun } from '../../helpers/evidence-run.mjs';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const SAMPLE = join(ROOT, 'examples/ecosystem-pack');
-const PYTHON = process.env.WORLD_HUB_RUNTIME_TEST_PYTHON ?? 'C:/Python314/python.exe';
+const PYTHON = process.env.WORLD_HUB_RUNTIME_TEST_PYTHON ?? (process.platform === 'win32' ? 'python.exe' : 'python3');
 const runFile = promisify(execFile);
 const environment = { nodePath: process.execPath, pythonPath: PYTHON };
 const options = { timeout: 90000, concurrency: false };
