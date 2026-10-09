@@ -7,6 +7,7 @@ import { join, resolve, dirname, basename, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { buildDemoPackages, DEMO_PROFILE_IDS, DEMO_SOURCE_FILES, parseDemoBuildArguments } from './build-demo-packages.mjs';
+import { DOCUMENTATION_IMAGE_FILES } from './build-package.mjs';
 import { verifyDemoPackage } from './verify-demo-package.mjs';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
@@ -57,6 +58,7 @@ test('all profiles are separate source packages with exact allowlist and fixed s
       'start.cmd', 'check.cmd', 'verify.cmd'].sort();
     assert.deepEqual(manifest.files.map(item => item.path).sort(), expected);
     assert.ok(manifest.files.some(item => item.path === 'README.en.md' && item.role === 'documentation'));
+    assert.deepEqual(manifest.files.filter(item => item.role === 'documentation-image').map(item => item.path).sort(), [...DOCUMENTATION_IMAGE_FILES].sort());
     const chineseReadme = await readFile(join(result.directory, 'README.md'), 'utf8');
     const englishReadme = await readFile(join(result.directory, 'README.en.md'), 'utf8');
     assert.match(chineseReadme, /\[English\]\(README\.en\.md\)/);
@@ -168,6 +170,23 @@ test('data is allowed but source/config damage and extra files fail verification
   checked = await verifyDemoPackage(changed);
   assert.ok(checked.failed.some(item => item.path === 'examples/purpose-demos/peer.mjs'));
   assert.ok(checked.failed.some(item => item.path === 'unlisted.json'));
+});
+
+test('missing UI language assets fail the read-only demo check before programs or data are created', async () => {
+  const changed = join(temporaryRoot, '缺少 双语资源');
+  await cp(built.packages[0].directory, changed, { recursive: true, force: false, errorOnExist: true });
+  for (const path of ['src/ui/language.mjs', 'src/management/canvas-i18n.mjs', 'src/management/manual-i18n.mjs', 'examples/purpose-demos/explorer-i18n.mjs']) {
+    const original = await readFile(join(changed, path));
+    await rm(join(changed, path));
+    const checked = spawnSync(process.execPath, [join(changed, 'examples/purpose-demos/run-demo.mjs'), '--profile', 'event-desk', '--check'],
+      { shell: false, windowsHide: true, encoding: 'utf8', timeout: 10_000 });
+    assert.equal(checked.error, undefined);
+    assert.notEqual(checked.status, 0, path);
+    assert.ok(checked.stderr.replaceAll('\\', '/').includes(path), checked.stderr);
+    await assert.rejects(lstat(join(changed, 'data')), { code: 'ENOENT' });
+    await writeFile(join(changed, path), original, { flag: 'wx' });
+  }
+  assert.equal((await verifyDemoPackage(changed)).passed, true);
 });
 
 test('unsafe manifest entries and a mismatched fixed profile are rejected', async () => {

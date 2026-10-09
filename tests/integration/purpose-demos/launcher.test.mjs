@@ -4,6 +4,7 @@ import { mkdtemp, lstat, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve, basename } from 'node:path';
 import { parseDemoArgs, checkDemo, startPurposeDemo } from '../../../examples/purpose-demos/run-demo.mjs';
+import { principalFor, bridgeFor } from '../../../examples/purpose-demos/profiles.mjs';
 
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
 async function workspace(t) {
@@ -61,6 +62,26 @@ test('explorer serves actual assets, rejects invalid operations, and exports pro
   }
   const state = await (await fetch(new URL('api/state', base))).json();
   assert.equal(state.explorer.connected, true); assert.equal(state.hubStatus.bridges.length, 6);
+  const management = await (await fetch(new URL('/manage/api/state', app.ready.managementUrl))).json();
+  const expectedPrincipals = [...app.profile.peers.map(peer => principalFor(app.profile.id, peer.id)),
+    principalFor(app.profile.id, 'explorer'), 'ui.manual'].sort();
+  assert.deepEqual(management.bridges.map(entry => entry.key).sort(), expectedPrincipals,
+    'declared instance IDs must not create additional offline annotation principals');
+  for (const peer of app.profile.peers) {
+    const principal = principalFor(app.profile.id, peer.id), annotated = management.bridges.find(entry => entry.key === principal);
+    assert.equal(annotated.kind, 'credential'); assert.equal(annotated.manageable, true);
+    assert.deepEqual(annotated.programs, [{ id: principal, name: peer.label }]);
+    assert.equal(annotated.instances.length, peer.bridges.length);
+    assert.deepEqual(annotated.instances.map(instance => instance.declaredId).sort(),
+      peer.bridges.map(bridge => bridgeFor(app.profile.id, peer.id, bridge.id)).sort());
+    assert.ok(annotated.instances.every(instance => instance.principal === principal));
+  }
+  const sensor = management.bridges.find(entry => entry.key === principalFor(app.profile.id, 'sensor'));
+  assert.equal(new Set(sensor.instances.map(instance => instance.bridgeId)).size, 2);
+  assert.equal(new Set(sensor.instances.map(instance => instance.session)).size, 2);
+  const explorer = management.bridges.find(entry => entry.key === principalFor(app.profile.id, 'explorer'));
+  assert.deepEqual(explorer.programs, [{ id: explorer.key, name: '用途探索界面' }]);
+  assert.equal(explorer.instances.length, 1);
   const action = state.profile.actions.find(value => value.id === 'sensor-reading');
   const post = (body, headers = {}) => fetch(new URL('api/action', base), { method: 'POST',
     headers: { 'content-type': 'application/json', 'x-demo-token': state.operationToken, ...headers }, body });

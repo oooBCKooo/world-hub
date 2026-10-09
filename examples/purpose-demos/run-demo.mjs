@@ -6,17 +6,18 @@ import { spawn } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startOwnedProgram } from '../../tests/helpers/owned-program.mjs';
-import { getProfile, principalFor, bridgeFor } from './profiles.mjs';
+import { getProfile, principalFor } from './profiles.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 export const DEMO_TOKEN = 'world-hub-purpose-demo'; // Public loopback demonstration credential.
 const required = ['package.json', 'config/hub.json', 'src/hub/hub-server.mjs', 'src/hub/ws-server.mjs',
   ...['acl', 'address', 'blob-protocol', 'blob-store', 'hub', 'identity', 'router', 'store', 'topic', 'wire-json'].map(name => `src/hub/lib/${name}.mjs`),
-  'src/debug/page.mjs', ...['console.html', 'management-http.mjs', 'management-state.mjs', 'manual-bridge.mjs', 'manual-console.mjs', 'manual-experience-state.mjs', 'manual-console.css'].map(name => `src/management/${name}`),
+  'src/debug/page.mjs', 'src/ui/language.mjs',
+  ...['console.html', 'canvas-i18n.mjs', 'management-http.mjs', 'management-state.mjs', 'manual-bridge.mjs', 'manual-console.mjs', 'manual-i18n.mjs', 'manual-experience-state.mjs', 'manual-console.css'].map(name => `src/management/${name}`),
   'sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-client.mjs',
   'tests/helpers/owned-program.mjs', 'examples/distributed-context/hub-process.mjs',
   ...['profiles.mjs', 'peer.mjs', 'common.mjs', 'event-desk.mjs', 'modular-assistant.mjs', 'digital-world.mjs',
-    'traffic-source.mjs', 'extension-material.mjs', 'checklist-harness.mjs', 'explorer.mjs', 'explorer.html', 'explorer.css', 'explorer.js']
+    'traffic-source.mjs', 'extension-material.mjs', 'checklist-harness.mjs', 'explorer.mjs', 'explorer.html', 'explorer.css', 'explorer.js', 'explorer-i18n.mjs']
     .map(name => `examples/purpose-demos/${name}`)];
 
 export function parseDemoArgs(argv) {
@@ -99,16 +100,17 @@ export async function startPurposeDemo({ profile: id, stateDirectory = null, ope
     const principal = principalFor(profile.id, peer.id);
     credentials[principal] = { token: DEMO_TOKEN, maxConnections: peer.bridges.length,
       allow: { publish: [`demo/${profile.id}/#`], subscribe: [`demo/${profile.id}/#`] } };
-    for (const bridge of peer.bridges) {
-      annotations[bridgeFor(profile.id, peer.id, bridge.id)] = { bridgeName: bridge.label,
-        programs: [{ id: principal, name: peer.label }] };
-    }
+    // Management annotations describe the credential principal, not a declared
+    // instance label. A program's multiple mod connections share this annotation;
+    // their actual instances and channels remain separately observable.
+    annotations[principal] = { bridgeName: `${peer.label} · Mod桥`,
+      programs: [{ id: principal, name: peer.label }] };
   }
   const explorerPrincipal = principalFor(profile.id, 'explorer');
   credentials[explorerPrincipal] = { token: DEMO_TOKEN, maxConnections: 1,
     allow: { publish: [`demo/${profile.id}/#`], subscribe: [`demo/${profile.id}/#`] } };
   credentials['ui.manual'] = { maxConnections: 4, allow: { publish: ['#'], subscribe: ['#'] } };
-  annotations[bridgeFor(profile.id, 'explorer', 'web')] = { bridgeName: '探索界面 · 双向桥',
+  annotations[explorerPrincipal] = { bridgeName: '探索界面 · 双向桥',
     programs: [{ id: explorerPrincipal, name: '用途探索界面' }] };
   const configFile = join(sessionDir, 'hub.json');
   await writeFile(configFile, JSON.stringify({ version: '0.1', hub: { id: `purpose-${profile.id}` },

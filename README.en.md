@@ -35,19 +35,19 @@ All three demos start real, independent programs that exchange information throu
 
 The event desk below is an actual run. Traffic readings appear alongside environment and market data. After the interface sends settings back to the environment program, readings continue with the new parameters.
 
-![Actual three-source event dashboard and control settings returned by the source program](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-event-desk.jpg)
+![English interface: actual three-source event dashboard and control settings returned by the source program](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-event-desk-en.jpg?v=0.13.2)
 
 <details>
 <summary>See actual results from four context sources and an independent executor</summary>
 
-![Four programs provide context; an independent checklist executor returns its output and actual source receipts](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-modular-assistant.jpg)
+![English interface: four programs provide context; an independent checklist executor returns its output and actual source receipts](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-modular-assistant-en.jpg?v=0.13.2)
 
 </details>
 
 <details>
 <summary>See three rounds of change in the external digital world</summary>
 
-![An independent director calls NPC, rules, and state programs, returning the initial state, three rounds of actions, and the final state](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-digital-world.jpg)
+![English interface: an independent director calls NPC, rules, and state programs, returning the initial state, three rounds of actions, and the final state](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-digital-world-en.jpg?v=0.13.2)
 
 </details>
 
@@ -93,14 +93,14 @@ Run `world-hub --open` to open the communications management interface. Purpose 
 
 The management canvas, communication workbench, and all three purpose demos offer Simplified Chinese / English switching and remember your choice in the browser. Switching changes interface wording and display formats; user-provided names, annotations, topics, application content, and original communication records retain their original text.
 
-![Hub management canvas: programs, bidirectional mod bridges, the Hub, and actual information flow](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-topology.jpg)
+![English interface: Hub management canvas with programs, bidirectional mod bridges, the Hub, and actual information flow](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-topology-en.jpg?v=0.13.2)
 
 The management canvas displays programs, bridges, the Hub, and information flow. It supports enabling and disabling connections and editing association annotations. Program annotations do not represent the actual execution state of external programs.
 
 <details>
 <summary>See the bidirectional mod communication workbench</summary>
 
-![Communication workbench: dynamic topics, original messages, and actual send/receive records](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-workbench.jpg)
+![English interface: communication workbench with dynamic topics, original messages, and actual send/receive records](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-workbench-en.jpg?v=0.13.2)
 
 The workbench uses its own mod to publish, subscribe, and retrieve information. It also supports requests and replies, injection, channel declarations, and attachment transfer. The screenshot shows an actual publication and the Hub's acceptance receipt.
 

@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile, lstat, access } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join, resolve, dirname, basename, sep, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { APPLICATION_FILES, SDK_FILES } from './build-package.mjs';
+import { APPLICATION_FILES, SDK_FILES, DOCUMENTATION_IMAGE_FILES } from './build-package.mjs';
 import { zipDirectory } from './zip.mjs';
 import { verifyDemoPackage } from './verify-demo-package.mjs';
 
@@ -32,7 +32,7 @@ const documentationFiles = [
 export const DEMO_SOURCE_FILES = Object.freeze([
   ...APPLICATION_FILES, ...SDK_FILES, ...DEMO_FILES, ...lifecycleFiles,
   'scripts/release/verify-package.mjs', 'scripts/release/verify-demo-package.mjs',
-  'config/hub.json', 'LICENSE', ...documentationFiles,
+  'config/hub.json', 'LICENSE', ...documentationFiles, ...DOCUMENTATION_IMAGE_FILES,
 ]);
 
 const profileDetails = {
@@ -167,7 +167,8 @@ export async function buildDemoPackages({ profile = 'all', outputRoot, runtimeDi
       files.push({ path: local, size: Buffer.byteLength(bytes), sha256: hash(bytes), role });
     }
     for (const [local, bytes] of inputs) {
-      const role = local === 'LICENSE' ? 'license' : documentationFiles.includes(local) ? 'documentation' : DEMO_FILES.includes(local) ? 'example'
+      const role = local === 'LICENSE' ? 'license' : documentationFiles.includes(local) ? 'documentation'
+        : DOCUMENTATION_IMAGE_FILES.includes(local) ? 'documentation-image' : DEMO_FILES.includes(local) ? 'example'
         : lifecycleFiles.includes(local) || local.startsWith('scripts/') ? 'tooling'
           : local === 'config/hub.json' ? 'configuration' : 'application';
       await add(local, bytes, role);

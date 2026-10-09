@@ -44,7 +44,9 @@ function allowedPackageFile(path) {
     'sdk/python/hub_bridge.py', 'sdk/python/requirements.txt', 'sdk/python/README.md',
     'sdk/powershell/HubBridge.psm1', 'sdk/powershell/HubBridge.cs', 'sdk/powershell/README.md',
     'docs/images/hub-topology.jpg', 'docs/images/hub-workbench.jpg',
-    'docs/images/demo-event-desk.jpg', 'docs/images/demo-modular-assistant.jpg', 'docs/images/demo-digital-world.jpg'].includes(path)
+    'docs/images/demo-event-desk.jpg', 'docs/images/demo-modular-assistant.jpg', 'docs/images/demo-digital-world.jpg',
+    'docs/images/hub-topology-en.jpg', 'docs/images/hub-workbench-en.jpg',
+    'docs/images/demo-event-desk-en.jpg', 'docs/images/demo-modular-assistant-en.jpg', 'docs/images/demo-digital-world-en.jpg'].includes(path)
     || /^src\/.+\.(?:mjs|js|html|css|json)$/.test(path)
     || /^docs\/.+\.md$/.test(path);
 }
