@@ -6,13 +6,13 @@
 
 ## npm 与 ZIP 分发
 
-npm 包提供 Hub CLI、可选外部 `world-hub-pack` Runtime 和 JavaScript、Python、PowerShell 三个 SDK，使用方式见[npm 包](npm.md)。JavaScript SDK 与 Runtime 有 npm 导出入口；另外两个 SDK 仍使用自己的语言环境，不由 Hub 加载。包使用明确的源码文件清单，不携带官方 Node 二进制、个人配置、通讯数据、测试装置或业务演示。默认首次部署在调用者自己的工作目录初始化配置和存储；升级 npm 安装不会覆盖这份部署数据。
+npm 包提供 Hub CLI、可选统一 Launcher、外部 `world-hub-pack` Runtime 和 JavaScript、Python、PowerShell 三个 SDK，使用方式见[npm 包](npm.md)。JavaScript SDK 与 Runtime 有 npm 导出入口；另外两个 SDK 仍使用自己的语言环境，不由 Hub 加载。包使用明确的源码文件清单，不携带官方 Node 二进制、个人配置、通讯数据、测试装置或业务演示。默认首次 Hub 部署在调用者自己的工作目录初始化配置和存储；升级 npm 安装不会覆盖这份部署数据。
 
 [提供者接入契约](modules/provider-contract.md)、[机器契约](modules/text-statistics.contract.json)和 SDK 文档随 npm、Hub 源码／便携包与用途演示包分发。机器契约采用明确文件清单；打包检查核对其与示例兼容副本的一致性，以及独立接入指南的本地链接。
 
 ZIP 分发适合独立目录部署或 Windows 便携使用。用途演示整合包另含外部业务程序，仍由自己的启动入口运行；它们不由 npm CLI 或默认 Hub 部署自动启动。
 
-npm 和 Hub 源码／便携 ZIP 随带 Runtime CLI、实现与三个开放部署 Schema，业务模块仍由使用者另行取得。选择 Runtime 不会改变默认 Hub 启动；完整的三程序组合由下面的独立生态源码 ZIP 分发。
+npm 和 Hub 源码／便携 ZIP 随带 Launcher 的本机服务与中英文页面、Runtime CLI、实现与三个开放部署 Schema，业务模块仍由使用者另行取得。选择 Launcher 或 Runtime 不会改变默认 Hub 启动；完整的三程序组合由下面的独立生态源码 ZIP 分发。
 
 ## 从源码构建
 
@@ -57,7 +57,7 @@ node scripts/release/build-ecosystem-package.mjs --output dist/world-hub-ecosyst
 node scripts/release/verify-package.mjs --root dist/world-hub-ecosystem-source
 ```
 
-这份独立源码 ZIP 携带 Hub、可选 Runtime CLI、Schema、当前接入文档，以及[跨语言文本台](../examples/ecosystem-pack/README.md)三个完整锁定模块。builder 使用明确的文件清单，复制前验证 `pack.lock` 和模块完整文件集，拒绝损坏、额外生成文件、路径跳转、链接和已有目标。打包不启动模块或安装依赖；锁定程序文件与桥保持原字节，只有一般文档副本适配未随带的链接。
+这份独立源码 ZIP 携带 Hub、可选统一 Launcher、Runtime CLI、Schema、当前接入文档，以及[跨语言文本台](../examples/ecosystem-pack/README.md)三个完整锁定模块。builder 使用明确的文件清单，复制前验证 `pack.lock` 和模块完整文件集，拒绝损坏、额外生成文件、路径跳转、链接和已有目标。打包不启动模块或安装依赖；锁定程序文件与桥保持原字节，只有一般文档副本适配未随带的链接。
 
 当前参考锁要求预安装 Node 22.23.2、Python 3.14.0、websockets 15.0.1 和锁定的平台。本包不携带 Node／Python 或第三方库二进制，不是 Python 便携包。导入、启动与版本／平台检查见[外部 Runtime](ecosystem/runtime.md)。实例数据、日志、凭据、依赖缓存、本机反馈与证据都不进入源码 ZIP；导出 Runtime 实例只导出锁定公开包。源码构建、完整性检查和实际解压包运行验收是不同证据。
 
@@ -66,6 +66,8 @@ node scripts/release/verify-package.mjs --root dist/world-hub-ecosystem-source
 完整解压后运行 `start.cmd`，它优先使用包内运行时，以包根 `config/hub.json` 启动并打开管理地址。终端保持运行，Ctrl+C 停止。源码包无自带运行时，使用 PATH 中 Node；Hub 没有 npm 运行依赖。Python、PowerShell 桥的环境由接入程序安排，不是启动 Hub 的前提。
 
 直接使用 `node scripts/launcher.mjs` 不打开浏览器，加 `--open` 显式打开。配置路径与运行文件根据包位置解析，不依赖启动者工作目录；配置中的相对数据路径按配置目录解析。`--port`、`--config` 等部署选项见启动器 `--help`。
+
+Hub 源码／便携包还提供可选 `ui.cmd`，源码或生态包可用 `node bin/world-hub.mjs ui --root ./data/launcher --open` 进入统一 Launcher。便携包可以把 `node` 换成 `runtime/node.exe`。它默认显示“我的整合包”，已有 `start.cmd` 和 `world-hub --open` 继续直接启动 Hub 管理。整合包来源在 UI 中填写本机目录，环境与权限经过审阅后才能明确授权启动。源码／便携 Hub 包不附业务整合包；生态源码包可选择包内 `examples/ecosystem-pack`。实例根目录包含私人凭据和状态，不能作为公开整合包分享。更多操作见[Launcher](ecosystem/launcher.md)。
 
 `check.cmd` 或 `node scripts/launcher.mjs --check` 只读检查环境、配置、必需文件和数据占用，不启动、不创建数据目录。`verify.cmd` 或验证脚本校验全部原始文件；用户明确选择 `--allow-config-change` 才放过 `config/hub.json` 内容变化，仍检查源码与运行时。新增 `data/**` 不参与原始程序校验，新增程序文件则仍视为清单外；自己的程序放在包外。
 
@@ -86,6 +88,8 @@ node scripts/release/verify-package.mjs --root dist/world-hub-ecosystem-source
 ## 分发验收
 
 npm 发布前运行 `npm run test:npm`，以实际 tarball 在中文空格路径中进行独立本地与全局前缀安装，检查命令入口、数据目录、管理界面、JavaScript 导出和真实桥通讯。也可用 `node scripts/release/npm-package-acceptance.mjs` 单独生成并验收 tarball；输出包与报告留在忽略的 `.artifacts/npm/`，该工具不执行发布。
+
+`npm run test:launcher` 另行检查本地管理认证、审阅变化后的授权拒绝、实例启停与异常、精确桥归属和通过 Launcher 管理的跨语言实际应用调用。源码／便携 ZIP 的 manifest 和 npm tarball 必须携带 Launcher 全部后端及四个静态文件；清单核对不能替代从实际安装包／解压包运行 Launcher 的验收，也不等同于人工浏览器体验验收。
 
 `scripts/release/` 提供可重跑的包级工具，输入实际解压目录和新的包外证据目录。例如：
 

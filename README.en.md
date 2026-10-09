@@ -12,6 +12,21 @@ External program ↔ its mod bridge ↔ World Hub ↔ another mod bridge ↔ ano
 
 World Hub is their shared communications crossroads: it accepts, addresses, retains, and forwards information. Each program owns its business logic, state, and implementation.
 
+## Start with the unified interface
+
+```powershell
+npm install -g world-hub
+world-hub ui --open
+```
+
+The interface opens **My packs**. Inspect a local pack and its required environment, import an independent instance, then review the actual code and declared permissions before starting. Instance details show processes, health, readiness, real bridge connections, and logs, with links to that instance's Hub topology and communication workbench. Stop, review and restart, or export package sources and their lock. Simplified Chinese and English are available. Program state stays in the instance directory; exported packages exclude runtime data.
+
+For a first experiment, clone this repository, install the versions of Node, Python, and websockets specified by the [cross-language text desk](examples/ecosystem-pack/README.md), run `npm run ui -- --open`, and import `examples/ecosystem-pack`. Three real programs perform JavaScript source → Python statistics → JavaScript interface calls. The npm installation does not include example programs; import your own pack or use a [source pack bundle](docs/releases.md).
+
+Launcher is an optional local deployment and navigation tool that calls the external Runtime. Hub Core continues to handle communication. Independent programs, `world-hub --open`, and headless deployment remain available on their own. Install environments beforehand; declared permissions support review, with no operating-system sandbox. See the [unified interface guide](docs/ecosystem/launcher.md), currently in Chinese.
+
+![Unified interface: a running cross-language pack and its independent programs](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-launcher-en.jpg?v=0.16.0)
+
 ## What can you compose?
 
 | System you want to build | Separate external programs | How they cooperate through the Hub |
@@ -184,6 +199,7 @@ docs/specs/           Current communication specifications
 examples/             Independent program examples and purpose demos
 tests/                Communication regression tests, integration tests, and fixtures
 scripts/              Launch, validation, build, and distribution tools
+tools/launcher/       Optional pack management backend and unified browser entry
 .github/workflows/    Windows continuous integration
 ```
 

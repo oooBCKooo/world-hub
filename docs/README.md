@@ -6,6 +6,7 @@
 | --- | --- |
 | 启动、配置、数据与容量 | [部署](deployment.md) |
 | 通过 npm 安装 CLI、取得三个语言 SDK | [npm 包](npm.md) |
+| 从浏览器导入、审阅和运行本地整合包 | [统一 Launcher](ecosystem/launcher.md) |
 | 用自己的程序接入 | [mod 接入](onboarding.md) |
 | 当前规范 | [规范索引](specs/index.md) |
 | 理解源码目录与组件责任 | [仓库结构](repository.md) |

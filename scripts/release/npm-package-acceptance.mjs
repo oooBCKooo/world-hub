@@ -7,6 +7,7 @@ import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startOwnedProgram } from '../../tests/helpers/owned-program.mjs';
+import { LAUNCHER_FILES } from './build-package.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -16,7 +17,7 @@ const ecosystemFiles = ['bin/world-hub-pack.mjs',
   ...['index', 'package', 'paths', 'process', 'runtime', 'hub-process'].map(name => `scripts/runtime/${name}.mjs`),
   'docs/ecosystem/pack-spec.md', 'docs/ecosystem/runtime.md',
   ...['module', 'pack', 'pack-lock'].map(name => `docs/ecosystem/${name}.schema.json`)];
-const developerMaterial = ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md', ...ecosystemFiles];
+const developerMaterial = ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md', 'docs/ecosystem/launcher.md', ...ecosystemFiles, ...LAUNCHER_FILES];
 
 async function findNpmCli() {
   const candidates = [process.env.npm_execpath, join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js'),
@@ -51,9 +52,10 @@ function allowedPackageFile(path) {
     'docs/images/hub-topology.jpg', 'docs/images/hub-workbench.jpg',
     'docs/images/demo-event-desk.jpg', 'docs/images/demo-modular-assistant.jpg', 'docs/images/demo-digital-world.jpg',
     'docs/images/hub-topology-en.jpg', 'docs/images/hub-workbench-en.jpg',
+    'docs/images/hub-launcher.jpg', 'docs/images/hub-launcher-en.jpg',
     'docs/images/demo-event-desk-en.jpg', 'docs/images/demo-modular-assistant-en.jpg', 'docs/images/demo-digital-world-en.jpg',
     'docs/images/demo-capability-directory.jpg', 'docs/images/demo-capability-directory-en.jpg',
-    'docs/modules/text-statistics.contract.json', ...ecosystemFiles].includes(path)
+    'docs/modules/text-statistics.contract.json', ...ecosystemFiles, ...LAUNCHER_FILES].includes(path)
     || /^src\/.+\.(?:mjs|js|html|css|json)$/.test(path)
     || /^docs\/.+\.md$/.test(path);
 }
@@ -200,6 +202,12 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
     const runtime = JSON.parse(await execute('Public installed Runtime API imports, starts, observes, stops and exports a real Node pack', process.execPath, [runtimeCheckPath], { cwd: workspace }));
     assert.equal(runtime.passed, true); assert.equal(runtime.version, pkg.version); assert.equal(runtime.exited, true);
     await execute('Installed optional pack CLI exposes its public command contract', process.execPath, [join(localPackage, 'bin/world-hub-pack.mjs'), '--help'], { cwd: workspace });
+    await execute('Installed unified UI CLI exposes its optional command contract', process.execPath, [join(localPackage, 'bin/world-hub.mjs'), 'ui', '--help'], { cwd: workspace });
+    const launcherCheckPath = join(localApp, 'launcher-check.mjs');
+    await writeFile(launcherCheckPath, await readFile(join(sourceRoot, 'scripts/release/npm-launcher-check.mjs')));
+    const launcherCheck = JSON.parse(await execute('Installed Launcher serves exact assets and manages a reviewed real pack through authenticated APIs', process.execPath,
+      [launcherCheckPath], { cwd: workspace }));
+    assert.equal(launcherCheck.passed, true); assert.equal(launcherCheck.version, pkg.version); assert.equal(launcherCheck.stopped, true);
     const probe = join(localApp, 'sdk-probe.mjs');
     await writeFile(probe, `import assert from 'node:assert/strict';
 import { Bridge, WIRE_VERSION } from ${JSON.stringify(pkg.name)};

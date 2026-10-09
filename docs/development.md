@@ -13,6 +13,16 @@ npm start
 
 管理工作台是普通浏览器 mod。管理 API 只处理本机接入与观察；修改数据面功能必须同时维护其协议实现、桥行为与回归，不把管理 API 变成代发业务消息的捷径。
 
+统一 Launcher 是 `tools/launcher/` 中的可选外部工具，复用 `scripts/runtime/` 与现有 Hub 管理页面。源码启动如下，`npm start` 仍按原方式启动 Hub：
+
+```powershell
+node bin/world-hub.mjs ui --open
+node bin/world-hub.mjs ui --root .artifacts/my-launcher --port 0 --open
+npm run test:launcher
+```
+
+选择一个启动命令，使用终端输出的一次性浏览器授权入口。Launcher 不导入业务模块到服务进程；审阅和启动都重新校验当前代码与所选环境。修改界面或控制接口时，维护当前审阅的明确授权、精确实例／运行／桥会话归属、停止的实际进程退出确认、文本渲染和同源管理边界。测试覆盖由服务驱动的真实跨语言交互及异常、安全场景；浏览器外观检查与 API 回归是不同证据。[Launcher 流程与接口](ecosystem/launcher.md)说明界面职责。
+
 ```powershell
 npm test
 npm run demo:management

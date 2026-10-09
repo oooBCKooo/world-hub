@@ -81,6 +81,15 @@ export async function privateJson(file, value, { exclusive = false } = {}) {
   const temporary = file + '.' + randomUUID() + '.tmp';
   try {
     await writeFile(temporary, bytes, { flag: 'wx', mode: 0o600 });
-    await rename(temporary, file);
+    // Windows readers and antivirus can briefly deny replacement of the old
+    // journal. Retry the same atomic rename; never remove the destination or
+    // turn a persistent permission failure into an in-place write.
+    for (let attempt = 0; ; attempt++) {
+      try { await rename(temporary, file); break; }
+      catch (error) {
+        if (process.platform !== 'win32' || !['EPERM', 'EACCES'].includes(error.code) || attempt >= 9) throw error;
+        await new Promise(resolveWait => setTimeout(resolveWait, Math.min((attempt + 1) * 25, 100)));
+      }
+    }
   } catch (error) { try { await unlink(temporary); } catch {} throw error; }
 }

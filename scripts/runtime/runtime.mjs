@@ -57,7 +57,7 @@ export async function startInstance(options) {
     if (state.hub) state.hub.exit = hub?.exit;
     const allExited = children.every(h => h.exit);
     if (!allExited) { state.cleanupIncomplete = true; failures.push({ code: 'CLEANUP_INCOMPLETE', message: 'Some owned process exits are unconfirmed; ownership lock and supervisor retained' }); }
-    if (allExited) state.stoppedAt = new Date().toISOString();
+    if (allExited) { delete state.cleanupIncomplete; state.stoppedAt = new Date().toISOString(); }
     await attempt(() => privateJson(join(runDir, 'logs.json'), logs()));
     if (failures.length) { state.state = 'failed'; state.failure ??= failures[0]; state.cleanupErrors = failures; }
     else if (state.state !== 'failed') state.state = 'stopped';
@@ -197,7 +197,11 @@ export async function startInstance(options) {
   } catch (error) {
     if (startupCancelled) { state.state = 'stopping'; error.code = 'START_STOPPED'; }
     else { state.state = 'failed'; state.failure = publicError(error); }
-    await close(); throw error;
+    await close();
+    // A failed startup can still own children whose exits are unconfirmed.
+    // Preserve this exact owner's retry handle rather than rediscovering it by PID.
+    Object.defineProperty(error, 'runtimeSession', { value: { close, closed, status: async () => snapshot() } });
+    throw error;
   }
 }
 async function controlRequest(options, path, method = 'GET', expectedRunId = null) {
@@ -229,7 +233,7 @@ export async function logsInstance(options) {
 export async function stopInstance(options) {
   const directory = instancePath(options.root, options.instanceId), file = join(directory, 'status.json');
   let state = await json(file);
-  if (['stopped', 'failed'].includes(state.state) && state.stoppedAt) return state;
+  if (['stopped', 'failed'].includes(state.state) && state.stoppedAt && !state.cleanupIncomplete) return state;
   const runId = state.runId;
   await controlRequest(options, '/stop', 'POST', runId);
   const deadline = Date.now() + 120000;

@@ -766,6 +766,7 @@
     </div>
 
     <div class="top-actions">
+      <a class="hud-btn hidden" id="launcher-home-link" rel="noopener noreferrer"></a>
       <label class="sr-only" for="canvas-language" data-i18n="界面语言">界面语言</label>
       <select class="hud-btn" id="canvas-language" aria-label="界面语言" data-i18n-aria-label="界面语言">
         <option value="zh-CN">中文</option>
@@ -821,6 +822,7 @@
     <div class="drawer-body">
       <!-- Bridge Specific Container -->
       <div id="ins-bridge-content" class="drawer-content-group">
+        <div id="launcher-links" class="section-block hidden" aria-live="polite"></div>
         <!-- Admission Controls -->
         <div class="section-block">
           <h3 data-i18n="接入控制">接入控制</h3>
@@ -1030,8 +1032,10 @@
   <script type="module">
     import { createI18n } from '/ui/language.mjs';
     import english from '/manage/canvas-i18n.mjs';
+    import { createLauncherNavigation } from '/manage/launcher-link.mjs';
     const i18n = createI18n(english);
     const t = (source, params = {}) => i18n.t(source, params);
+    const launcherNavigation = createLauncherNavigation({ document, location: window.location, getLanguage: () => i18n.language });
 
     const $ = id => document.getElementById(id);
     const NS = 'http://www.w3.org/2000/svg';
@@ -1221,6 +1225,10 @@
         state.epoch = epoch;
 
         const freshEvents = collectEvents(asArray(data.events || data.hub.recent));
+        if (state.first && typeof launcherNavigation !== 'undefined') {
+          const target = launcherNavigation.target(data.bridges);
+          if (target) state.selected = target;
+        }
         if (state.first && !state.selected && !state.selectedProgram && data.bridges.length) state.selected = data.bridges[0].key;
         if (state.selected && !selectedBridge()) { state.selected = null; state.dirty = false; }
         if (state.selectedProgram && !selectedProgram()) { state.selectedProgram = null; }
@@ -1228,6 +1236,8 @@
         render();
         if (state.first) {
           fitAll();
+          if (typeof launcherNavigation !== 'undefined' && launcherNavigation.target(data.bridges)) flyToNode('bridge', state.selected);
+          if (typeof launcherNavigation !== 'undefined') launcherNavigation.openWorkbench();
           state.first = false;
         }
         if (!establishEventBaseline && state.flowAnimation) animateEvents(freshEvents);
@@ -1852,6 +1862,7 @@
       const b = selectedBridge();
       const p = selectedProgram();
       const drawer = $('inspector-drawer');
+      if (typeof launcherNavigation !== 'undefined') launcherNavigation.update({ bridge: b, fresh: state.fresh });
 
       if (!b && !p) {
         closeInspector();

@@ -90,6 +90,7 @@ export async function createManagementHttp(hub, config) {
         '/manage/manual-bridge.mjs': ['./manual-bridge.mjs', 'text/javascript; charset=utf-8'],
         '/manage/manual-console.mjs': ['./manual-console.mjs', 'text/javascript; charset=utf-8'],
         '/manage/manual-experience-state.mjs': ['./manual-experience-state.mjs', 'text/javascript; charset=utf-8'],
+        '/manage/launcher-link.mjs': ['./launcher-link.mjs', 'text/javascript; charset=utf-8'],
         '/manage/manual-console.css': ['./manual-console.css', 'text/css; charset=utf-8'],
       }[url.pathname];
       if (req.method === 'GET' && asset) {

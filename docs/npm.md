@@ -1,6 +1,6 @@
 # npm 包与 SDK
 
-`world-hub` 提供前台运行的 Hub CLI、可选外部 `world-hub-pack` Runtime 和外部程序可选用的 JavaScript、Python、PowerShell mod 桥。Hub CLI 与 JavaScript SDK 需要 Node.js 22.4.0 或以上，没有 npm 运行依赖；Node 运行时由使用者安装。Python 和 PowerShell SDK 按各自模块文件路径使用，需要自己的运行环境。npm 安装不会启动业务程序，也不会安装 DSH、模型或 Python 依赖。
+`world-hub` 提供前台运行的 Hub CLI、可选统一 Launcher、外部 `world-hub-pack` Runtime 和外部程序可选用的 JavaScript、Python、PowerShell mod 桥。Hub CLI、Launcher 与 JavaScript SDK 需要 Node.js 22.4.0 或以上，没有 npm 运行依赖；Node 运行时由使用者安装。Python 和 PowerShell SDK 按各自模块文件路径使用，需要自己的运行环境。npm 安装不会启动业务程序，也不会安装 DSH、模型或 Python 依赖。
 
 ## 安装并启动
 
@@ -100,6 +100,17 @@ Python 程序把 `node_modules/world-hub/sdk/python` 加入模块路径后导入
 
 ## 可选外部整合包 Runtime
 
+需要浏览器操作时，全局安装后运行：
+
+```powershell
+world-hub ui --open
+world-hub ui --root ./my-pack-instances --port 0 --node '<已安装的 node.exe>' --python '<已安装的 python.exe>' --open
+```
+
+两条命令是不同启动方式，选择一条。Launcher 默认进入“我的整合包”，提供本机目录检查、导入实例、明确授权当前审阅内容、启动／停止／重启、四种运行状态、模块权限、日志与公开包导出。环境检测只使用已安装解释器的固定探针。首次浏览器授权使用启动器打开的一次性链接；请保留终端运行，用 Ctrl+C 等待停止完成。原 `world-hub --open` 仍直接进入 Hub 管理界面，原 Runtime CLI 继续可用。
+
+每个运行实例的 Hub 拓扑和通信工作台复用原管理界面，并能按本次运行的桥会话返回对应组件日志。业务应用在独立标签页打开；连接、模块自报就绪和健康探针不代表业务成果已完成。Launcher 与 Runtime 位于 Hub 外部；权限仍为声明，当前没有 OS 沙箱或自动依赖安装。完整流程与管理 API 见[统一 Launcher](ecosystem/launcher.md)。
+
 全局安装后另有 `world-hub-pack` 命令。它按公开 module／pack／lock 声明管理用户主动选择的本地独立程序，Hub 本身不启动它。完整 [CLI 与公开 API](ecosystem/runtime.md)、[部署声明及 Schema](ecosystem/pack-spec.md)随 npm 提供。
 
 ```powershell
@@ -116,7 +127,7 @@ npm 只携带部署工具、Schema 与文档；[三程序文本台包](../exampl
 
 ## 源码、演示与许可
 
-npm 包包含两个 CLI、可选外部 Runtime、通讯核心、管理界面、三个语言 SDK、部署 Schema、参考配置和文档。测试、独立业务示例、构建工具、生成 ZIP、官方 Node 二进制与私人部署数据不随 npm 安装。需要开发、运行 `npm test` 或探索用途演示时，克隆 [GitHub 仓库](https://github.com/oooBCKooo/world-hub)，按[开发](development.md)、[验证](verification.md)与[用途演示指南](examples/purpose-demos.md)操作。
+npm 包包含两个 CLI、可选 Launcher 与外部 Runtime、通讯核心、管理界面、三个语言 SDK、部署 Schema、参考配置和文档。Launcher 的本地管理服务和中英文静态界面随包提供；`examples/ecosystem-pack`、测试、独立业务示例、构建工具、生成 ZIP、官方 Node 二进制与私人部署数据不随 npm 安装。需要开发、运行 `npm test` 或探索用途演示时，克隆 [GitHub 仓库](https://github.com/oooBCKooo/world-hub)，按[开发](development.md)、[验证](verification.md)与[用途演示指南](examples/purpose-demos.md)操作。
 
 [提供者接入契约](modules/provider-contract.md)和[统计机器契约](modules/text-statistics.contract.json)在包内 `docs/modules/`，可与 SDK 文档一起用于从零实现遵守相同合同的能力模块。部署方仍需提供自己的 endpoint、身份凭据与权限，并配置外部目录和组装器；这些服务和示例业务实现不由 npm Hub 默认启动。
 

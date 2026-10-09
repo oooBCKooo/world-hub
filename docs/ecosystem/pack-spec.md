@@ -130,7 +130,7 @@ v1 对象采用封闭字段，未知字段拒绝；程序自己的 `settings` �
     "id": "demo.polyglot", "version": "1.0.0",
     "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
   },
-  "hubVersion": "0.15.1",
+  "hubVersion": "0.16.0",
   "platform": { "os": "win32", "arch": "x64" },
   "runtimes": {
     "node": { "version": "22.23.2" },

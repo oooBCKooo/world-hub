@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { APPLICATION_FILES, SDK_FILES, SDK_DOCUMENTATION_FILES, MODULE_CONTRACT_FILES,
-  ECOSYSTEM_SCHEMA_FILES, ECOSYSTEM_RUNTIME_FILES } from './build-package.mjs';
+  ECOSYSTEM_SCHEMA_FILES, ECOSYSTEM_RUNTIME_FILES, LAUNCHER_FILES } from './build-package.mjs';
 import { zipDirectory } from './zip.mjs';
 import { verifyPackage } from './verify-package.mjs';
 import { collectFiles, ordinaryPath, readBounded, relativePath } from '../runtime/paths.mjs';
@@ -28,10 +28,10 @@ const documentation = ['README.en.md', ...SDK_DOCUMENTATION_FILES,
     .map(name => `docs/${name}.md`),
   ...['index', 'boundaries', 'protocol', 'reliability-access', 'directed-and-bulk', 'management',
     'bridge-interoperability', 'manual-workbench', 'operations'].map(name => `docs/specs/${name}.md`),
-  'docs/modules/provider-contract.md', 'docs/ecosystem/pack-spec.md', 'docs/ecosystem/runtime.md'];
+  'docs/modules/provider-contract.md', 'docs/ecosystem/pack-spec.md', 'docs/ecosystem/runtime.md', 'docs/ecosystem/launcher.md'];
 export const ECOSYSTEM_SOURCE_FILES = Object.freeze([...new Set([
   ...APPLICATION_FILES, ...SDK_FILES, ...MODULE_CONTRACT_FILES, ...ECOSYSTEM_SCHEMA_FILES,
-  ...ECOSYSTEM_RUNTIME_FILES, ...ECOSYSTEM_PACK_FILES, ...documentation,
+  ...ECOSYSTEM_RUNTIME_FILES, ...LAUNCHER_FILES, ...ECOSYSTEM_PACK_FILES, ...documentation,
   'bin/world-hub.mjs', 'scripts/launcher.mjs', 'scripts/launcher-support.mjs',
   'scripts/release/verify-package.mjs', 'config/hub.json', 'LICENSE',
 ])]);
@@ -135,14 +135,14 @@ export async function buildEcosystemPackage({ sourceRoot = repository, output } 
     const role = local === 'LICENSE' || local.endsWith('/LICENSE') ? 'license'
       : ECOSYSTEM_PACK_FILES.includes(local) ? (local.endsWith('.md') ? 'locked-pack-documentation' : 'locked-pack')
         : MODULE_CONTRACT_FILES.includes(local) || ECOSYSTEM_SCHEMA_FILES.includes(local) ? 'documentation-contract'
-          : documentation.includes(local) ? 'documentation' : local.startsWith('scripts/') || local.startsWith('bin/') ? 'tooling'
+          : documentation.includes(local) ? 'documentation' : local.startsWith('scripts/') || local.startsWith('bin/') || local.startsWith('tools/launcher/') && !local.startsWith('tools/launcher/public/') ? 'tooling'
             : local === 'config/hub.json' ? 'configuration' : 'application';
     await add(local, bytes, role);
   }
-  await add('README.md', readme(version, lock) + '\n', 'documentation');
+  await add('README.md', readme(version, lock) + '\n\n## 可选统一 Launcher\n\n运行 `node bin/world-hub.mjs ui --root ./data/launcher --open`，从一次性授权入口进入“我的整合包”。选择包内 `examples/ecosystem-pack` 本机目录，检查锁定环境和模块来源后创建实例；点击启动，审阅当前权限并明确授权即可运行，无需手工输入审阅摘要。界面提供停止、重启、四种状态、组件日志、Hub 拓扑与工作台双向导航及公开包导出。上述 Runtime CLI 继续可用。Launcher 与 Runtime 都在 Hub 通信内核之外，检查不自动安装依赖，当前没有 OS 沙箱。详情见[统一 Launcher](docs/ecosystem/launcher.md)。\n', 'documentation');
   await add('package.json', JSON.stringify({ name: 'world-hub-ecosystem-bundle', version, private: true,
     type: 'module', license: 'MIT', engines: { node: '>=22.4.0' },
-    scripts: { check: 'node scripts/launcher.mjs --check', 'verify:package': 'node scripts/release/verify-package.mjs --root .' } }, null, 2) + '\n', 'tooling');
+    scripts: { ui: 'node bin/world-hub.mjs ui --open', check: 'node scripts/launcher.mjs --check', 'verify:package': 'node scripts/release/verify-package.mjs --root .' } }, null, 2) + '\n', 'tooling');
   // Adapt copied general guides only. The entire locked pack remains byte-exact.
   for (const item of files.filter(item => item.role === 'documentation')) {
     const full = target(output, item.path); let content = await readFile(full, 'utf8');
@@ -156,7 +156,7 @@ export async function buildEcosystemPackage({ sourceRoot = repository, output } 
   files.sort((a, b) => a.path.localeCompare(b.path, 'en'));
   const manifest = { schemaVersion: 1, version, kind: 'ecosystem-source', wire: '0.1', builtAt: new Date().toISOString(),
     runtime: null, externalRuntimes: lock.runtimes, platform: lock.platform, mutable: ['data/**'], files,
-    sourcePolicy: 'Explicit Hub/SDK/external Runtime/schema/documentation/three-module locked sample allowlist; no data, credentials, feedback, history, dependency caches, downloaded binaries or test evidence' };
+    sourcePolicy: 'Explicit Hub/SDK/optional Launcher/external Runtime/schema/documentation/three-module locked sample allowlist; no data, credentials, feedback, history, dependency caches, downloaded binaries or test evidence' };
   await writeFile(join(output, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', { flag: 'wx' });
   const integrity = await verifyPackage(output);
   if (!integrity.passed) throw new Error('Ecosystem source package integrity failed: ' + JSON.stringify(integrity.failed));

@@ -13,6 +13,7 @@ export const HELP = `世界枢纽 npm 命令（前台运行）
 
   world-hub [--config <path>] [--data-dir <path>] [--port <n>] [--open]
   world-hub --check [--config <path>] [--data-dir <path>] [--port <n>]
+  world-hub ui [--open] [--root <path>] [--port <n>] [--node <exe>] [--python <exe>]
 
   --config, -c <path>  使用自己的配置；相对路径以当前工作目录为基准
   --data-dir <path>    明确指定通讯日志、大对象与管理状态的数据根
@@ -87,6 +88,7 @@ export async function planNpmInvocation(args, { cwd = process.cwd(), packageRoot
 }
 
 export async function runNpmCli(argv = process.argv.slice(2), options = {}) {
+  if (argv[0] === 'ui') { const { runUiCli } = await import('../tools/launcher/cli.mjs'); return runUiCli(argv.slice(1)); }
   const args = parseNpmArgs(argv);
   if (args.help) { process.stdout.write(HELP); return; }
   const plan = await planNpmInvocation(args, options);

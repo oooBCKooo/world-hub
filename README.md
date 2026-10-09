@@ -12,6 +12,21 @@
 
 世界枢纽提供这些程序共用的通讯十字路口：接纳、寻址、留存和转交信息。各程序继续拥有自己的业务、状态和实现方式。
 
+## 从统一入口开始
+
+```powershell
+npm install -g world-hub
+world-hub ui --open
+```
+
+统一界面默认进入“我的整合包”：检查本机整合包目录和所需环境，导入独立实例，审阅程序内容与声明权限后启动。在实例详情中查看进程、健康、就绪、真实桥连接和日志，进入该实例的 Hub 拓扑或通讯工作台；也可以停止、重新审阅并重启、导出包源码与锁文件。中文／英文可切换。程序状态留在实例目录，导出包不包含运行数据。
+
+首次体验可克隆仓库，安装[跨语言文字台](examples/ecosystem-pack/README.md)指定的 Node、Python 和 websockets，执行 `npm run ui -- --open`，然后导入 `examples/ecosystem-pack`。三个真实程序完成“JavaScript 来源 → Python 统计 → JavaScript 界面”的调用；npm 安装不附带演示程序，可导入自己的包或下载[源码整合包](docs/releases.md)。
+
+Launcher 是可选的本机部署与导航工具，调用外部 Runtime。Hub Core 继续只负责通讯；独立程序、原有 `world-hub --open` 和无界面部署仍可单独使用。环境由用户预先安装，声明权限供审阅，当前没有操作系统沙箱。详见[统一入口指南](docs/ecosystem/launcher.md)。
+
+![统一入口：实际运行的跨语言整合包及其独立程序](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-launcher.jpg?v=0.16.0)
+
 ## 可以组合出什么
 
 | 你想构造的系统 | 拆成哪些外部程序 | 经枢纽怎样协作 |
@@ -184,6 +199,7 @@ docs/specs/           现行通讯规格
 examples/             独立程序示例与用途演示
 tests/                通讯回归、集成测试和夹具
 scripts/              启动、验证、构建与分发工具
+tools/launcher/       可选整合包管理后台与统一浏览器入口
 .github/workflows/    Windows持续集成
 ```
 

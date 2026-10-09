@@ -1,13 +1,27 @@
 {
   "name": "world-hub",
-  "version": "0.15.1",
+  "version": "0.16.0",
   "license": "MIT",
   "author": "oooBCKooo",
-  "repository": { "type": "git", "url": "git+https://github.com/oooBCKooo/world-hub.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oooBCKooo/world-hub.git"
+  },
   "homepage": "https://github.com/oooBCKooo/world-hub#readme",
-  "bugs": { "url": "https://github.com/oooBCKooo/world-hub/issues" },
-  "keywords": ["mod", "bridge", "websocket", "messaging", "hub"],
-  "bin": { "world-hub": "bin/world-hub.mjs", "world-hub-pack": "bin/world-hub-pack.mjs" },
+  "bugs": {
+    "url": "https://github.com/oooBCKooo/world-hub/issues"
+  },
+  "keywords": [
+    "mod",
+    "bridge",
+    "websocket",
+    "messaging",
+    "hub"
+  ],
+  "bin": {
+    "world-hub": "bin/world-hub.mjs",
+    "world-hub-pack": "bin/world-hub-pack.mjs"
+  },
   "exports": {
     ".": "./sdk/javascript/bridge-kit.mjs",
     "./bridge": "./sdk/javascript/bridge-kit.mjs",
@@ -18,19 +32,49 @@
   "files": [
     "README.en.md",
     "bin/world-hub.mjs",
-    "bin/world-hub-pack.mjs", "scripts/runtime/*.mjs", "docs/ecosystem/*.json",
-    "src/**/*.mjs", "src/**/*.html", "src/**/*.css",
-    "sdk/javascript/bridge-kit.mjs", "sdk/javascript/blob-client.mjs", "sdk/javascript/README.md",
-    "sdk/python/hub_bridge.py", "sdk/python/requirements.txt", "sdk/python/README.md",
-    "sdk/powershell/HubBridge.psm1", "sdk/powershell/HubBridge.cs", "sdk/powershell/README.md",
-    "config/hub.json", "scripts/launcher.mjs", "scripts/launcher-support.mjs",
-    "docs/**/*.md", "docs/modules/text-statistics.contract.json", "docs/images/hub-topology.jpg", "docs/images/hub-workbench.jpg",
-    "docs/images/demo-event-desk.jpg", "docs/images/demo-modular-assistant.jpg", "docs/images/demo-digital-world.jpg",
-    "docs/images/hub-topology-en.jpg", "docs/images/hub-workbench-en.jpg",
-    "docs/images/demo-event-desk-en.jpg", "docs/images/demo-modular-assistant-en.jpg", "docs/images/demo-digital-world-en.jpg",
-    "docs/images/demo-capability-directory.jpg", "docs/images/demo-capability-directory-en.jpg"
+    "bin/world-hub-pack.mjs",
+    "scripts/runtime/*.mjs",
+    "docs/ecosystem/*.json",
+    "src/**/*.mjs",
+    "src/**/*.html",
+    "src/**/*.css",
+    "sdk/javascript/bridge-kit.mjs",
+    "sdk/javascript/blob-client.mjs",
+    "sdk/javascript/README.md",
+    "sdk/python/hub_bridge.py",
+    "sdk/python/requirements.txt",
+    "sdk/python/README.md",
+    "sdk/powershell/HubBridge.psm1",
+    "sdk/powershell/HubBridge.cs",
+    "sdk/powershell/README.md",
+    "config/hub.json",
+    "scripts/launcher.mjs",
+    "scripts/launcher-support.mjs",
+    "docs/**/*.md",
+    "docs/modules/text-statistics.contract.json",
+    "docs/images/hub-topology.jpg",
+    "docs/images/hub-workbench.jpg",
+    "docs/images/demo-event-desk.jpg",
+    "docs/images/demo-modular-assistant.jpg",
+    "docs/images/demo-digital-world.jpg",
+    "docs/images/hub-topology-en.jpg",
+    "docs/images/hub-workbench-en.jpg",
+    "docs/images/hub-launcher.jpg",
+    "docs/images/hub-launcher-en.jpg",
+    "docs/images/demo-event-desk-en.jpg",
+    "docs/images/demo-modular-assistant-en.jpg",
+    "docs/images/demo-digital-world-en.jpg",
+    "docs/images/demo-capability-directory.jpg",
+    "docs/images/demo-capability-directory-en.jpg",
+    "tools/launcher/*.mjs",
+    "tools/launcher/public/*.mjs",
+    "tools/launcher/public/*.html",
+    "tools/launcher/public/*.css"
   ],
-  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "type": "module",
   "description": "Communications crossroads for external programs connected through bidirectional mod bridges.",
   "engines": {
@@ -65,6 +109,8 @@
     "demo:assistant-explorer": "node examples/purpose-demos/run-demo.mjs --profile modular-assistant --open",
     "demo:world-explorer": "node examples/purpose-demos/run-demo.mjs --profile digital-world --open",
     "demo:capabilities-explorer": "node examples/purpose-demos/run-demo.mjs --profile capability-directory --open",
-    "check:repository": "node scripts/check-repository.mjs"
+    "check:repository": "node scripts/check-repository.mjs",
+    "ui": "node bin/world-hub.mjs ui",
+    "test:launcher": "node scripts/verify.mjs --suite launcher"
   }
 }
