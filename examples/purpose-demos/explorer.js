@@ -66,10 +66,25 @@ export function deriveView(state) {
     const npc = latestEnvelope(state, ['demo.npc-configured']);
     return { type: 'world', latest, world: latest?.body?.finalState ?? latest?.body?.world ?? null, run, npc };
   }
+  if (id === 'capability-directory') {
+    const catalog = latestEnvelope(state, ['demo.capability-directory']);
+    const configuration = latestEnvelope(state, ['demo.capability-configuration']);
+    const composition = latestEnvelope(state, ['demo.capability-composition']);
+    const output = latestEnvelope(state, ['demo.capability-output']);
+    return { type: 'capabilities', catalog, configuration, composition, output,
+      entries: array(catalog?.body?.entries) };
+  }
   return { type: 'unknown' };
 }
 
 const STORIES = {
+  'capability-directory': {
+    purpose: '用途：查询外部能力目录，按公开合同组合程序，仅改配置替换独立处理器。',
+    empty: '先查询能力目录，再运行同一来源与输出之间的处理链路。',
+    next: '按顶部路线切换 A／B 实现，再试版本冲突、授权拒绝、超时和目录租约失效。目录与组装策略均由外部程序负责。',
+    roles: { directory: '保存提供者自己声明的能力与租约；目录记录不是 Hub 的授权或在线证明。', source: '保存并提供同一份原始文本；处理器替换不改变此程序。', composer: '查询目录、核对合同版本，按自己的配置调用提供者并核验成果。', output: '接收已核验的成果并按调用标识去重，自己保存输出记录。', 'metrics-a': '独立统计实现 A，按公开合同处理原始文本。', 'metrics-b': '独立统计实现 B，提供相同合同；自己的配置控制授权、延迟与租约公告。' },
+    fallback: [],
+  },
   'event-desk': {
     purpose: '用途：把独立来源接成一张能查看、能回控、还能继续扩展的数据台。',
     empty: '先读取汇总，再把一个新的信息来源接进来。',
@@ -104,6 +119,12 @@ const FIELD_INFO = {
   text: ['参考材料正文', '由当前材料提供者保存；下次组装再读取。'],
   action: ['这一轮做什么？', '规则程序解释这些行动。'],
   mood: ['NPC 倾向', 'NPC 程序保存并解释自己的策略。'],
+  provider: ['处理器提供者', '由外部组装程序选择，目录返回其能力声明与实际接线。'],
+  contractVersion: ['应用合同版本', '由组装程序检查双方版本；Hub 不解释应用合同。'],
+  timeoutMs: ['应用等待时间（毫秒）', '超时只表示结果未知，不证明提供者没有执行。', 100, 10000],
+  allowComposer: ['允许组装程序调用', '由处理器自行执行应用授权；清单声明不授予 Hub 权限。'],
+  delayMs: ['处理器延迟（毫秒）', '由处理器模拟延迟以观察应用超时。', 0, 10000],
+  announcing: ['续报能力租约', '停止续报后，目录声明到期；实际桥连接可仍然存在。'],
 };
 const CHOICES = { action: [['scout', '探索'], ['rest', '休整'], ['trade', '交易']], mood: [['friendly', '友好 · 提供补给'], ['curious', '好奇 · 交替探索'], ['quiet', '安静 · 暂不互动']] };
 const WORLD_ACTIONS = { scout: '探索', rest: '休整', trade: '交易' };
@@ -113,7 +134,14 @@ export function describeResult(result, { language = 'zh-CN', translate } = {}) {
   if (!result) return t('尚未发起操作。');
   if (!result.response) return t('枢纽已接纳注入；目标程序的执行效果尚需观察。');
   const body = object(result.response.body);
-  if (body.ok === false) return t('目标程序返回了业务拒绝：{error}', { error: body.error ? displayDemoOutput(body.error, language) : t('请展开原始回应查看原因') });
+  if (body.kind === 'demo.capability-composition') {
+    if (body.status === 'uncertain') return t('外部组装程序等待超时，结果未知；这不证明提供者没有执行。');
+    if (body.ok === false) return t('外部组装程序未完成：{code} · {message}', { code: body.error?.code ?? '', message: body.error?.message ?? '' });
+    return t('外部组装程序完成处理，成果来自 {provider}；返回 {count} 次真实调用回执。', { provider: body.selection?.module?.id ?? body.config?.provider ?? '', count: array(body.receipts).length });
+  }
+  if (body.ok === false) return t('目标程序返回了业务拒绝：{error}', { error: body.error ? (typeof body.error === 'object' ? format(body.error) : displayDemoOutput(body.error, language)) : t('请展开原始回应查看原因') });
+  if (body.kind === 'demo.capability-directory') return t('外部目录返回 {count} 条能力记录；租约状态不等于实时在线或调用授权。', { count: array(body.entries).length });
+  if (body.kind === 'demo.capability-configuration') return t('组装程序已保存提供者与合同配置，下次运行使用新配置。');
   if (body.kind === 'demo.multi-source-summary') return t('汇总程序返回了 {count} 个来源的最近读数。', { count: Object.keys(object(body.latest)).length });
   if (body.kind === 'demo.source-configured') return t('来源程序已经保存参数；后续采样由它按新参数产生。');
   if (body.kind === 'demo.source-snapshot') return t('来源程序返回了自己保存的当前读数与采样参数。');
@@ -361,6 +389,58 @@ function startUi() {
     return wrap;
   }
 
+  function renderCapabilitiesDashboard(view) {
+    if (!view.catalog && !view.composition && !view.configuration && !view.output) return empty();
+    const wrap = node('div');
+    if (view.catalog) {
+      const grid = node('div', '', 'source-grid');
+      for (const entry of view.entries) {
+        const card = node('div', '', 'source');
+        card.append(node('strong', entry.module?.id ?? entry.principal), node('small', entry.principal ?? ''),
+          node('div', t(entry.state === 'lease-valid' ? '查询时租约有效' : '查询时租约已过期')),
+          node('small', t('模块版本 {version}', { version: entry.module?.version ?? '—' })));
+        for (const capability of array(entry.capabilities)) {
+          const contract = capability.contract ?? {};
+          card.append(node('div', capability.id ?? ''), node('small', t('合同 {id} · 版本 {version}', { id: contract.id ?? capability.contractId ?? '—', version: contract.version ?? capability.contractVersion ?? '—' })));
+          card.append(details('提供者声明的完整能力', node('pre', format(capability))));
+        }
+        card.append(node('small', t('租约到期：{time}', { time: entry.expiresAt ? new Date(entry.expiresAt).toLocaleString(i18n.language) : '—' })), node('small', entry.session ?? ''));
+        grid.append(card);
+      }
+      wrap.append(section('外部目录返回的能力', grid),
+        node('small', t('目录查询快照：{time}', { time: view.catalog.body.queriedAt ? new Date(view.catalog.body.queriedAt).toLocaleString(i18n.language) : '—' })),
+        provenance(view.catalog), node('p', t('目录保存提供者声明，Hub 不认可其业务真实性；租约有效不保证当前在线或获准调用。'), 'hint'));
+    }
+    const body = object(view.composition?.body), configuration = view.configuration;
+    const config = seqOf(configuration) > seqOf(view.composition) ? configuration.body.config : body.config ?? configuration?.body?.config;
+    if (config) {
+      const grid = node('div', '', 'metric-grid');
+      grid.append(metric('当前提供者', config.provider), metric('合同版本', config.contractVersion), metric('等待时间', config.timeoutMs, 'ms'));
+      wrap.append(section('外部组装程序的配置', grid));
+    }
+    if (view.composition) {
+      wrap.append(node('div', t(body.status === 'completed' ? '业务完成' : body.status === 'uncertain' ? '结果未知' : '业务未完成'), 'result-banner'));
+      if (body.selection) wrap.append(node('p', t('实际选择：{module} · {principal}', { module: body.selection.module?.id ?? '', principal: body.selection.principal ?? '' }), 'result-provenance'));
+      if (body.output) {
+        const grid = node('div', '', 'metric-grid');
+        grid.append(metric('Unicode 码点', body.output.codePoints), metric('文本行数', body.output.lines), metric('UTF-8 字节', body.output.utf8Bytes));
+        wrap.append(section('处理器返回并核验的统计成果', grid), node('pre', body.output.sha256 ?? '', 'context-text'));
+      }
+      if (body.error) wrap.append(section('程序返回的失败或未知原因', node('pre', format(body.error))));
+      const receipts = node('div', '', 'receipt-list');
+      for (const receipt of array(body.receipts)) {
+        const item = node('div', '', 'receipt');
+        item.append(node('strong', t({ discovery: '发现能力', source: '抽取来源', processor: '调用处理器', output: '提交输出' }[receipt.stage] ?? receipt.stage)),
+          node('small', receipt.response?.fromPrincipal ?? receipt.request?.target?.principal ?? receipt.principal ?? ''),
+          node('div', receipt.responseSeq ? t('请求 #{request} → 回应 #{response}', { request: receipt.requestSeq, response: receipt.responseSeq }) : t('请求 #{request} · 尚无对应回应', { request: receipt.requestSeq })),
+          details('完整调用回执', node('pre', format(receipt)))); receipts.append(item);
+      }
+      wrap.append(section('程序返回的真实调用记录', receipts), provenance(view.composition), node('p', t('接纳、回应和业务完成分别记录。超时为结果未知，外部程序没有自动重试；读取与 ACK 不释放信息。'), 'hint'));
+    }
+    if (view.output) wrap.append(details('输出程序保存的记录', node('pre', format(view.output.body)), 'capability-output'));
+    return wrap;
+  }
+
   function renderOperationResult() {
     const result = current.results.at(-1), container = $('operation-result'); container.replaceChildren();
     if (!result) { $('result').textContent = t('尚未发起操作。'); return; }
@@ -379,7 +459,7 @@ function startUi() {
     if (key !== dashboardKey) {
       const open = new Set([...$('dashboard').querySelectorAll('details[open][data-panel]')].map(item => item.dataset.panel));
       dashboardKey = key;
-      const content = view.type === 'events' ? renderEventsDashboard(view) : view.type === 'assistant' ? renderAssistantDashboard(view) : view.type === 'world' ? renderWorldDashboard(view) : empty();
+      const content = view.type === 'events' ? renderEventsDashboard(view) : view.type === 'assistant' ? renderAssistantDashboard(view) : view.type === 'world' ? renderWorldDashboard(view) : view.type === 'capabilities' ? renderCapabilitiesDashboard(view) : empty();
       $('dashboard').replaceChildren(content); for (const item of $('dashboard').querySelectorAll('details[data-panel]')) item.open = open.has(item.dataset.panel);
     }
     renderOperationResult();
@@ -392,6 +472,8 @@ function startUi() {
     'demo.context-assembled': '组装程序发布上下文', 'demo.template-result': '模板执行器发布成果', 'demo.checklist-result': '清单执行器发布成果',
     'demo.distributed-assistant-result': '组装程序返回完整成果', 'demo.world-round': '导演发布一个回合', 'demo.world-run': '导演返回多轮成果',
     'demo.world-state': '状态程序公布世界', 'demo.npc-configured': 'NPC 公布自己的倾向',
+    'demo.capability-directory': '外部目录返回能力记录', 'demo.capability-configuration': '组装程序公布配置',
+    'demo.capability-composition': '组装程序返回处理链路', 'demo.capability-output': '输出程序返回保存记录',
   };
   function renderEvents() {
     const key = i18n.language + ':' + current.events.map(event => event.seq).join(',');

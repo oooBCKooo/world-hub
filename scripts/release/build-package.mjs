@@ -18,7 +18,7 @@ export const SDK_FILES = ['sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-
   'sdk/python/hub_bridge.py', 'sdk/python/requirements.txt',
   'sdk/powershell/HubBridge.psm1', 'sdk/powershell/HubBridge.cs'];
 export const DOCUMENTATION_IMAGE_FILES = Object.freeze(
-  ['hub-topology', 'hub-workbench', 'demo-event-desk', 'demo-modular-assistant', 'demo-digital-world']
+  ['hub-topology', 'hub-workbench', 'demo-event-desk', 'demo-modular-assistant', 'demo-digital-world', 'demo-capability-directory']
     .flatMap(name => [`docs/images/${name}.jpg`, `docs/images/${name}-en.jpg`]));
 const EXAMPLE_FILES = ['examples/management/run-management-demo.mjs', 'examples/management/demo-peer.mjs', 'examples/distributed-context/hub-process.mjs', 'tests/helpers/owned-program.mjs'];
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');

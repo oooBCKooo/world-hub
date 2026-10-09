@@ -36,14 +36,15 @@ node scripts/release/verify-package.mjs --root dist/world-hub-win-x64
 
 ## 按用途构建演示整合包
 
-另外提供 `event-desk`、`modular-assistant`、`digital-world` 三个用途演示包，包含独立业务程序与浏览器探索界面。它们用于开发者探索，不改变默认 Hub 部署，也不把模型、harness 或世界运行放进 Hub。
+另外提供 `event-desk`、`modular-assistant`、`digital-world`、`capability-directory` 四个用途演示包，包含独立业务程序与浏览器探索界面。它们用于开发者探索，不改变默认 Hub 部署，也不把模型、harness、能力目录或世界运行放进 Hub。
 
 ```powershell
 npm run build:demos
 npm run build:demos -- --profile modular-assistant --runtime .artifacts/runtime/node-win-x64 --output-root dist/assistant-portable
+npm run build:demos -- --profile capability-directory --output-root dist/capabilities-source
 ```
 
-默认构建三个源码包；`--runtime` 选择已按上述方法校验的官方 Node 运行时，生成 Windows x64 便携包。每个包的 `start.cmd` 启动自己的演示，`check.cmd` 只读检查，`verify.cmd` 只校验完整性。输出仍写入 `dist/`，已有目标拒绝覆盖，运行数据只有 `data/**` 可变。完整操作、模块替换和验证边界见[用途演示指南](examples/purpose-demos.md)。
+默认构建四个源码包；`--runtime` 选择已按上述方法校验的官方 Node 运行时，生成 Windows x64 便携包。每个包的 `start.cmd` 启动自己的演示，`check.cmd` 只读检查，`verify.cmd` 只校验完整性。输出仍写入 `dist/`，已有目标拒绝覆盖，运行数据只有 `data/**` 可变。完整操作、模块替换和验证边界见[用途演示指南](examples/purpose-demos.md)。
 
 ## 启动与检查
 

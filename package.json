@@ -1,6 +1,6 @@
 {
   "name": "world-hub",
-  "version": "0.13.2",
+  "version": "0.14.0",
   "license": "MIT",
   "author": "oooBCKooo",
   "repository": { "type": "git", "url": "git+https://github.com/oooBCKooo/world-hub.git" },
@@ -25,7 +25,8 @@
     "docs/**/*.md", "docs/images/hub-topology.jpg", "docs/images/hub-workbench.jpg",
     "docs/images/demo-event-desk.jpg", "docs/images/demo-modular-assistant.jpg", "docs/images/demo-digital-world.jpg",
     "docs/images/hub-topology-en.jpg", "docs/images/hub-workbench-en.jpg",
-    "docs/images/demo-event-desk-en.jpg", "docs/images/demo-modular-assistant-en.jpg", "docs/images/demo-digital-world-en.jpg"
+    "docs/images/demo-event-desk-en.jpg", "docs/images/demo-modular-assistant-en.jpg", "docs/images/demo-digital-world-en.jpg",
+    "docs/images/demo-capability-directory.jpg", "docs/images/demo-capability-directory-en.jpg"
   ],
   "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" },
   "type": "module",
@@ -45,6 +46,7 @@
     "test:distribution": "node --test --test-timeout=60000 scripts/release/distribution.test.mjs",
     "test:npm": "node --test --test-timeout=120000 tests/integration/npm/*.test.mjs",
     "test:demos": "node scripts/verify.mjs --suite demos",
+    "test:capabilities": "node scripts/verify.mjs --suite capabilities",
     "test:recovery": "node scripts/test-recovery.mjs",
     "build": "node scripts/release/build-package.mjs",
     "build:demos": "node scripts/release/build-demo-packages.mjs",
@@ -58,6 +60,7 @@
     "demo:events-explorer": "node examples/purpose-demos/run-demo.mjs --profile event-desk --open",
     "demo:assistant-explorer": "node examples/purpose-demos/run-demo.mjs --profile modular-assistant --open",
     "demo:world-explorer": "node examples/purpose-demos/run-demo.mjs --profile digital-world --open",
+    "demo:capabilities-explorer": "node examples/purpose-demos/run-demo.mjs --profile capability-directory --open",
     "check:repository": "node scripts/check-repository.mjs"
   }
 }

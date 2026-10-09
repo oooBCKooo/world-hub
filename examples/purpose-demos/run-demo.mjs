@@ -18,7 +18,9 @@ const required = ['package.json', 'config/hub.json', 'src/hub/hub-server.mjs', '
   'tests/helpers/owned-program.mjs', 'examples/distributed-context/hub-process.mjs',
   ...['profiles.mjs', 'peer.mjs', 'common.mjs', 'event-desk.mjs', 'modular-assistant.mjs', 'digital-world.mjs',
     'traffic-source.mjs', 'extension-material.mjs', 'checklist-harness.mjs', 'explorer.mjs', 'explorer.html', 'explorer.css', 'explorer.js', 'explorer-i18n.mjs']
-    .map(name => `examples/purpose-demos/${name}`)];
+    .map(name => `examples/purpose-demos/${name}`),
+  ...['directory.mjs', 'composition.mjs', 'processor-a.mjs', 'processor-b.mjs', 'contract.json']
+    .map(name => `examples/capability-directory/${name}`)];
 
 export function parseDemoArgs(argv) {
   const options = { profile: null, stateDirectory: null, check: false, open: false, help: false };
@@ -98,7 +100,7 @@ export async function startPurposeDemo({ profile: id, stateDirectory = null, ope
   const credentials = {}, annotations = {};
   for (const peer of profile.peers) {
     const principal = principalFor(profile.id, peer.id);
-    credentials[principal] = { token: DEMO_TOKEN, maxConnections: peer.bridges.length,
+    credentials[principal] = { token: profile.isolatedCredentials ? randomUUID() : DEMO_TOKEN, maxConnections: peer.bridges.length,
       allow: { publish: [`demo/${profile.id}/#`], subscribe: [`demo/${profile.id}/#`] } };
     // Management annotations describe the credential principal, not a declared
     // instance label. A program's multiple mod connections share this annotation;
@@ -107,7 +109,7 @@ export async function startPurposeDemo({ profile: id, stateDirectory = null, ope
       programs: [{ id: principal, name: peer.label }] };
   }
   const explorerPrincipal = principalFor(profile.id, 'explorer');
-  credentials[explorerPrincipal] = { token: DEMO_TOKEN, maxConnections: 1,
+  credentials[explorerPrincipal] = { token: profile.isolatedCredentials ? randomUUID() : DEMO_TOKEN, maxConnections: profile.explorerMaxConnections ?? 1,
     allow: { publish: [`demo/${profile.id}/#`], subscribe: [`demo/${profile.id}/#`] } };
   credentials['ui.manual'] = { maxConnections: 4, allow: { publish: ['#'], subscribe: ['#'] } };
   annotations[explorerPrincipal] = { bridgeName: '探索界面 · 双向桥',
@@ -137,12 +139,12 @@ export async function startPurposeDemo({ profile: id, stateDirectory = null, ope
       const stateDir = join(sessionDir, 'programs', peer.id); await mkdir(stateDir, { recursive: true });
       const child = await startOwnedProgram(join(root, 'examples/purpose-demos', peer.entryFile ?? 'peer.mjs'), {
         args: ['--profile', profile.id, '--peer', peer.id, '--endpoint', hub.ready.endpoint,
-          '--credential', DEMO_TOKEN, '--state-dir', stateDir], cwd: root });
+          '--credential', credentials[principalFor(profile.id, peer.id)].token, '--state-dir', stateDir], cwd: root });
       children.push(child); peers.push({ id: peer.id, label: peer.label, pid: child.child.pid, ready: child.ready });
     }
     const settingsFile = join(sessionDir, 'explorer-settings.json');
     await writeFile(settingsFile, JSON.stringify({ profile: profile.id, endpoint: hub.ready.endpoint,
-      managementUrl: hub.ready.managementUrl, credential: DEMO_TOKEN, stateDirectory: sessionDir, peers,
+      managementUrl: hub.ready.managementUrl, credential: credentials[explorerPrincipal].token, stateDirectory: sessionDir, peers,
       hubPid: hub.child.pid }, null, 2) + '\n', { flag: 'wx' });
     const explorer = await startOwnedProgram(join(root, 'examples/purpose-demos/explorer.mjs'),
       { args: ['--settings', settingsFile], cwd: root }); children.push(explorer);
@@ -176,7 +178,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   try {
     const options = parseDemoArgs(process.argv.slice(2));
     if (options.help) {
-      console.log('node examples/purpose-demos/run-demo.mjs [--profile event-desk|modular-assistant|digital-world] [--state-dir 新目录] [--check | --open]');
+      console.log('node examples/purpose-demos/run-demo.mjs [--profile event-desk|modular-assistant|digital-world|capability-directory] [--state-dir 新目录] [--check | --open]');
       if (process.connected) process.disconnect();
     } else if (options.check) {
       console.log(JSON.stringify(await checkDemo(options)));

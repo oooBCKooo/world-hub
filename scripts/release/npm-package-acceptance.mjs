@@ -46,7 +46,8 @@ function allowedPackageFile(path) {
     'docs/images/hub-topology.jpg', 'docs/images/hub-workbench.jpg',
     'docs/images/demo-event-desk.jpg', 'docs/images/demo-modular-assistant.jpg', 'docs/images/demo-digital-world.jpg',
     'docs/images/hub-topology-en.jpg', 'docs/images/hub-workbench-en.jpg',
-    'docs/images/demo-event-desk-en.jpg', 'docs/images/demo-modular-assistant-en.jpg', 'docs/images/demo-digital-world-en.jpg'].includes(path)
+    'docs/images/demo-event-desk-en.jpg', 'docs/images/demo-modular-assistant-en.jpg', 'docs/images/demo-digital-world-en.jpg',
+    'docs/images/demo-capability-directory.jpg', 'docs/images/demo-capability-directory-en.jpg'].includes(path)
     || /^src\/.+\.(?:mjs|js|html|css|json)$/.test(path)
     || /^docs\/.+\.md$/.test(path);
 }

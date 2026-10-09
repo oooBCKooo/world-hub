@@ -1,6 +1,39 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { deriveView, describeResult, experimentProgress, injectionEvidence, displayDemoOutput } from '../../../examples/purpose-demos/explorer.js';
+import { getProfile } from '../../../examples/purpose-demos/profiles.mjs';
+import { EXPLORER_EN, translateDemoText } from '../../../examples/purpose-demos/explorer-i18n.mjs';
+
+test('capability view keeps directory declarations, current configuration, results and sink records distinct', () => {
+  const catalog = { seq: 3, body: { kind: 'demo.capability-directory', entries: [{ module: { id: 'metrics-a' }, principal: 'actual.provider', state: 'lease-valid' }] } };
+  const composition = { seq: 8, body: { kind: 'demo.capability-composition', ok: true, status: 'completed', config: { provider: 'metrics-a' }, output: { codePoints: 3 } } };
+  const configuration = { seq: 10, body: { kind: 'demo.capability-configuration', config: { provider: 'metrics-b' } } };
+  const output = { seq: 11, body: { kind: 'demo.capability-output', records: [{ invocationId: 'actual.id' }] } };
+  const state = { profile: { id: 'capability-directory' }, events: [catalog], results: [composition, configuration, output].map(response => ({ response })) };
+  const before = JSON.stringify(state), view = deriveView(state);
+  assert.equal(view.type, 'capabilities'); assert.equal(view.catalog, catalog); assert.equal(view.entries[0].principal, 'actual.provider');
+  assert.equal(view.configuration, configuration); assert.equal(view.composition, composition); assert.equal(view.output, output);
+  assert.equal(JSON.stringify(state), before, 'presentation must never rewrite provider declarations or business results');
+});
+
+test('capability summaries distinguish unknown execution from a refusal and a completed result', () => {
+  const uncertain = { response: { body: { kind: 'demo.capability-composition', ok: false, status: 'uncertain', error: { code: 'PROCESSOR_TIMEOUT', message: 'Provider original reason' } } } };
+  assert.match(describeResult(uncertain, { language: 'en' }), /result is unknown.*does not prove.*did not execute/);
+  const refusal = { response: { body: { kind: 'demo.capability-composition', ok: false, status: 'failed', error: { code: 'CONTRACT_MISMATCH', message: '<img>原文' } } } };
+  assert.match(describeResult(refusal, { language: 'en' }), /CONTRACT_MISMATCH.*<img>原文/);
+  const complete = { response: { body: { kind: 'demo.capability-composition', ok: true, status: 'completed', selection: { module: { id: 'metrics-b' } }, receipts: [{}, {}, {}, {}] } } };
+  assert.match(describeResult(complete, { language: 'en' }), /metrics-b.*4 actual call receipts/);
+});
+
+test('capability profile navigation has English copy while raw body stays in its original language', () => {
+  const profile = getProfile('capability-directory'), before = JSON.stringify(profile);
+  const strings = [profile.title, profile.description, ...profile.peers.map(peer => peer.label),
+    ...profile.actions.flatMap(action => [action.label, action.description]),
+    ...profile.experiments.flatMap(experiment => [experiment.title, experiment.description, experiment.takeaway,
+      ...experiment.steps.flatMap(step => [step.label, step.expect])])];
+  for (const value of strings) { assert.ok(EXPLORER_EN[value], value); assert.notEqual(translateDemoText(value, 'en'), value, value); }
+  assert.equal(JSON.stringify(profile), before);
+});
 
 test('ordered experiments require a later repeated action and never treat a business refusal as a completed step', () => {
   const experiment = { steps: [{ action: 'summary' }, { action: 'enable' }, { action: 'summary' }] };

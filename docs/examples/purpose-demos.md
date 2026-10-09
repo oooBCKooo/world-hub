@@ -1,12 +1,13 @@
 # 动手探索：把独立程序组合成用途
 
-世界枢纽让各自运行的程序通过 mod 桥交换信息。这三套演示把通讯变成可观察的成果：同一面板纳入新的事件来源、上下文增加一个提供者并切换执行器、多个程序逐轮推进一个小世界。浏览器探索界面也是普通外部程序，通过自己的桥请求、注入和接收信息。
+世界枢纽让各自运行的程序通过 mod 桥交换信息。这四套演示把通讯变成可观察的成果：同一面板纳入新的事件来源、上下文增加一个提供者并切换执行器、多个程序逐轮推进一个小世界，以及查询外部能力目录并按公开合同替换处理器。浏览器探索界面也是普通外部程序，通过自己的桥请求、注入和接收信息。
 
 | 想探索的能力 | 启动哪套演示 | 亲手做什么 |
 | --- | --- | --- |
 | 多来源信息汇合、双向控制、同程序多桥 | `event-desk`：多源事件台 | 把环境、行情两源扩展为三源，再向来源回传参数 |
 | 分布上下文、增加来源、替换独立模块 | `modular-assistant`：分布上下文助手 | 增加第四个上下文来源，再切换到独立清单执行器 |
 | 多轮、多程序成果 | `digital-world`：外部数字世界 | 观察状态变化与逐轮回执，再修改 NPC 倾向继续运行 |
+| 外部能力发现、契约检查、仅改配置替换模块 | `capability-directory`：能力目录与处理器 | 发现能力 → 运行 A → 切换 B → 再次运行；观察可解释的拒绝与超时 |
 
 ## 启动一套演示
 
@@ -16,6 +17,7 @@
 npm run demo:events-explorer
 npm run demo:assistant-explorer
 npm run demo:world-explorer
+npm run demo:capabilities-explorer
 ```
 
 每次选择一个场景，保留启动终端。浏览器自动打开探索地址；启动输出也给出实际地址。顶部“跟着这条路线试一遍”的按钮会准备对应操作；可修改普通表单字段，再按“运行这个操作”实际发出信息。也可以在“我想做什么？”中选择其他操作。路线按钮不会自动执行整条链路，便于逐步查看成果。
@@ -75,6 +77,26 @@ npm run demo:world-explorer
 
 这套有限世界用来观察“多个独立程序协作产生连续成果”。可以独立改 NPC、替换状态存储，或让新的渲染程序订阅世界事件；这些实现仍在 Hub 外。
 
+## 路线四：外部能力目录与独立处理器
+
+目录、原文来源、组装程序、输出程序和两个处理器分别运行。两个处理器只依赖 SDK 与[公开应用合同](../../examples/capability-directory/contract.json)，各自实现 Unicode 码点、行数、UTF-8 字节数和 SHA-256 统计。来源和输出无需知道当前使用哪份实现。
+
+| 操作 | 应看到的成果 |
+| --- | --- |
+| 查询能力目录 | 提供者声明的模块版本、能力、合同、身份与租约状态 |
+| 运行当前处理链路 | 组装程序发现提供者、抽取来源、请求处理、核验结果并提交输出的四步真实回执 |
+| 切换到 B，再运行 | 提供者身份和处理器入口改变；来源与输出源码及统计合同保持一致 |
+| 设置版本冲突后运行，再恢复版本 | 组装程序按合同拒绝，无处理器或输出调用 |
+| 关闭 B 的调用授权后运行，再恢复授权 | 处理器返回业务授权拒绝；目录声明不自动授予调用权限 |
+| 设置 B 的延迟后运行，再恢复延迟 | 组装程序超时并返回结果未知；不会自动重试或提交输出 |
+| 停止 B 续报租约，等待到期后查询与运行，再恢复续报 | 目录声明过期且组装程序拒绝；桥连接可以仍然存在 |
+
+清单、发现、版本选择、应用授权、核验与输出幂等均为外部程序约定。租约有效说明目录近期收到声明，不保证提供者实时在线；超时也不证明没有执行。Hub 仅按照通讯权限转送消息，不认可声明中的业务真实性，也不解释清单或合同。完整协议、独立实现入口与故障边界见[能力目录示例](../../examples/capability-directory/README.md)。
+
+本场景启动器为每个认证主体生成独立随机凭据，写入本次隔离会话配置，并只交给所属程序；配置与程序状态目录需要保留在信任范围内。目录将身份绑定到真实通讯信封，前提是部署者正确隔离各主体凭据。前三套旧场景使用公开本机演示 token，不用于验证恶意接入者的身份隔离。清单中的 `permissions` 是应用声明，真实调用权限仍由 Hub 接线和提供者各自执行。
+
+这里展示两份独立实现之间的配置替换与有限故障场景，不提供任意软件的自动适配、应用商店、依赖安装或 AI 自动编排。无副作用的文本统计不能证明设备控制、扣费或文件修改具备恰好执行一次语义。
+
 ## 把预置模块换成自己的程序
 
 从[源码入口与合同](../../examples/purpose-demos/README.md)识别程序、桥与对应文件。建议先改一个模块，保留相邻程序约定的请求与返回格式，再增加自己的信息种类。
@@ -113,7 +135,7 @@ node examples/purpose-demos/run-demo.mjs --profile modular-assistant --state-dir
 
 ## 分享与运行整合包
 
-从源码仓库构建全部三套源码包，或只选择一个场景：
+从源码仓库构建全部四套源码包，或只选择一个场景：
 
 ```powershell
 npm run build:demos
@@ -127,7 +149,7 @@ node scripts/release/prepare-runtime.mjs --download --output .artifacts/runtime/
 npm run build:demos -- --runtime .artifacts/runtime/demo-node-win-x64 --output-root dist/purpose-demos-portable
 ```
 
-构建器支持 `--profile event-desk|modular-assistant|digital-world|all`。默认输出 `dist/purpose-demos`；名称为 `world-hub-<版本>-<场景>-source` 或 `world-hub-<版本>-<场景>-win-x64`，同时生成 ZIP、`.zip.sha256` 与 `.build.json`。已有目标会失败，不覆盖旧包；生成物不提交源码 Git。
+构建器支持 `--profile event-desk|modular-assistant|digital-world|capability-directory|all`。默认输出 `dist/purpose-demos`；名称为 `world-hub-<版本>-<场景>-source` 或 `world-hub-<版本>-<场景>-win-x64`，同时生成 ZIP、`.zip.sha256` 与 `.build.json`。已有目标会失败，不覆盖旧包；生成物不提交源码 Git。
 
 完整解压到新的可写目录后：
 
@@ -143,6 +165,7 @@ npm run build:demos -- --runtime .artifacts/runtime/demo-node-win-x64 --output-r
 
 ```powershell
 npm run test:demos
+npm run test:capabilities
 ```
 
 测试需依据独立程序经 Hub 的真实请求、注入、回应、登记主题及成果。浏览器操作、源码链路测试和实际 ZIP 解压后的验收分别记录；`--check`、manifest 通过或压缩成功不能替代运行验收。

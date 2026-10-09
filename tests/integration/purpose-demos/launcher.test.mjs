@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, lstat, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve, basename } from 'node:path';
-import { parseDemoArgs, checkDemo, startPurposeDemo } from '../../../examples/purpose-demos/run-demo.mjs';
+import { parseDemoArgs, checkDemo, startPurposeDemo, DEMO_TOKEN } from '../../../examples/purpose-demos/run-demo.mjs';
 import { principalFor, bridgeFor } from '../../../examples/purpose-demos/profiles.mjs';
 
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -29,6 +29,32 @@ async function session(t, directory) {
   t.ownedPurposeApps.push(app);
   return app;
 }
+
+test('capability launcher isolates provider credentials and rejects the public demo token', async t => {
+  const directory = await workspace(t);
+  const app = await startPurposeDemo({ profile: 'capability-directory', stateDirectory: join(directory, 'isolated') });
+  t.ownedPurposeApps.push(app);
+  const config = JSON.parse(await readFile(join(app.ready.stateDirectory, 'hub.json'), 'utf8'));
+  const principals = [...app.profile.peers.map(peer => principalFor(app.profile.id, peer.id)), principalFor(app.profile.id, 'explorer')];
+  const tokens = principals.map(principal => config.acl.credentials[principal].token);
+  assert.equal(new Set(tokens).size, principals.length);
+  const publicReady = JSON.stringify(app.ready);
+  for (const token of tokens) {
+    assert.match(token, /^[a-f0-9-]{36}$/); assert.notEqual(token, DEMO_TOKEN); assert.equal(publicReady.includes(token), false);
+  }
+  const explorerSettings = JSON.parse(await readFile(join(app.ready.stateDirectory, 'explorer-settings.json'), 'utf8'));
+  assert.equal(explorerSettings.credential, config.acl.credentials[principalFor(app.profile.id, 'explorer')].token);
+  const socket = new WebSocket(app.ready.endpoint);
+  const observed = await new Promise((resolveReceipt, rejectReceipt) => {
+    const timer = setTimeout(() => { socket.close(); rejectReceipt(new Error('Public credential refusal was not received')); }, 5000);
+    const finish = value => { clearTimeout(timer); socket.close(); resolveReceipt(value); };
+    socket.addEventListener('open', () => socket.send(JSON.stringify({ type: 'hello', wire: '0.1',
+      bridge: 'attempted-provider', credential: principalFor(app.profile.id, 'metrics-a'), token: DEMO_TOKEN, role: 'both' })));
+    socket.addEventListener('message', event => finish(JSON.parse(event.data)));
+    socket.addEventListener('error', () => { clearTimeout(timer); rejectReceipt(new Error('Unexpected socket failure')); });
+  });
+  assert.equal(observed.type, 'denied'); assert.equal(observed.code, 'BRIDGE_TOKEN_REJECTED');
+});
 
 test('purpose launcher rejects ambiguous arguments and mutually exclusive modes', () => {
   assert.deepEqual(parseDemoArgs(['--profile', 'event-desk', '--state-dir', '中文 空格', '--check']),

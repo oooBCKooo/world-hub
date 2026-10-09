@@ -23,15 +23,16 @@ World Hub is their shared communications crossroads: it accepts, addresses, reta
 
 These are directions for composition. External programs implement model inference, tool execution, world rules, and workflow scheduling; the Hub supplies their shared communication mechanism.
 
-## Try three hands-on demos
+## Try four hands-on demos
 
-All three demos start real, independent programs that exchange information through real mod bridges. Their interfaces display data cards, context sources, executor output, and world rounds. Raw JSON and communication receipts can be expanded for inspection.
+All four demos start real, independent programs that exchange information through real mod bridges. Their interfaces display data, context sources, world rounds, and capability discovery. Raw JSON and communication receipts can be expanded for inspection.
 
 | Demo | Try this | Expected result |
 | --- | --- | --- |
 | Multi-source event desk: `event-desk` | Enable the included traffic source; adjust the environment sampling settings. | The dashboard grows from two sources to three. The sensor's control bridge receives the settings, and its sampling bridge keeps publishing readings with the new settings. |
 | Distributed-context assistant: `modular-assistant` | Add material from the independent extension program; switch to the independent checklist executor. | New material appears in the assembled context. The executor's identity and output format change while using the same communication contract. |
 | External digital world: `digital-world` | Advance the world by three rounds; run a rest sequence. | Compare the initial state, each round's actions, and the final state. The NPC, rules, and state programs return their own step receipts. |
+| Capability discovery and replacement: `capability-directory` | Query the catalog, switch statistics provider A to B through configuration, then try a wrong version, denied authorization, and a slow response. | Source and output code stay unchanged. Two separate implementations follow one public contract, distinguishing Hub acceptance, business failure, and an unknown outcome. |
 
 The event desk below is an actual run. Traffic readings appear alongside environment and market data. After the interface sends settings back to the environment program, readings continue with the new parameters.
 
@@ -51,6 +52,13 @@ The event desk below is an actual run. Traffic readings appear alongside environ
 
 </details>
 
+<details>
+<summary>See the external catalog and actual calls after configuration-only replacement</summary>
+
+![English interface: an independent catalog advertises two statistics implementations; the configured composer selects B and returns statistics and four actual call receipts](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-capability-directory-en.jpg?v=0.14.0)
+
+</details>
+
 Node.js 22.4+ is required. Run from source, choosing one demo at a time:
 
 ```powershell
@@ -59,9 +67,10 @@ cd world-hub
 npm run demo:events-explorer
 # Or npm run demo:assistant-explorer
 # Or npm run demo:world-explorer
+# Or npm run demo:capabilities-explorer
 ```
 
-The demos use local events, a simplified world, and deterministic executors; no model account is needed. The assistant demo shows context composition and executor replacement without calling a real model. The extra sources and alternative executors are included independent programs. To connect your own program, implement a bridge and the agreed application communication format.
+The demos use local events, a simplified world, and deterministic executors; no model account is needed. The assistant demo shows context composition and executor replacement without calling a real model. The capability demo supplies an optional [capability contract and catalog](docs/examples/capability-directory.md): two processors depend only on the SDK and a public contract, with separate implementations. The catalog and composer are external programs. These included examples and isolated integration tests do not establish interoperability with arbitrary third-party developers. To connect your own program, implement a bridge and agree on the application contract.
 
 You can also build standalone source bundles or Windows portable bundles. See the [purpose demo guide](docs/examples/purpose-demos.md) for experiments, source editing entry points, and build instructions. The npm package contains the Hub, management interface, SDKs, and documentation; run purpose demos from the source repository or demo bundles.
 
@@ -91,7 +100,7 @@ You can also build standalone source bundles or Windows portable bundles. See th
 
 Run `world-hub --open` to open the communications management interface. Purpose demos have their own external interfaces, with a link to Hub management for the current session.
 
-The management canvas, communication workbench, and all three purpose demos offer Simplified Chinese / English switching and remember your choice in the browser. Switching changes interface wording and display formats; user-provided names, annotations, topics, application content, and original communication records retain their original text.
+The management canvas, communication workbench, and all four purpose demos offer Simplified Chinese / English switching and remember your choice in the browser. Switching changes interface wording and display formats; user-provided names, annotations, topics, application content, and original communication records retain their original text.
 
 ![English interface: Hub management canvas with programs, bidirectional mod bridges, the Hub, and actual information flow](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-topology-en.jpg?v=0.13.2)
 

@@ -10,6 +10,42 @@ const action = (profileId, id, label, description, peerId, suffix, body, operati
 });
 
 export const PROFILES = {
+  'capability-directory': {
+    id: 'capability-directory', title: '能力发现与模块替换',
+    description: '独立目录公布能力合同和租约。组装程序只改自己的配置，便可在两份独立文本统计程序之间切换；版本、授权和超时由外部程序解释。',
+    explorerMaxConnections: 2, isolatedCredentials: true,
+    peers: [
+      peer('directory', '外部能力目录', undefined, { entryFile: '../capability-directory/directory.mjs', implementation: 'external-capability-catalog' }),
+      peer('source', '原文提供者', undefined, { entryFile: '../capability-directory/composition.mjs', implementation: 'independent-text-source' }),
+      peer('composer', '配置式组装程序', undefined, { entryFile: '../capability-directory/composition.mjs', implementation: 'configured-capability-consumer' }),
+      peer('metrics-a', '统计实现 A', undefined, { entryFile: '../capability-directory/processor-a.mjs', implementation: 'buffer-statistics' }),
+      peer('metrics-b', '统计实现 B', undefined, { entryFile: '../capability-directory/processor-b.mjs', implementation: 'unicode-scan-statistics' }),
+      peer('output', '独立成果保存者', undefined, { entryFile: '../capability-directory/composition.mjs', implementation: 'idempotent-result-sink' }),
+    ],
+    actions: [
+      action('capability-directory', 'discovery', '发现可用能力', '通过目录程序自己的桥查询合同、地址、授权声明与租约。', 'directory', 'catalog/query', { capability: 'text.statistics' }),
+      action('capability-directory', 'run', '运行当前组合', '目录发现、读取原文、调用选定处理器、保存成果；每一步均有真实收据。', 'composer', 'compose/run', { command: 'run' }),
+      action('capability-directory', 'select-b', '仅改配置换成 B', '组装程序保存 metrics-b 配置，来源和输出程序源码保持不变。', 'composer', 'compose/run', { command: 'configure', provider: 'metrics-b' }),
+      action('capability-directory', 'select-a', '换回实现 A', '保存 metrics-a 配置，下次运行使用原实现。', 'composer', 'compose/run', { command: 'configure', provider: 'metrics-a' }),
+      action('capability-directory', 'output-read', '读取已保存成果', '由独立成果程序返回持久记录；通讯接纳本身不代表业务完成。', 'output', 'output/read', { command: 'snapshot' }),
+      action('capability-directory', 'source-update', '修改原文来源', '原文及其修订号由来源程序保存，两处理器遵守相同 UTF-8 与 Unicode 合同。', 'source', 'source/read', { command: 'set', text: '世界枢纽\nWorld Hub 🌍\n' }),
+      action('capability-directory', 'version-conflict', '尝试不兼容版本', '组装程序要求 2.0.0 合同；目录仍显示 1.0.0 时应在调用处理器之前拒绝。', 'composer', 'compose/run', { command: 'configure', contractVersion: '2.0.0' }),
+      action('capability-directory', 'restore-version', '恢复合同版本', '恢复明确的 1.0.0 合同，下次运行重新发现。', 'composer', 'compose/run', { command: 'configure', contractVersion: '1.0.0' }),
+      action('capability-directory', 'deny-b', '让 B 拒绝业务授权', 'B 自己撤销组装程序的业务授权，Hub 仍按通讯权限转交请求与回应。', 'metrics-b', 'provider/metrics-b', { command: 'configure', allowComposer: false }),
+      action('capability-directory', 'allow-b', '恢复 B 的业务授权', 'B 自己重新授权组装程序。能力广告不授予业务权限。', 'metrics-b', 'provider/metrics-b', { command: 'configure', allowComposer: true }),
+      action('capability-directory', 'slow-b', '模拟 B 的慢处理', 'B 延迟 1500 毫秒；组装程序等待 800 毫秒后返回结果未知，不自动重试或撤销。', 'metrics-b', 'provider/metrics-b', { command: 'configure', delayMs: 1500 }),
+      action('capability-directory', 'restore-b', '恢复 B 的响应速度', '清除 B 的演示延迟。之前超时的已接纳请求可能仍完成。', 'metrics-b', 'provider/metrics-b', { command: 'configure', delayMs: 0 }),
+      action('capability-directory', 'suspend-b', '暂停 B 的能力续约', 'B 停止向目录续约；1800 毫秒后目录标记租约失效，不推断进程是否存活。', 'metrics-b', 'provider/metrics-b', { command: 'configure', announcing: false }),
+      action('capability-directory', 'resume-b', '恢复 B 的能力续约', 'B 重新注册，目录从真实信封绑定当前通讯会话。', 'metrics-b', 'provider/metrics-b', { command: 'configure', announcing: true }),
+    ],
+    experiments: [{ id: 'discover-and-replace', title: '发现能力，只改配置替换实现', description: '两处理器独立实现同一公开合同；组装程序自行查目录、校验版本和解释业务结果。',
+      steps: [{ action: 'discovery', label: '查看两个能力提供者', expect: '目录显示各自模块版本、合同、会话和租约。' },
+        { action: 'run', label: '运行原实现 A', expect: '得到原文的统计值与目录、来源、处理器和输出的收据。' },
+        { action: 'select-b', label: '仅改组装配置', expect: '配置里的 provider 变为 metrics-b。' },
+        { action: 'run', label: '运行独立实现 B', expect: '统计结果相同，处理器主体与独立实现改变。' }],
+      takeaway: '能力目录、兼容性、授权和组合策略都是可选外部程序；Hub 不理解统计业务，也不选择处理器。' }],
+    observeFilters: ['demo/capability-directory/#'], defaultAction: 'discovery', sourceFile: '../capability-directory/composition.mjs',
+  },
   'event-desk': {
     id: 'event-desk', title: '多源事件台',
     description: '先观察环境和行情，再启用一个独立交通程序：它通过自己的桥注册新主题，汇总程序会纳入第三种信息。传感器程序同时连接数据桥和控制桥。',

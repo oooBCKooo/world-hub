@@ -213,7 +213,9 @@ export async function acceptDemoArchive({ archive, evidence = join(repository, '
         const entryPath = join(bundle, 'examples/purpose-demos', entry).replaceAll('\\', '/').toLowerCase();
         assert.ok(actual.CommandLine.replaceAll('\\', '/').toLowerCase().includes(entryPath), 'Actual OS command line runs the declared independent program entry');
       }
-      report.peerProcesses = processInfo; await save('peer-processes.json', processInfo);
+      const publicProcessInfo = processInfo.map(item => ({ ...item,
+        CommandLine: item.CommandLine.replace(/(--credential\s+)(?:"[^"]*"|\S+)/g, '$1<redacted>') }));
+      report.peerProcesses = publicProcessInfo; await save('peer-processes.json', publicProcessInfo);
       assert.ok(inside(join(bundle, 'data'), ready.stateDirectory), 'Session state remains under package data/');
       base = ready.url; assert.match(base, /^http:\/\/127\.0\.0\.1:\d+\/$/);
       const assets = [];
@@ -230,7 +232,7 @@ export async function acceptDemoArchive({ archive, evidence = join(repository, '
     };
     let token;
     const completed = []; report.actions = completed;
-    async function action(id, body) {
+    async function action(id, body, expectedOk = true) {
       const declaration = profile.actions.find(item => item.id === id); assert.ok(declaration);
       const response = await fetch(new URL('api/action', base), { method: 'POST', headers: { 'content-type': 'application/json', 'x-demo-token': token },
         body: JSON.stringify({ id, ...(body === undefined ? {} : { body }) }), signal: AbortSignal.timeout(35000) });
@@ -244,7 +246,7 @@ export async function acceptDemoArchive({ archive, evidence = join(repository, '
         result.observedExecution = observed.events.find(event => event.body?.receivedSeq === result.receipt.seq && event.body.ok === true);
       } else {
         assert.equal(result.response.operation, 'response'); assert.equal(result.response.requestSeq, result.receipt.seq);
-        assert.equal(result.response.fromPrincipal, declaration.target.principal); assert.equal(result.response.body.ok, true, JSON.stringify(result.response.body));
+        assert.equal(result.response.fromPrincipal, declaration.target.principal); assert.equal(result.response.body.ok, expectedOk, JSON.stringify(result.response.body));
       }
       completed.push(result); await save(`action-${completed.length}-${id}.json`, result); return result;
     }
@@ -357,6 +359,69 @@ export async function acceptDemoArchive({ archive, evidence = join(repository, '
         compositionProof = { type: 'multi-round-external-state', initialState: advanced.initialState,
           firstFinalState: advanced.finalState, nextInitialState: rested.initialState, finalState: rested.finalState,
           timeline: [...advanced.timeline, ...rested.timeline], receipts: [...advanced.receipts, ...rested.receipts] };
+      } else if (profile.id === 'capability-directory') {
+        const implementationA = ready.peers.find(peer => peer.id === 'metrics-a'), implementationB = ready.peers.find(peer => peer.id === 'metrics-b');
+        assert.notEqual(implementationA.pid, implementationB.pid);
+        assert.equal(implementationA.ready.programEntry, '../capability-directory/processor-a.mjs');
+        assert.equal(implementationB.ready.programEntry, '../capability-directory/processor-b.mjs');
+        const codeBefore = sha(await readFile(join(bundle, 'examples/capability-directory/composition.mjs')));
+        const select = async id => action(id);
+        await select('select-a');
+        const original = (await action('run')).response.body;
+        await select('select-b');
+        const replaced = (await action('run')).response.body;
+        for (const [result, provider] of [[original, implementationA], [replaced, implementationB]]) {
+          assert.equal(result.status, 'completed'); assert.equal(result.selection.principal, provider.ready.principal);
+          assert.deepEqual(result.receipts.map(receipt => receipt.stage), ['discovery', 'source', 'processor', 'output']);
+          for (const receipt of result.receipts) {
+            assert.ok(receipt.requestSeq > 0 && receipt.responseSeq > receipt.requestSeq);
+            assert.equal(receipt.request.seq, receipt.requestSeq); assert.equal(receipt.response.seq, receipt.responseSeq);
+          }
+          const processor = result.receipts.find(receipt => receipt.stage === 'processor');
+          assert.equal(processor.response.fromPrincipal, provider.ready.principal);
+          assert.equal(processor.response.senderSession, result.selection.session);
+          const text = result.receipts.find(receipt => receipt.stage === 'source').response.body.text;
+          assert.deepEqual(result.output, { codePoints: Array.from(text).length, lines: text.split('\n').length,
+            utf8Bytes: Buffer.byteLength(text, 'utf8'), sha256: sha(Buffer.from(text, 'utf8')) });
+          assert.equal(result.sink.record.invocationId, result.invocationId);
+        }
+        assert.deepEqual(original.output, replaced.output);
+        assert.notEqual(original.selection.principal, replaced.selection.principal);
+        assert.equal(sha(await readFile(join(bundle, 'examples/capability-directory/composition.mjs'))), codeBefore,
+          'Source and output share unchanged implementation code; selection is only external configuration');
+        await action('version-conflict');
+        const conflict = (await action('run', undefined, false)).response.body;
+        assert.equal(conflict.error.code, 'CONTRACT_MISMATCH'); assert.deepEqual(conflict.receipts.map(receipt => receipt.stage), ['discovery']);
+        await action('restore-version'); await action('deny-b');
+        const denied = (await action('run', undefined, false)).response.body;
+        assert.equal(denied.error.code, 'PERMISSION_DENIED'); assert.equal(denied.status, 'failed');
+        assert.ok(denied.receipts.some(receipt => receipt.stage === 'processor' && receipt.response));
+        assert.ok(!denied.receipts.some(receipt => receipt.stage === 'output'));
+        await action('allow-b'); await action('slow-b');
+        const uncertain = (await action('run', undefined, false)).response.body;
+        assert.equal(uncertain.status, 'uncertain'); assert.equal(uncertain.error.code, 'PROCESSOR_TIMEOUT');
+        const accepted = uncertain.receipts.find(receipt => receipt.stage === 'processor');
+        assert.ok(accepted.requestSeq > 0); assert.equal(accepted.response, null);
+        assert.ok(!uncertain.receipts.some(receipt => receipt.stage === 'output'));
+        await action('restore-b'); await action('suspend-b');
+        const beforeExpiry = (await action('discovery')).response.body;
+        const deadline = beforeExpiry.entries.find(entry => entry.module.id === 'metrics-b').expiresAt;
+        await pause(Math.max(0, deadline - Date.now()) + 100);
+        const catalog = (await action('discovery')).response.body;
+        assert.equal(catalog.entries.find(entry => entry.module.id === 'metrics-b').state, 'lease-expired');
+        const expired = (await action('run', undefined, false)).response.body;
+        assert.equal(expired.error.code, 'LEASE_EXPIRED'); assert.deepEqual(expired.receipts.map(receipt => receipt.stage), ['discovery']);
+        await action('resume-b');
+        await until(async () => (await action('discovery')).response.body,
+          value => value.entries.some(entry => entry.module.id === 'metrics-b' && entry.state === 'lease-valid'), 'B advertises again', 6000);
+        const recovered = (await action('run')).response.body; assert.equal(recovered.status, 'completed');
+        const saved = (await action('output-read')).response.body;
+        const completedRuns = completed.filter(result => result.response?.body.kind === 'demo.capability-composition' && result.response.body.status === 'completed');
+        assert.equal(saved.records.length, completedRuns.length);
+        assert.ok(saved.records.some(record => record.invocationId === recovered.invocationId));
+        assert.ok(!saved.records.some(record => record.invocationId === uncertain.invocationId));
+        compositionProof = { type: 'external-capability-discovery-and-independent-replacement', codeUnchanged: true,
+          original, replaced, conflict, denied, uncertain, expired, recovered, catalog, records: saved.records };
       } else throw new Error('Unknown demo acceptance profile');
       report.compositionProof = compositionProof; await save('composition-proof.json', compositionProof);
       assert.ok(completed.length > profile.actions.length); return { completed: completed.length, repeatsProduceResults: true, compositionProof };
@@ -364,7 +429,9 @@ export async function acceptDemoArchive({ archive, evidence = join(repository, '
     await step('downloaded export and external program state agree with outcomes', async () => {
       const response = await fetch(new URL('api/export', base), { signal: AbortSignal.timeout(5000) });
       assert.equal(response.status, 200); assert.match(response.headers.get('content-disposition'), /attachment/);
-      const exported = await response.json(); assert.equal(exported.profile.id, profile.id); assert.equal(exported.results.length, completed.length);
+      const exported = await response.json(); assert.equal(exported.profile.id, profile.id);
+      assert.equal(exported.results.length, Math.min(completed.length, 30), 'The explorer exports its bounded latest-operation history');
+      assert.deepEqual(exported.results.map(result => result.receipt.seq), completed.slice(-30).map(result => result.receipt.seq));
       assert.equal(exported.failures.length, 0); assert.ok(exported.results.every(result => result.receipt.seq > 0));
       assert.ok(exported.events.some(event => event.operation === 'response'));
       await save('downloaded-export.json', exported);
@@ -390,6 +457,16 @@ export async function acceptDemoArchive({ archive, evidence = join(repository, '
         assert.equal(checklist.lastResult.answer, checklistRuns.at(-1).response.body.answer);
         assert.equal(extension.text, profile.actions.find(item => item.id === 'extension-update').body.text);
         assert.equal((await readState('programs/dialogue/context-state.json')).messages.at(-1).content, composer.lastResult.answer);
+      } else if (profile.id === 'capability-directory') {
+        const source = await readState('programs/source/source-state.json');
+        assert.equal(source.text, profile.actions.find(item => item.id === 'source-update').body.text);
+        const configuration = await readState('programs/composer/composition-config.json');
+        assert.equal(configuration.provider, 'metrics-b'); assert.equal(configuration.contractVersion, '1.0.0');
+        const saved = await readState('programs/output/output-state.json');
+        const successful = completed.filter(result => result.response?.body.kind === 'demo.capability-composition' && result.response.body.status === 'completed');
+        assert.equal(saved.records.length, successful.length);
+        for (const result of successful) assert.deepEqual(saved.records.find(record => record.invocationId === result.response.body.invocationId).output, result.response.body.output);
+        const catalog = await readState('programs/directory/directory-state.json'); assert.equal(catalog.entries.length, 2);
       } else {
         const director = await readState('programs/director/last-run.json'), world = await readState('programs/state/world-state.json');
         assert.ok(director.completed >= 4); assert.deepEqual(director.lastResult.finalState, world.world);

@@ -7,7 +7,8 @@ npm 安装包的 `world-hub --check` 是部署前的只读环境与配置检查�
 | 测试集合 | 命令 | 需要的环境 |
 | --- | --- | --- |
 | 默认 Node 通讯与管理回归、独立多程序场景 | `npm test` 或 `npm run verify` | Node 22；默认无需 DSH、Python、pwsh |
-| 三个用途演示的独立程序和通讯链路 | `npm run test:demos` | Node 22；无需模型账号或 DSH |
+| 四个用途演示的独立程序、通讯链路和 source 打包 | `npm run test:demos` | Node 22；无需模型账号或 DSH |
+| 外部能力目录、独立处理器替换与可解释故障 | `npm run test:capabilities` | Node 22；无模型账号或 DSH |
 | npm CLI 与真实 tarball 隔离安装、启动、桥通讯及停机 | `npm run test:npm` | Node 22 + npm；不改用户全局安装，也不发布 |
 | JS／Python／PowerShell 互操作和三个候选桥 profile | `npm run test:cross-language` | Node、Python + websockets、PowerShell 7 |
 | 真实已安装 DSH 的隔离测试模型集成 | `npm run test:dsh` | Node、显式 `PEROS_DSH_ROOT` |
@@ -18,6 +19,10 @@ npm 安装包的 `world-hub --check` 是部署前的只读环境与配置检查�
 默认 Node 集执行所有 `tests/conformance/*.test.mjs`、JSON-RPC 传输与上下文程序测试、定向／大对象场景、外部工作流、事件面板和三程序链路。真实 DSH 集成需单独运行 `npm run test:dsh`。测试名称用于定位用例，不代表产品模块分类。
 
 用途演示集检查真实独立进程：交通来源自行登记新增主题，汇总从两源扩展为三源；第四个上下文提供者进入组合；另一份独立执行器按相同应用合同返回不同成果；导演逐轮请求 NPC、规则与状态程序。程序返回的内部调用回执与界面自己观察到的通讯分别呈现，不把订阅到的少量事件当作全部定向信息流。演示使用简化业务与确定性本地执行器。
+
+能力目录集合使用真实独立进程与 Hub 请求回应，核验公开合同的两个独立处理器、只改组装配置的替换、真实主体与序号、版本不兼容、应用授权拒绝、目录租约过期以及超时结果未知。目录、清单、幂等与选择均在外部程序；该集合不证明任意第三方软件能自动兼容。完整场景与运行入口见[能力目录示例](../examples/capability-directory/README.md)。
+
+能力目录用途启动器为各主体分配独立随机凭据；手工受信测试夹具可能使用公开 token 来控制通讯场景，不能据此证明恶意程序的主体隔离。真实部署的身份绑定取决于各凭据的隔离，清单声明不是授权。
 
 ## 可选语言环境
 

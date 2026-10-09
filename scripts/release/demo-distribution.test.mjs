@@ -79,6 +79,27 @@ test('all profiles are separate source packages with exact allowlist and fixed s
   }
 });
 
+test('capability source bundle includes public contract and distinct processor entries and checks missing files before startup', async () => {
+  const result = built.packages.find(item => item.profile === 'capability-directory');
+  assert.ok(result);
+  for (const name of ['directory.mjs', 'composition.mjs', 'processor-a.mjs', 'processor-b.mjs', 'contract.json', 'README.md']) {
+    await access(join(result.directory, 'examples/capability-directory', name));
+  }
+  const changed = join(temporaryRoot, '能力目录 缺文件');
+  await cp(result.directory, changed, { recursive: true, force: false, errorOnExist: true });
+  for (const path of ['examples/capability-directory/processor-a.mjs', 'examples/capability-directory/processor-b.mjs', 'examples/capability-directory/contract.json']) {
+    const original = await readFile(join(changed, path));
+    await rm(join(changed, path));
+    const checked = spawnSync(process.execPath, [join(changed, 'examples/purpose-demos/run-demo.mjs'), '--profile', 'capability-directory', '--check'],
+      { shell: false, windowsHide: true, encoding: 'utf8', timeout: 10_000 });
+    assert.equal(checked.error, undefined); assert.notEqual(checked.status, 0);
+    assert.ok(checked.stderr.replaceAll('\\', '/').includes(path), checked.stderr);
+    await assert.rejects(lstat(join(changed, 'data')), { code: 'ENOENT' });
+    await writeFile(join(changed, path), original, { flag: 'wx' });
+  }
+  assert.equal((await verifyDemoPackage(changed)).passed, true);
+});
+
 test('source check runs from unrelated cwd without creating data and rejects another profile', async () => {
   const cwd = join(temporaryRoot, '外部 工作目录');
   await mkdir(cwd);
