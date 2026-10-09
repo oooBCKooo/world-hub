@@ -72,6 +72,8 @@ npm run demo:events-explorer
 
 演示使用本地事件、简化世界和确定性执行器，无需模型账号。助手演示展示上下文组合和执行器替换，不调用真实模型。能力演示提供极小的可选[能力契约与目录](docs/examples/capability-directory.md)：两处理器只依赖 SDK 和公开合同，各自独立实现；目录与组装器都是外部程序。预置演示与隔离接入测试不等于已经通过任意第三方开发者的互操作验收；自己的程序仍需实现桥并约定应用合同。
 
+要从零开发遵守同一合同的可替换模块，请阅读[提供者接入契约](docs/modules/provider-contract.md)和[JavaScript SDK](sdk/javascript/README.md)。接入契约完整说明业务格式、能力登记与发现、身份绑定、租约和结果校验；[机器契约](docs/modules/text-statistics.contract.json)随 npm、Hub 整合包和用途演示包提供。部署方提供 endpoint、独立身份凭据与主题权限，再配置外部目录和组装器；枢纽无需增加业务种类。
+
 也可构建独立源码包或 Windows 便携整合包。逐步操作、源码修改入口和构建方法见[用途演示指南](docs/examples/purpose-demos.md)。npm 包只包含枢纽、管理界面、SDK 和文档；用途演示从源码仓库或演示整合包运行。
 
 ## 设计理念

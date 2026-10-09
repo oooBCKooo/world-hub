@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "manifestVersion": 1,
+  "contract": { "id": "text.statistics", "version": "1.0.0" },
+  "semantics": "utf8-exact-unicode-v1",
+  "description": "Count Unicode code points, LF-separated lines and exact UTF-8 bytes, then hash those bytes. No trimming, normalization, case conversion or newline conversion. Empty text has zero code points, one line and zero bytes. Text must contain no unpaired UTF-16 surrogate and must encode to at most 16384 UTF-8 bytes.",
+  "effects": "read-only",
+  "permissions": ["text.read"],
+  "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["contract", "invocationId", "text"],
+    "properties": {
+      "contract": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "version"],
+        "properties": { "id": { "const": "text.statistics" }, "version": { "const": "1.0.0" } }
+      },
+      "invocationId": { "type": "string", "minLength": 1, "maxLength": 256 },
+      "text": { "type": "string", "maxLength": 16384, "description": "Well-formed Unicode; exact UTF-8 encoding is at most 16384 bytes. This semantic constraint requires provider validation in addition to JSON Schema." }
+    }
+  },
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "oneOf": [
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ok", "kind", "contract", "invocationId", "status", "provider", "executionId", "output"],
+        "properties": {
+          "ok": { "const": true },
+          "kind": { "const": "demo.capability-result" },
+          "contract": {
+            "type": "object", "additionalProperties": false, "required": ["id", "version"],
+            "properties": { "id": { "const": "text.statistics" }, "version": { "const": "1.0.0" } }
+          },
+          "invocationId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "status": { "const": "completed" },
+          "provider": { "type": "string", "minLength": 1 },
+          "executionId": { "type": "string", "format": "uuid" },
+          "output": {
+            "type": "object", "additionalProperties": false,
+            "required": ["codePoints", "lines", "utf8Bytes", "sha256"],
+            "properties": {
+              "codePoints": { "type": "integer", "minimum": 0, "maximum": 16384 },
+              "lines": { "type": "integer", "minimum": 1, "maximum": 16385 },
+              "utf8Bytes": { "type": "integer", "minimum": 0, "maximum": 16384 },
+              "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            }
+          }
+        }
+      },
+      {
+        "type": "object", "additionalProperties": false,
+        "required": ["ok", "kind", "contract", "invocationId", "status", "provider", "error"],
+        "properties": {
+          "ok": { "const": false },
+          "kind": { "const": "demo.capability-result" },
+          "contract": { "type": "object", "required": ["id", "version"], "additionalProperties": false,
+            "properties": { "id": { "const": "text.statistics" }, "version": { "type": "string", "minLength": 1 } } },
+          "invocationId": { "type": "string" },
+          "status": { "const": "failed" },
+          "provider": { "type": "string", "minLength": 1 },
+          "error": { "type": "object", "additionalProperties": false, "required": ["code", "message", "retryable"],
+            "properties": { "code": { "type": "string", "minLength": 1 }, "message": { "type": "string" }, "retryable": { "const": false } } }
+        }
+      }
+    ]
+  }
+}

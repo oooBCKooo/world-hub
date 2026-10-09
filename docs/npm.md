@@ -101,4 +101,6 @@ Python 程序把 `node_modules/world-hub/sdk/python` 加入模块路径后导入
 
 npm 包包含 CLI、通讯核心、管理界面、三个语言 SDK、参考配置和文档。测试、独立业务示例、构建工具、生成 ZIP、官方 Node 二进制与私人部署数据不随 npm 安装。需要开发、运行 `npm test` 或探索用途演示时，克隆 [GitHub 仓库](https://github.com/oooBCKooo/world-hub)，按[开发](development.md)、[验证](verification.md)与[用途演示指南](examples/purpose-demos.md)操作。
 
+[提供者接入契约](modules/provider-contract.md)和[统计机器契约](modules/text-statistics.contract.json)在包内 `docs/modules/`，可与 SDK 文档一起用于从零实现遵守相同合同的能力模块。部署方仍需提供自己的 endpoint、身份凭据与权限，并配置外部目录和组装器；这些服务和示例业务实现不由 npm Hub 默认启动。
+
 项目源码和文档采用 [MIT 许可](../LICENSE)，第三方运行时和依赖遵循各自许可。npm 可安装不代表所有平台、跨机器、长期运行或所有第三方桥都已验收；实际验证范围见[验证说明](verification.md)。

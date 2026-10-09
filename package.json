@@ -1,6 +1,6 @@
 {
   "name": "world-hub",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "license": "MIT",
   "author": "oooBCKooo",
   "repository": { "type": "git", "url": "git+https://github.com/oooBCKooo/world-hub.git" },
@@ -22,7 +22,7 @@
     "sdk/python/hub_bridge.py", "sdk/python/requirements.txt", "sdk/python/README.md",
     "sdk/powershell/HubBridge.psm1", "sdk/powershell/HubBridge.cs", "sdk/powershell/README.md",
     "config/hub.json", "scripts/launcher.mjs", "scripts/launcher-support.mjs",
-    "docs/**/*.md", "docs/images/hub-topology.jpg", "docs/images/hub-workbench.jpg",
+    "docs/**/*.md", "docs/modules/text-statistics.contract.json", "docs/images/hub-topology.jpg", "docs/images/hub-workbench.jpg",
     "docs/images/demo-event-desk.jpg", "docs/images/demo-modular-assistant.jpg", "docs/images/demo-digital-world.jpg",
     "docs/images/hub-topology-en.jpg", "docs/images/hub-workbench-en.jpg",
     "docs/images/demo-event-desk-en.jpg", "docs/images/demo-modular-assistant-en.jpg", "docs/images/demo-digital-world-en.jpg",

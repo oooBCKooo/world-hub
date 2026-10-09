@@ -85,6 +85,15 @@ test('capability source bundle includes public contract and distinct processor e
   for (const name of ['directory.mjs', 'composition.mjs', 'processor-a.mjs', 'processor-b.mjs', 'contract.json', 'README.md']) {
     await access(join(result.directory, 'examples/capability-directory', name));
   }
+  const guidePath = 'docs/modules/provider-contract.md';
+  const guide = await readFile(join(result.directory, guidePath), 'utf8');
+  assert.equal(guide, await readFile(join(repository, guidePath), 'utf8'), 'Provider integration guide must retain its links in the demo bundle');
+  for (const match of guide.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
+    if (/^(?:https?:|mailto:|#)/i.test(match[1])) continue;
+    await access(resolve(dirname(join(result.directory, guidePath)), match[1].replace(/#.*$/, '').replace(/:\d+$/, '')));
+  }
+  assert.deepEqual(JSON.parse(await readFile(join(result.directory, 'docs/modules/text-statistics.contract.json'), 'utf8')),
+    JSON.parse(await readFile(join(result.directory, 'examples/capability-directory/contract.json'), 'utf8')));
   const changed = join(temporaryRoot, '能力目录 缺文件');
   await cp(result.directory, changed, { recursive: true, force: false, errorOnExist: true });
   for (const path of ['examples/capability-directory/processor-a.mjs', 'examples/capability-directory/processor-b.mjs', 'examples/capability-directory/contract.json']) {

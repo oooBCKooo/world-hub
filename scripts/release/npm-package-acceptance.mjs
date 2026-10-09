@@ -47,7 +47,8 @@ function allowedPackageFile(path) {
     'docs/images/demo-event-desk.jpg', 'docs/images/demo-modular-assistant.jpg', 'docs/images/demo-digital-world.jpg',
     'docs/images/hub-topology-en.jpg', 'docs/images/hub-workbench-en.jpg',
     'docs/images/demo-event-desk-en.jpg', 'docs/images/demo-modular-assistant-en.jpg', 'docs/images/demo-digital-world-en.jpg',
-    'docs/images/demo-capability-directory.jpg', 'docs/images/demo-capability-directory-en.jpg'].includes(path)
+    'docs/images/demo-capability-directory.jpg', 'docs/images/demo-capability-directory-en.jpg',
+    'docs/modules/text-statistics.contract.json'].includes(path)
     || /^src\/.+\.(?:mjs|js|html|css|json)$/.test(path)
     || /^docs\/.+\.md$/.test(path);
 }
@@ -103,6 +104,9 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
       assert.ok(report.pack.files.some(file => file.path === 'LICENSE'));
       assert.ok(report.pack.files.some(file => file.path === 'bin/world-hub.mjs'));
       assert.ok(report.pack.files.some(file => file.path === 'README.en.md'));
+      for (const path of ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md']) {
+        assert.ok(report.pack.files.some(file => file.path === path), `Independent provider material is absent from the tarball: ${path}`);
+      }
       archive = join(directory, report.pack.filename);
     }
     const archiveBytes = await readFile(archive);
@@ -124,9 +128,24 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
       assert.equal(installed.name, pkg.name); assert.equal(installed.version, pkg.version); assert.equal(installed.license, 'MIT');
       assert.deepEqual(installed.bin, pkg.bin); assert.deepEqual(installed.exports, pkg.exports);
       assert.deepEqual(installed.dependencies ?? {}, {}); assert.deepEqual(installed.optionalDependencies ?? {}, {});
+      for (const path of ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md']) {
+        assert.equal(hash(await readFile(join(installation, path))), hash(await readFile(join(sourceRoot, path))),
+          `Provider material changed during npm packaging: ${path}`);
+      }
+      const guide = await readFile(join(installation, 'docs/modules/provider-contract.md'), 'utf8');
+      for (const match of guide.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
+        if (/^(?:https?:|mailto:|#)/i.test(match[1])) continue;
+        await access(resolve(installation, 'docs/modules', match[1].replace(/#.*$/, '').replace(/:\d+$/, '')));
+      }
     }
+    assert.deepEqual(JSON.parse(await readFile(join(localPackage, 'docs/modules/text-statistics.contract.json'), 'utf8')),
+      JSON.parse(await readFile(join(sourceRoot, 'examples/capability-directory/contract.json'), 'utf8')),
+      'The public machine contract and compatibility example disagree');
     for (const entries of [beforeLocal, beforeGlobal]) {
       assert.ok(entries.some(file => file.path === 'README.en.md'), 'English README is absent from the installed package');
+      for (const path of ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md']) {
+        assert.ok(entries.some(file => file.path === path), `Independent provider material is absent from the installed package: ${path}`);
+      }
       assert.deepEqual(entries.filter(file => !allowedPackageFile(file.path)).map(file => file.path), [], 'Unexpected or generated installed file');
       assert.ok(entries.every(file => !file.path.split('/').some(part => ['.local', '.artifacts', 'data', 'dist', 'node_modules'].includes(part))
         && !/^(?:tests|examples)\//.test(file.path)));

@@ -72,6 +72,8 @@ npm run demo:events-explorer
 
 The demos use local events, a simplified world, and deterministic executors; no model account is needed. The assistant demo shows context composition and executor replacement without calling a real model. The capability demo supplies an optional [capability contract and catalog](docs/examples/capability-directory.md): two processors depend only on the SDK and a public contract, with separate implementations. The catalog and composer are external programs. These included examples and isolated integration tests do not establish interoperability with arbitrary third-party developers. To connect your own program, implement a bridge and agree on the application contract.
 
+To build a replaceable module from scratch against the same contract, start with the [provider integration contract](docs/modules/provider-contract.md) and [JavaScript SDK](sdk/javascript/README.md). The guide specifies business envelopes, capability registration and discovery, identity binding, leases, and result validation. The [machine-readable contract](docs/modules/text-statistics.contract.json) ships with npm, Hub bundles, and purpose demo bundles. Your deployer supplies the endpoint, separate identity credentials, and topic permissions, then configures the external catalog and composer. The Hub needs no new business types. The detailed provider guide is currently in Chinese.
+
 You can also build standalone source bundles or Windows portable bundles. See the [purpose demo guide](docs/examples/purpose-demos.md) for experiments, source editing entry points, and build instructions. The npm package contains the Hub, management interface, SDKs, and documentation; run purpose demos from the source repository or demo bundles.
 
 ## Design principles

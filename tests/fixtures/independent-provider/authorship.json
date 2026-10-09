@@ -1,0 +1,18 @@
+{
+  "method": "separate-ai-author-without-project-history",
+  "accessBoundary": "Instructions limited reading to three frozen documents; no operating-system access isolation was imposed.",
+  "materials": [
+    { "publicPath": "docs/modules/provider-contract.md", "frozenSha256": "7bc4d6d57d2cac6dec0bdfc3da93fa306c83c1a6d3d04b9579db2bd6b76faffc" },
+    { "publicPath": "docs/modules/text-statistics.contract.json", "frozenSha256": "726a0a38d5cf1c7f4802d5f004e557ac81795f5b27a89163d8afd476bf9b90a1" },
+    { "publicPath": "sdk/javascript/README.md", "frozenSha256": "66e5c32bb0cdfbe098895ccd4679dda66ffeb00c4a9130716fb99d70c848796e" }
+  ],
+  "implementationSha256": "0b6290db7bcdb33816177b12393fafc9cbe1afa215310110d0cb0de084940166",
+  "sdkImport": "world-hub/bridge",
+  "authorReportedNoOtherProjectSourcesRead": true,
+  "initialImplementationUnchangedAfterAcceptance": true,
+  "acceptanceCase": "ECOSYSTEM-11",
+  "scope": "New module id, principal and topic; config-only replacement, contract boundaries, authorization, leases and restarts.",
+  "humanThirdPartyAcceptance": false,
+  "arbitraryContractOrPlatformConformance": false,
+  "note": "The provider and SDK snapshots preceded final consumer subscription-cleanup and descriptor-validation documentation clarifications. Those changes did not require provider changes. Raw author and runtime reports remain execution evidence, not shipped deployment files."
+}

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { buildPackage, APPLICATION_FILES, SDK_FILES, DOCUMENTATION_IMAGE_FILES } from './build-package.mjs';
+import { buildPackage, APPLICATION_FILES, SDK_FILES, SDK_DOCUMENTATION_FILES, MODULE_CONTRACT_FILES, DOCUMENTATION_IMAGE_FILES } from './build-package.mjs';
 import { verifyPackage } from './verify-package.mjs';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
@@ -51,6 +51,23 @@ test('source distribution is independent of local runtime caches and copies only
   assert.ok(start.includes('%~dp0scripts\\launcher.mjs'));
   assert.ok(verify.includes('%~dp0scripts\\release\\verify-package.mjs'));
   assert.ok(demo.includes('%~dp0examples\\management\\run-management-demo.mjs'));
+});
+
+test('Hub bundles preserve self-contained provider documentation, SDK guides and the machine contract', async () => {
+  for (const path of [...SDK_DOCUMENTATION_FILES, ...MODULE_CONTRACT_FILES]) {
+    await access(join(bundle, path));
+  }
+  const guidePath = 'docs/modules/provider-contract.md';
+  const guide = await readFile(join(bundle, guidePath), 'utf8');
+  assert.equal(guide, await readFile(join(repository, guidePath), 'utf8'), 'Provider guide links must survive bundle adaptation intact');
+  for (const match of guide.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
+    if (/^(?:https?:|mailto:|#)/i.test(match[1])) continue;
+    await access(resolve(dirname(join(bundle, guidePath)), match[1].replace(/#.*$/, '').replace(/:\d+$/, '')));
+  }
+  const contract = await readFile(join(bundle, 'docs/modules/text-statistics.contract.json'), 'utf8');
+  assert.equal(contract, await readFile(join(repository, 'docs/modules/text-statistics.contract.json'), 'utf8'));
+  assert.deepEqual(JSON.parse(contract), JSON.parse(await readFile(join(repository, 'examples/capability-directory/contract.json'), 'utf8')),
+    'The compatibility example contract must agree with the public machine contract');
 });
 
 test('source package check works from an unrelated cwd without creating persistent data', async () => {

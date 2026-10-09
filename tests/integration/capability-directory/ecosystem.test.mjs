@@ -34,14 +34,14 @@ function bodyOf(result, expectedPrincipal) {
   return result.response.body;
 }
 
-async function scene(t, { skip = [] } = {}) {
+async function scene(t, { skip = [], extraCredentials = {}, extraTopics = [], catalogConfig = null } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'world-hub-capability-test-'));
   const evidence = await reserveEvidenceRun(join(ROOT, '.artifacts/capability-directory'));
   const profile = getProfile(PROFILE), owned = [], programs = new Map(), bridges = [];
   const checkpoints = [];
-  const credentials = Object.fromEntries([...profile.peers.map(peer => peer.id), 'explorer', 'stranger'].map(id => [principalFor(PROFILE, id), {
-    token: DEMO_TOKEN, maxConnections: 8, allow: { publish: [`${PREFIX}/#`], subscribe: [`${PREFIX}/#`] },
-  }]));
+  const credentials = { ...Object.fromEntries([...profile.peers.map(peer => peer.id), 'explorer', 'stranger'].map(id => [principalFor(PROFILE, id), {
+    token: DEMO_TOKEN, maxConnections: 8, allow: { publish: [`${PREFIX}/#`, ...extraTopics], subscribe: [`${PREFIX}/#`, ...extraTopics] },
+  }])), ...extraCredentials };
   const configFile = join(directory, 'hub.json');
   await writeFile(configFile, JSON.stringify({ transport: { host: '127.0.0.1', port: 0, path: '/bridge' },
     log: { dir: join(directory, 'log') }, blobs: { dir: join(directory, 'blobs') },
@@ -67,6 +67,10 @@ async function scene(t, { skip = [] } = {}) {
   const hub = await startOwnedProgram(join(ROOT, 'examples/distributed-context/hub-process.mjs'),
     { args: ['--config', configFile, '--quiet'], cwd: ROOT });
   owned.push(hub);
+  if (catalogConfig) {
+    await mkdir(join(directory, 'programs/directory'), { recursive: true });
+    await writeFile(join(directory, 'programs/directory/catalog-config.json'), JSON.stringify(catalogConfig));
+  }
   async function start(id, entry, cwd = ROOT) {
     const peer = profile.peers.find(value => value.id === id);
     assert.ok(peer, `profile must declare ${id}`);
@@ -107,7 +111,7 @@ async function scene(t, { skip = [] } = {}) {
     scope: 'This controlled fixture deliberately shares its public test token. The actual isolatedCredentials launcher generates independent per-principal credentials.' });
   const pids = owned.map(program => program.child.pid);
   assert.equal(new Set(pids).size, pids.length); assert.ok(pids.every(pid => pid !== process.pid));
-  return { directory, profile, hub, owned, programs, start, connect, call, catalog, provider, compose, sink, log, discovery,
+  return { directory, profile, hub, owned, programs, bridges, start, connect, call, catalog, provider, compose, sink, log, discovery,
     record: (label, value = {}) => checkpoints.push({ label, ...value }) };
 }
 
@@ -160,6 +164,73 @@ test('ECOSYSTEM-01 independent processors replace by configuration while source 
     }
   }
   app.record('configuration-only-replacement', { sourceHashes: before, first, second, repeated });
+});
+
+test('ECOSYSTEM-10 a configurable trusted catalog can return a module without a demo-derived address or topic', options, async t => {
+  const principal = 'catalog.vendor', queryTopic = 'vendor/catalog/query';
+  const app = await scene(t, { extraTopics: ['vendor/#'], extraCredentials: {
+    [principal]: { token: randomUUID(), maxConnections: 1, allow: { publish: ['vendor/#'], subscribe: ['vendor/#'] } },
+  } });
+  const advertised = (await app.discovery(['metrics-a'])).entries.find(entry => entry.module.id === 'metrics-a');
+  const credential = JSON.parse(await readFile(join(app.directory, 'hub.json'), 'utf8')).acl.credentials[principal];
+  const directory = new Bridge({ url: app.hub.ready.endpoint, bridgeId: 'vendor.catalog.main', credential: principal, token: credential.token });
+  directory.on('error', () => {}); app.bridges.push(directory); await directory.connect();
+  let variant = 'normal';
+  directory.on('delivery', async message => {
+    if (message.operation !== 'request' || !message.topic.startsWith('vendor/catalog/')) return;
+    const entry = { ...advertised, expiresAt: Date.now() + 10000, state: 'lease-valid' };
+    if (variant === 'missing-expiry') delete entry.expiresAt;
+    if (variant === 'invalid-time') entry.registeredAt = 'not-a-time';
+    const entries = variant === 'ambiguous' ? [entry, structuredClone(entry)]
+      : variant === 'retired-entry' ? [{ ...entry, principal: 'retired.provider', state: 'lease-expired', expiresAt: 0 }, entry]
+      : variant === 'bad-topic' ? [{ ...entry, capabilities: [{ ...entry.capabilities[0], topic: 'vendor/+' }] }]
+        : [entry];
+    const body = { ok: true, kind: 'demo.capability-directory', epoch: 'vendor-catalog', queriedAt: Date.now(), entries };
+    if (variant === 'missing-query-time') delete body.queriedAt;
+    await directory.respond(message, body);
+  });
+  await directory.registerChannels([{ name: queryTopic, publish: true, subscribe: true }]);
+  await directory.subscribe(['vendor/catalog/+'], { from: 'now', operations: ['request'] });
+  for (const invalid of [{ provider: '../escape' }, { directory: { principal, queryTopic: 'vendor/#' } },
+    { directory: { principal, queryTopic, extra: true } }]) {
+    const refused = await app.compose({ command: 'configure', ...invalid });
+    assert.equal(refused.ok, false); assert.equal(refused.error.code, 'CONFIG_INVALID');
+  }
+  const configured = await app.compose({ command: 'configure', directory: { principal, queryTopic } });
+  assert.equal(configured.ok, true, JSON.stringify(configured));
+  const result = await app.compose({ command: 'run', invocationId: 'configured-catalog' });
+  assert.equal(result.ok, true, JSON.stringify(result)); assert.deepEqual(result.output, EXPECTED_OUTPUT);
+  assert.equal(result.receipts[0].response.fromPrincipal, principal);
+  assert.equal(result.selection.catalogEpoch, 'vendor-catalog');
+  await app.programs.get('composer').stop(); await app.start('composer');
+  const restored = await app.compose({ command: 'run', invocationId: 'catalog-config-restored' });
+  assert.equal(restored.ok, true, JSON.stringify(restored)); assert.deepEqual(restored.config.directory, { principal, queryTopic });
+  const baseline = (await app.provider('metrics-a', { command: 'snapshot' })).statistics.requests;
+  for (const [selected, code] of [['ambiguous', 'PROVIDER_AMBIGUOUS'], ['bad-topic', 'PROVIDER_ADDRESS_MISMATCH'],
+    ['missing-expiry', 'PROVIDER_DESCRIPTOR_INVALID'], ['invalid-time', 'PROVIDER_DESCRIPTOR_INVALID'], ['missing-query-time', 'CATALOG_INVALID']]) {
+    variant = selected;
+    const refused = await app.compose({ command: 'run', invocationId: `catalog-${selected}` });
+    assert.equal(refused.ok, false); assert.equal(refused.error.code, code, JSON.stringify(refused));
+  }
+  assert.equal((await app.provider('metrics-a', { command: 'snapshot' })).statistics.requests, baseline);
+  assert.equal((await app.sink()).records.length, 2);
+  variant = 'retired-entry';
+  const replaced = await app.compose({ command: 'run', invocationId: 'retired-entry-does-not-block' });
+  assert.equal(replaced.ok, true, JSON.stringify(replaced));
+  variant = 'normal';
+  assert.equal((await app.compose({ command: 'configure', provider: 'not-registered' })).ok, true);
+  for (let index = 0; index < 140; index++) {
+    const queryTopic = `vendor/catalog/query-${index}`;
+    assert.equal((await app.compose({ command: 'configure', directory: { principal, queryTopic } })).ok, true);
+    const unseen = await app.compose({ command: 'run', invocationId: `switch-topic-${index}` });
+    assert.equal(unseen.error.code, 'PROVIDER_UNAVAILABLE', JSON.stringify(unseen));
+  }
+  assert.equal((await app.compose({ command: 'configure', provider: 'metrics-a', directory: { principal, queryTopic } })).ok, true);
+  const afterSwitching = await app.compose({ command: 'run', invocationId: 'after-many-topic-switches' });
+  assert.equal(afterSwitching.ok, true, JSON.stringify(afterSwitching));
+  app.record('configured-catalog-and-address-validation', { configured, result, restored,
+    replaced, afterSwitching, changedQueryTopics: 140,
+    scope: 'The alternate catalog is a controlled public-SDK bridge, not the independently authored provider.' });
 });
 
 test('ECOSYSTEM-02 version mismatch and expired advertisements prevent a processor invocation', options, async t => {
@@ -389,4 +460,107 @@ test('ECOSYSTEM-09 an authenticated provider response still has to satisfy the c
   assert.equal(observed.length, 6);
   app.record('trusted-identity-does-not-prove-valid-business-result', { registered, observed, refused,
     scope: 'The controlled replacement is an SDK bridge in the test process, not another independently implemented demonstration program.' });
+});
+
+test('ECOSYSTEM-11 a docs-only AI author implements a new provider without existing application code', options, async t => {
+  const authorship = JSON.parse(await readFile(join(ROOT, 'tests/fixtures/independent-provider/authorship.json'), 'utf8'));
+  assert.equal(await hash(join(ROOT, 'tests/fixtures/independent-provider/provider.mjs')), authorship.implementationSha256,
+    'The independently authored implementation must remain the artifact recorded in its provenance');
+  const principal = 'vendor.acme', moduleId = 'vendor-stats', businessTopic = 'vendor/statistics/v1';
+  const token = randomUUID();
+  const app = await scene(t, { skip: ['metrics-a', 'metrics-b'], extraTopics: ['vendor/#'],
+    extraCredentials: { [principal]: { token, maxConnections: 1,
+      allow: { publish: [`${PREFIX}/catalog/register`, businessTopic], subscribe: [`${PREFIX}/catalog/register`, businessTopic] } } },
+    catalogConfig: { providers: { [principal]: moduleId }, topicPrefixes: ['vendor/'] },
+  });
+  const before = await hash(join(ROOT, 'examples/capability-directory/composition.mjs'));
+  const isolated = join(app.directory, 'docs-only-provider'); await mkdir(isolated, { recursive: true });
+  const packageFiles = ['package.json', 'sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-client.mjs'];
+  for (const file of packageFiles) {
+    const target = join(isolated, 'node_modules/world-hub', file); await mkdir(dirname(target), { recursive: true });
+    await copyFile(join(ROOT, file), target);
+  }
+  await copyFile(join(ROOT, 'tests/fixtures/independent-provider/provider.mjs'), join(isolated, 'provider.mjs'));
+  await copyFile(join(ROOT, 'docs/modules/text-statistics.contract.json'), join(isolated, 'contract.json'));
+  const wiring = { endpoint: app.hub.ready.endpoint, bridgeId: 'vendor.stats.mod', credential: principal, token, principal,
+    moduleId, moduleVersion: '1.0.0', businessTopic, allowedCallers: [principalFor(PROFILE, 'composer')],
+    directory: { principal: principalFor(PROFILE, 'directory'), registerTopic: `${PREFIX}/catalog/register`, queryTopic: `${PREFIX}/catalog/query` },
+    leaseMs: 1800, renewEveryMs: 600, contractPath: 'contract.json', cursorFile: 'state/cursor.json',
+  };
+  const configPath = join(isolated, 'wiring.json'); await writeFile(configPath, JSON.stringify(wiring));
+  const start = async () => {
+    const program = await startOwnedProgram(join(isolated, 'provider.mjs'), { args: ['--config', configPath], cwd: isolated });
+    app.owned.push(program); return program;
+  };
+  const provider = await start();
+  const catalog = await app.discovery([moduleId]); const entry = catalog.entries.find(row => row.module.id === moduleId);
+  assert.equal(entry.principal, principal); assert.equal(entry.capabilities[0].topic, businessTopic);
+  assert.equal((await app.compose({ command: 'configure', provider: moduleId })).ok, true);
+  const result = await app.compose({ command: 'run', invocationId: 'docs-only-first' });
+  assert.equal(result.ok, true, JSON.stringify(result)); assert.deepEqual(result.output, EXPECTED_OUTPUT); validateReceipts(result);
+  assert.equal(result.selection.module.id, moduleId); assert.equal(result.selection.principal, principal);
+  assert.equal(result.receipts.find(row => row.stage === 'processor').response.topic, businessTopic);
+  assert.equal((await app.sink()).records[0].processor.module.id, moduleId);
+  const caller = await app.connect('composer');
+  await caller.registerChannels([{ name: businessTopic, publish: true, subscribe: true }]);
+  const invoke = async (body, bridge = caller) => bodyOf(await bridge.call({ principal, session: entry.session }, businessTopic, body,
+    { timeoutMs: 5000 }), principal);
+  const verified = [];
+  for (const [index, text] of ['', 'é e\u0301\r\n🌍', 'a'.repeat(16384), '界'.repeat(5461) + 'a'].entries()) {
+    const invocationId = index === 0 ? '🌍'.repeat(256) : `docs-edge-${index}`;
+    const answer = await invoke({ contract: CONTRACT, invocationId, text });
+    assert.equal(answer.ok, true, JSON.stringify(answer)); assert.equal(answer.provider, moduleId); assert.equal(answer.invocationId, invocationId);
+    assert.deepEqual(Object.keys(answer).sort(), ['ok', 'kind', 'contract', 'invocationId', 'status', 'provider', 'executionId', 'output'].sort());
+    assert.match(answer.executionId, /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i);
+    assert.deepEqual(answer.output, { codePoints: [...text].length, lines: text.split('\n').length, utf8Bytes: Buffer.byteLength(text),
+      sha256: createHash('sha256').update(text).digest('hex') });
+    verified.push({ name: `valid-${index}`, invocationCodePoints: [...invocationId].length, output: answer.output });
+  }
+  for (const [body, code] of [
+    [{ contract: CONTRACT, invocationId: 'invalid-surrogate', text: '\ud800' }, 'INPUT_INVALID'],
+    [{ contract: CONTRACT, invocationId: 'too-many-bytes', text: '界'.repeat(5462) }, 'INPUT_INVALID'],
+    [{ contract: CONTRACT, invocationId: '🌍'.repeat(257), text: '' }, 'INPUT_INVALID'],
+    [{ contract: CONTRACT, invocationId: '', text: '' }, 'INPUT_INVALID'],
+    [{ contract: CONTRACT, invocationId: 'extra-field', text: '', additional: true }, 'INPUT_INVALID'],
+    [{ contract: { ...CONTRACT, additional: true }, invocationId: 'extra-contract-field', text: '' }, 'INPUT_INVALID'],
+    [{ contract: { ...CONTRACT, version: '2.0.0' }, invocationId: 'wrong-version', text: '' }, 'CONTRACT_MISMATCH'],
+  ]) {
+    const answer = await invoke(body); assert.equal(answer.ok, false); assert.equal(answer.status, 'failed');
+    assert.equal(answer.error.code, code); assert.equal(answer.provider, moduleId); assert.equal(answer.error.retryable, false);
+    assert.deepEqual(answer.contract, CONTRACT);
+    assert.deepEqual(Object.keys(answer).sort(), ['ok', 'kind', 'contract', 'invocationId', 'status', 'provider', 'error'].sort());
+    assert.deepEqual(Object.keys(answer.error).sort(), ['code', 'message', 'retryable']);
+    assert.equal(answer.invocationId, [...body.invocationId].length > 256 ? '' : body.invocationId);
+    verified.push({ name: body.invocationId.length > 256 ? 'id-over-limit' : body.invocationId, error: answer.error });
+  }
+  const explorer = await app.connect('explorer'); await explorer.registerChannels([{ name: businessTopic, publish: true, subscribe: true }]);
+  const denied = await invoke({ contract: CONTRACT, invocationId: 'body-cannot-authorize', text: '',
+    fromPrincipal: principalFor(PROFILE, 'composer') }, explorer);
+  assert.equal(denied.error.code, 'PERMISSION_DENIED'); assert.equal(denied.provider, moduleId);
+  assert.equal((await app.compose({ command: 'configure', contractVersion: '2.0.0' })).ok, true);
+  const mismatch = await app.compose({ command: 'run', invocationId: 'docs-version-rejected' });
+  assert.equal(mismatch.error.code, 'CONTRACT_MISMATCH'); assert.ok(mismatch.receipts.every(row => row.stage !== 'processor'));
+  assert.equal((await app.compose({ command: 'configure', contractVersion: '1.0.0' })).ok, true);
+  await provider.stop();
+  await until(async () => (await app.catalog()).entries.find(row => row.module.id === moduleId && row.state === 'lease-expired'),
+    { timeoutMs: 6000, what: 'docs-only provider lease expiry' });
+  const expired = await app.compose({ command: 'run', invocationId: 'docs-lease-expired' }); assert.equal(expired.error.code, 'LEASE_EXPIRED');
+  const restarted = await start();
+  const renewed = await until(async () => {
+    const entry = (await app.catalog()).entries.find(row => row.module.id === moduleId);
+    return entry?.state === 'lease-valid' && entry.session !== catalog.entries[0].session ? entry : false;
+  }, { timeoutMs: 6000, what: 'docs-only provider new session advertisement' });
+  assert.notEqual(restarted.child.pid, provider.child.pid); assert.notEqual(renewed.session, entry.session);
+  await app.programs.get('directory').stop(); await app.start('directory');
+  const recovered = await until(async () => {
+    const listed = await app.catalog(); return listed.epoch !== catalog.epoch
+      && listed.entries.some(row => row.module.id === moduleId && row.state === 'lease-valid') ? listed : false;
+  }, { timeoutMs: 6000, what: 'docs-only provider re-registers with restarted catalog' });
+  const again = await app.compose({ command: 'run', invocationId: 'docs-only-recovered' });
+  assert.equal(again.ok, true, JSON.stringify(again)); assert.deepEqual(again.output, EXPECTED_OUTPUT);
+  assert.equal((await app.sink()).records.length, 2); assert.equal(await hash(join(ROOT, 'examples/capability-directory/composition.mjs')), before);
+  assert.deepEqual((await readdir(join(isolated, 'node_modules/world-hub'))).sort(), ['package.json', 'sdk']);
+  app.record('docs-only-new-module-through-public-sdk', { authorship, moduleId, principal, businessTopic, packageFiles, result, verified, denied,
+    mismatch, expired, renewed, recovered, again,
+    scope: 'A separate AI author received only frozen public provider/SDK documentation and the machine contract. This is not a human third-party acceptance claim.' });
 });

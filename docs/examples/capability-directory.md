@@ -14,7 +14,7 @@ World Hub 提供程序间通讯。程序还可以通过这些通讯，自行实�
 6. 恢复授权，再模拟慢处理。组装器返回 `uncertain` 和已接纳请求的序号；请求没有取消，也没有自动重试。恢复响应速度后可发起新任务。
 7. 暂停 B 的能力续约，等待 1800 毫秒后查询。目录显示 `lease-expired`，组装器不发起处理调用；租约失效不是进程死亡证明。
 
-两实现和[公开契约](https://github.com/oooBCKooo/world-hub/blob/main/examples/capability-directory/contract.json)随源码与第四套演示整合包提供。npm Hub 运行包包含文档和 SDK，示例程序从源码仓库或演示包获取。
+两实现随源码与第四套演示整合包提供。[提供者接入契约](../modules/provider-contract.md)、[机器契约](../modules/text-statistics.contract.json)和 SDK 同时随 npm Hub 运行包、Hub 源码／便携整合包和用途演示包提供，独立接入无需阅读现有 A/B 实现。示例程序从源码仓库或演示包获取。
 
 ## 极小能力清单 v1
 
@@ -46,6 +46,39 @@ World Hub 提供程序间通讯。程序还可以通过这些通讯，自行实�
 
 `effects` / `permissions` 是提供者声明，不能获得业务执行权。Hub ACL 决定可否通讯，处理器的 `allowPrincipals` 决定是否接受统计业务。发现成功、Schema 相同、管理注记和通讯 ACK 均不替代这些判断。
 
+## 接入新的独立实现
+
+预置界面仍提供 A/B 实验。外部组装器的 `provider` 配置接受新的安全模块 ID；它从可信目录取得实际 principal、session 和能力主题，不再按模块 ID 拼接地址。目录和组装器是两份独立部署配置，新增提供者还需要部署方配置 Hub 身份与主题权限，并由提供者授权组装器的业务调用。
+
+例如，为文档隔离实现分配模块 ID `vendor-stats`、principal `vendor.acme` 和主题 `vendor/statistics/v1`，目录程序状态目录内的 `catalog-config.json` 可以配置为：
+
+```json
+{
+  "providers": { "vendor.acme": "vendor-stats" },
+  "topicPrefixes": ["demo/capability-directory/", "vendor/"]
+}
+```
+
+`providers` 是目录自己认可的登记映射；`topicPrefixes` 限制广告能力主题，不决定 Hub 的通道种类。上例只信任该提供者；若继续保留 A/B，需要在映射里同时列出它们。
+
+组装器状态目录的 `composition-config.json` 选择模块并指定可信目录：
+
+```json
+{
+  "version": 1,
+  "revision": 0,
+  "provider": "vendor-stats",
+  "contractVersion": "1.0.0",
+  "timeoutMs": 800,
+  "directory": {
+    "principal": "demo.capability-directory.directory",
+    "queryTopic": "demo/capability-directory/catalog/query"
+  }
+}
+```
+
+也可通过组装器既有 `configure` 请求修改选择。组装器校验广告的完整 Schema、语义、合同版本和查询时租约，再向广告的精确 session 发起调用，并要求回应的 `provider` 等于所选模块 ID。原文来源、成果保存者和 `text.statistics` 业务合同仍属于本例；上述配置开放能力提供者的地址与选择，不将它扩成通用工作流引擎。完整登记、查询、错误回应和 SDK 处理请求的方法见[提供者接入契约](../modules/provider-contract.md)。
+
 ## 通讯与业务状态
 
 | 可观察结果 | 含义与负责者 |
@@ -60,8 +93,10 @@ World Hub 提供程序间通讯。程序还可以通过这些通讯，自行实�
 
 ## 验收与继续扩展
 
-`npm run test:capabilities` 执行真实独立进程场景，验证配置替换、版本和租约拒绝、业务授权、超时后迟到回应、可信登记、程序重启与隔离 SDK 接入。隔离测试只复制 B 的入口、公开契约和 SDK，没有 Hub 内部实现或共享业务程序。这证明本例的独立实现可以接入，不声称已有不同第三方开发者共同验收所有模块。
+`npm run test:capabilities` 执行真实独立进程场景，验证配置替换、版本和租约拒绝、业务授权、超时后迟到回应、可信登记、程序重启与隔离 SDK 接入。保留的 B 隔离测试检查已有实现的依赖；另一个无项目历史的 AI 作者只阅读冻结的提供者契约、机器契约和 SDK 文档，从零编写新实现。它以 `vendor-stats` 模块、`vendor.acme` 身份和 `vendor/statistics/v1` 主题接入，仅修改部署接线和组装器配置即可返回成果。
+
+新实现已通过空文本、emoji／组合字符／CRLF、16384 字节和 256 码点 ID 边界、非法输入、授权拒绝、版本与租约拒绝、提供者与目录重启恢复。另测可信目录配置持久恢复、非法租约字段、重复有效地址、过期旧地址不挡替换，以及连续切换 140 个查询主题后仍可调用。这是有范围的 AI 文档隔离验收，不等于真实第三方人类开发者已验收所有模块；方法和固定测试实现见[独立提供者记录](https://github.com/oooBCKooo/world-hub/blob/main/tests/fixtures/independent-provider/README.md)。
 
 本期采纳了架构建议中的最小能力清单、外部目录、严格替换示例和通讯／业务状态区分。MCP 适配器、语义转换、通用治理、插件安装与 AI 自动编排可由后续独立程序探索；它们不进入通讯内核。新增业务合同与能力主题由 mod / 程序约定。
 
-继续阅读：[用途演示与整合包](purpose-demos.md)、[JS SDK](../../sdk/javascript/README.md)、[请求与留存](../specs/directed-and-bulk.md)、[枢纽边界](../specs/boundaries.md)。
+继续阅读：[提供者接入契约](../modules/provider-contract.md)、[用途演示与整合包](purpose-demos.md)、[JS SDK](../../sdk/javascript/README.md)、[请求与留存](../specs/directed-and-bulk.md)、[枢纽边界](../specs/boundaries.md)。

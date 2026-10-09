@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile, lstat, access } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join, resolve, dirname, basename, sep, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { APPLICATION_FILES, SDK_FILES, DOCUMENTATION_IMAGE_FILES } from './build-package.mjs';
+import { APPLICATION_FILES, SDK_FILES, MODULE_CONTRACT_FILES, DOCUMENTATION_IMAGE_FILES } from './build-package.mjs';
 import { zipDirectory } from './zip.mjs';
 import { verifyDemoPackage } from './verify-demo-package.mjs';
 
@@ -30,13 +30,14 @@ const documentationFiles = [
   'docs/deployment.md', 'docs/verification.md', 'docs/repository.md', 'docs/releases.md', 'docs/npm.md',
   'docs/examples/distributed-context.md', 'docs/examples/workflows.md', 'docs/examples/purpose-demos.md',
   'docs/examples/capability-directory.md',
+  'docs/modules/provider-contract.md',
   ...['index', 'boundaries', 'protocol', 'reliability-access', 'directed-and-bulk', 'management',
     'bridge-interoperability', 'manual-workbench', 'operations'].map(name => `docs/specs/${name}.md`),
 ];
 export const DEMO_SOURCE_FILES = Object.freeze([
   ...APPLICATION_FILES, ...SDK_FILES, ...DEMO_FILES, ...lifecycleFiles,
   'scripts/release/verify-package.mjs', 'scripts/release/verify-demo-package.mjs',
-  'config/hub.json', 'LICENSE', ...documentationFiles, ...DOCUMENTATION_IMAGE_FILES,
+  'config/hub.json', 'LICENSE', ...documentationFiles, ...MODULE_CONTRACT_FILES, ...DOCUMENTATION_IMAGE_FILES,
 ]);
 
 const profileDetails = {
@@ -106,7 +107,7 @@ function bundleReadme(version, kind, profile) {
   const detail = profileDetails[profile];
   return `# 世界枢纽 ${version} 用途演示：${detail.title}\n\n${detail.purpose}\n\n${kind === 'windows-x64-portable'
     ? 'Windows x64 便携包，自带经官方 SHA-256 核对的 Node 22.23.2 与完整许可证。无需安装 npm 依赖。'
-    : '源码包，需要 Node 22.4.0 或更高版本。无需安装 npm 依赖。'}\n\n## 运行与探索\n\n1. 完整解压到可写目录；不要在 ZIP 预览窗口中启动。\n2. 首次先运行 \`check.cmd\` 检查环境，再运行 \`verify.cmd\` 检查包内源文件与 SHA-256 清单。\n3. 双击 \`start.cmd\`，浏览器打开演示界面；启动终端显示界面和枢纽的实际地址。默认使用空闲本机端口，不占用正式枢纽的数据目录。\n4. ${detail.actions}\n5. 在启动终端按 Ctrl+C，等待演示所属子进程收起。\n\n从其他工作目录也可运行这些脚本。终端直接启动：\`node examples/purpose-demos/run-demo.mjs --profile ${profile}\`；便携包可把 \`node\` 替换为 \`runtime\\node.exe\`。加 \`--open\` 自动打开浏览器。本包的 \`demo-profile.json\` 固定 \`${profile}\`，启动其他 profile 会被拒绝。\n\n## 业务与数据边界\n\n四个演示均由独立外部程序通过 mod 桥通讯。枢纽只负责接入、路由、保存与传送；上下文组合、模型调用、回合推进、NPC、世界状态、能力目录和合同选择都在外部程序。\n\n智能助手演示包含模板与清单两种确定性本地执行器，没有真实智能模型、模型联网请求或全局 DSH 依赖。它展示预置独立程序之间的来源扩展与执行器切换；自己的程序仍需实现桥与应用通讯合同。事件与数字世界也是演示数据和简化业务。\n\n本包只附源码与参考接线，不附旧数据、私人配置、凭据、全局工具或测试证据。运行时新增数据均位于 \`data/\` 下。提供者未释放的枢纽记录仍保留；读取、ACK、停止与重启不等于释放。参考 \`config/hub.json\` 用于查看正常接线形态，演示启动器创建本次演示自己的配置。\n\n## 开发者修改入口\n\n- [完整探索指南](examples/purpose-demos/README.md)：各场景程序、桥、主题与操作。\n- [用途说明](docs/examples/purpose-demos.md)：适用方向与验证范围。\n- [场景注册](examples/purpose-demos/profiles.mjs)：外部程序声明与接线。\n- [当前业务模块](examples/purpose-demos/${detail.modules})：本场景的业务实现；替换独立程序或桥适配层。\n- [程序启动入口](examples/purpose-demos/peer.mjs)、[浏览器程序](examples/purpose-demos/explorer.mjs)、[桥 SDK](sdk/javascript/README.md)。\n- [通讯规格](docs/specs/protocol.md)与[枢纽边界](docs/specs/boundaries.md)。\n\n修改源码后完整性检查会提示差异，这是正常的修改检测。重新发布请在源码仓库运行 \`npm run build:demos\` 构建新包，禁止覆盖现有包；不要手动改 SHA 清单来掩盖未知损坏。\`verify.cmd\` 只检查文件完整性，端到端场景验收由源码仓库的测试命令执行。只有 \`data/**\` 可作为新增运行数据，包内配置、profile 与源码均参与校验。清单随文件一起被篡改时不提供发布者签名保证。\n\n这些本机示例展示有限资源下的组合能力；未宣称无限容量、跨机器可靠性、完整智能系统或完整数字世界已通过验收。\n`;
+    : '源码包，需要 Node 22.4.0 或更高版本。无需安装 npm 依赖。'}\n\n## 运行与探索\n\n1. 完整解压到可写目录；不要在 ZIP 预览窗口中启动。\n2. 首次先运行 \`check.cmd\` 检查环境，再运行 \`verify.cmd\` 检查包内源文件与 SHA-256 清单。\n3. 双击 \`start.cmd\`，浏览器打开演示界面；启动终端显示界面和枢纽的实际地址。默认使用空闲本机端口，不占用正式枢纽的数据目录。\n4. ${detail.actions}\n5. 在启动终端按 Ctrl+C，等待演示所属子进程收起。\n\n从其他工作目录也可运行这些脚本。终端直接启动：\`node examples/purpose-demos/run-demo.mjs --profile ${profile}\`；便携包可把 \`node\` 替换为 \`runtime\\node.exe\`。加 \`--open\` 自动打开浏览器。本包的 \`demo-profile.json\` 固定 \`${profile}\`，启动其他 profile 会被拒绝。\n\n## 业务与数据边界\n\n四个演示均由独立外部程序通过 mod 桥通讯。枢纽只负责接入、路由、保存与传送；上下文组合、模型调用、回合推进、NPC、世界状态、能力目录和合同选择都在外部程序。\n\n智能助手演示包含模板与清单两种确定性本地执行器，没有真实智能模型、模型联网请求或全局 DSH 依赖。它展示预置独立程序之间的来源扩展与执行器切换；自己的程序仍需实现桥与应用通讯合同。事件与数字世界也是演示数据和简化业务。\n\n本包只附源码与参考接线，不附旧数据、私人配置、凭据、全局工具或测试证据。运行时新增数据均位于 \`data/\` 下。提供者未释放的枢纽记录仍保留；读取、ACK、停止与重启不等于释放。参考 \`config/hub.json\` 用于查看正常接线形态，演示启动器创建本次演示自己的配置。\n\n## 开发者修改入口\n\n- [完整探索指南](examples/purpose-demos/README.md)：各场景程序、桥、主题与操作。\n- [用途说明](docs/examples/purpose-demos.md)：适用方向与验证范围。\n- [场景注册](examples/purpose-demos/profiles.mjs)：外部程序声明与接线。\n- [当前业务模块](examples/purpose-demos/${detail.modules})：本场景的业务实现；替换独立程序或桥适配层。\n- [程序启动入口](examples/purpose-demos/peer.mjs)、[浏览器程序](examples/purpose-demos/explorer.mjs)、[桥 SDK](sdk/javascript/README.md)。\n- [提供者接入契约](docs/modules/provider-contract.md)与[机器契约](docs/modules/text-statistics.contract.json)：从零实现并接入独立能力模块。\n- [通讯规格](docs/specs/protocol.md)与[枢纽边界](docs/specs/boundaries.md)。\n\n修改源码后完整性检查会提示差异，这是正常的修改检测。重新发布请在源码仓库运行 \`npm run build:demos\` 构建新包，禁止覆盖现有包；不要手动改 SHA 清单来掩盖未知损坏。\`verify.cmd\` 只检查文件完整性，端到端场景验收由源码仓库的测试命令执行。只有 \`data/**\` 可作为新增运行数据，包内配置、profile 与源码均参与校验。清单随文件一起被篡改时不提供发布者签名保证。\n\n这些本机示例展示有限资源下的组合能力；未宣称无限容量、跨机器可靠性、完整智能系统或完整数字世界已通过验收。\n`;
 }
 
 async function prepareRuntimeFiles(runtimeDirectory) {
@@ -178,6 +179,7 @@ export async function buildDemoPackages({ profile = 'all', outputRoot, runtimeDi
     }
     for (const [local, bytes] of inputs) {
       const role = local === 'LICENSE' ? 'license' : documentationFiles.includes(local) ? 'documentation'
+        : MODULE_CONTRACT_FILES.includes(local) ? 'documentation-contract'
         : DOCUMENTATION_IMAGE_FILES.includes(local) ? 'documentation-image' : DEMO_FILES.includes(local) ? 'example'
         : lifecycleFiles.includes(local) || local.startsWith('scripts/') ? 'tooling'
           : local === 'config/hub.json' ? 'configuration' : 'application';

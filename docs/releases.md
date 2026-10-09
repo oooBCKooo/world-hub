@@ -8,6 +8,8 @@
 
 npm 包提供 Hub CLI 和 JavaScript、Python、PowerShell 三个 SDK，使用方式见[npm 包](npm.md)。JavaScript SDK 有 npm 导出入口；另外两个 SDK 仍使用自己的语言环境，不由 Hub 加载。包使用明确的源码文件清单，不携带官方 Node 二进制、个人配置、通讯数据、测试装置或业务演示。默认首次部署在调用者自己的工作目录初始化配置和存储；升级 npm 安装不会覆盖这份部署数据。
 
+[提供者接入契约](modules/provider-contract.md)、[机器契约](modules/text-statistics.contract.json)和 SDK 文档随 npm、Hub 源码／便携包与用途演示包分发。机器契约采用明确文件清单；打包检查核对其与示例兼容副本的一致性，以及独立接入指南的本地链接。
+
 ZIP 分发适合独立目录部署或 Windows 便携使用。用途演示整合包另含外部业务程序，仍由自己的启动入口运行；它们不由 npm CLI 或默认 Hub 部署自动启动。
 
 ## 从源码构建

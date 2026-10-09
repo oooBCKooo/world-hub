@@ -12,7 +12,7 @@ const version = value => typeof value === 'string' && /^\d{1,6}\.\d{1,6}\.\d{1,6
 const name = value => typeof value === 'string' && /^[a-z0-9][a-z0-9._-]{0,63}$/.test(value);
 const fault = (code, message) => Object.assign(new Error(message), { code });
 
-function validateManifest(body, expectedModule, prefix) {
+function validateManifest(body, expectedModule, topicPrefixes) {
   if (!object(body) || body.manifestVersion !== 1 || Buffer.byteLength(JSON.stringify(body)) > 24000)
     throw fault('MANIFEST_INVALID', 'Expected a bounded manifestVersion 1 object.');
   if (body.principal !== undefined || body.session !== undefined || body.endpoint !== undefined)
@@ -29,8 +29,8 @@ function validateManifest(body, expectedModule, prefix) {
         || !name(capability.contract.id) || !version(capability.contract.version)
         || !object(capability.inputSchema) || !object(capability.outputSchema)
         || typeof capability.semantics !== 'string' || capability.semantics.length > 200
-        || typeof capability.topic !== 'string' || !capability.topic.startsWith(prefix)
-        || capability.topic.length > 200 || /[#+\s]/u.test(capability.topic)
+        || typeof capability.topic !== 'string' || !topicPrefixes.some(prefix => capability.topic.startsWith(prefix))
+        || capability.topic.length > 200 || /[\u0000#+\s]/u.test(capability.topic) || capability.topic.split('/').some(part => !part)
         || !['read-only', 'writes-state', 'external-effects'].includes(capability.effects)
         || !Array.isArray(capability.permissions) || capability.permissions.length > 16
         || capability.permissions.some(permission => !name(permission)))
@@ -50,6 +50,10 @@ export async function startDirectory(context) {
   catch (error) { if (error.code !== 'ENOENT') throw error; }
   if (!object(config.providers) || Object.entries(config.providers).some(([principal, module]) => !name(principal) || !name(module)))
     throw new Error('catalog-config.json requires an explicit principal to module allowlist.');
+  const topicPrefixes = config.topicPrefixes ?? [context.topic('')];
+  if (!Array.isArray(topicPrefixes) || topicPrefixes.length < 1 || topicPrefixes.length > 8
+      || topicPrefixes.some(prefix => typeof prefix !== 'string' || !prefix.length || prefix.length > 200 || /[\u0000#+\s]/u.test(prefix)))
+    throw new Error('catalog-config.json topicPrefixes must contain 1 to 8 concrete prefixes of 1 to 200 characters.');
   const epoch = randomUUID();
   const state = await openState(context.stateDir, 'directory-state.json', { version: 1, entries: [] });
   // Stored descriptors remain visible, but no previous incarnation's lease is valid.
@@ -64,7 +68,7 @@ export async function startDirectory(context) {
           const expected = config.providers[message.fromPrincipal];
           if (!expected) throw fault('REGISTRATION_DENIED', 'The catalog has not authorized this provider principal.');
           if (!message.senderSession) throw fault('REGISTRATION_DENIED', 'A communication session is required.');
-          const descriptor = validateManifest(message.body, expected, context.topic(''));
+          const descriptor = validateManifest(message.body, expected, topicPrefixes);
           const receivedAt = Date.now();
           const entry = { module: descriptor.module, capabilities: descriptor.capabilities,
             principal: message.fromPrincipal, session: message.senderSession,
