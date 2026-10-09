@@ -37,6 +37,8 @@ world-hub-pack export --root F:\hub-instances --instance desk-one --destination 
 
 `export` 复制锁定 package 到一个尚不存在的目录；不复制实例成果、游标、Hub 留存、运行日志或 Runtime 生成的凭据。pack 的公开 settings 仍会复制，用户不要将秘密写入这些文件。另一个部署 root 可以重新 plan／import／start，宿主仍需符合锁中的平台和预安装依赖版本。
 
+Runtime 逐级校验并规范化本地路径，支持 Windows 的合法 8.3 短名称。现存祖先中的符号链接和 junction 仍被拒绝；尚不存在的实例或导出目录从已校验的规范父目录创建。
+
 ## 模块启动配置
 
 Runtime 用受控解释器和字面参数启动模块入口：

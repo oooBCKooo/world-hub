@@ -84,6 +84,7 @@ try {
     await execute('Optional trusted-local Runtime: cross-language deploy, isolate, rebuild and reliable cleanup', nodeTests([
       'tests/integration/ecosystem-runtime/runtime.test.mjs',
       'tests/integration/ecosystem-runtime/distribution.test.mjs',
+      'tests/integration/ecosystem-runtime/paths.test.mjs',
     ]), { test: true });
   } else if (suite === 'dsh') {
     report.dsh = requireDshInstall();

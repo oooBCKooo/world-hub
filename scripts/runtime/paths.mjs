@@ -14,19 +14,26 @@ export function relativePath(value) {
 }
 export async function ordinaryPath(value, { allowMissing = false } = {}) {
   const absolute = resolve(value), drive = parse(absolute).root;
-  let current = drive;
-  for (const part of absolute.slice(drive.length).split(/[\\/]/).filter(Boolean)) {
-    current = join(current, part);
+  const parts = absolute.slice(drive.length).split(/[\\/]/).filter(Boolean);
+  const samePath = (left, right) => process.platform === 'win32'
+    ? left.toLowerCase() === right.toLowerCase() : left === right;
+  let current = await realpath(drive);
+  for (let index = 0; index < parts.length; index++) {
+    const candidate = join(current, parts[index]);
     let info;
-    try { info = await lstat(current); }
-    catch (error) { if (allowMissing && error.code === 'ENOENT') return absolute; throw error; }
-    if (info.isSymbolicLink()) throw new Error(`Symbolic links or reparse paths are not accepted: ${current}`);
+    try { info = await lstat(candidate); }
+    catch (error) {
+      if (allowMissing && error.code === 'ENOENT') return join(current, ...parts.slice(index));
+      throw error;
+    }
+    if (info.isSymbolicLink()) throw new Error(`Symbolic links or reparse paths are not accepted: ${candidate}`);
+    const actual = await realpath(candidate);
+    // Windows 8.3 names can change a component's spelling without moving it.
+    // Every ancestor is checked separately; resolution must keep this parent.
+    if (!samePath(dirname(actual), current)) throw new Error(`Path resolved outside its declared location: ${candidate}`);
+    current = actual;
   }
-  if (!allowMissing) {
-    const actual = await realpath(absolute);
-    if (actual.toLowerCase() !== absolute.toLowerCase()) throw new Error(`Path resolved outside its declared location: ${absolute}`);
-  }
-  return absolute;
+  return current;
 }
 export async function readBounded(file, max = 1024 * 1024) {
   await ordinaryPath(file);
