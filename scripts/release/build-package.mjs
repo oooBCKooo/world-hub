@@ -11,7 +11,8 @@ export const APPLICATION_FILES = [
   'src/hub/hub-server.mjs', 'src/hub/ws-server.mjs',
   ...['acl', 'address', 'blob-protocol', 'blob-store', 'hub', 'identity', 'router', 'store', 'topic', 'wire-json'].map(name => `src/hub/lib/${name}.mjs`),
   'src/debug/page.mjs',
-  ...['console.html', 'management-http.mjs', 'management-state.mjs', 'manual-bridge.mjs', 'manual-console.mjs', 'manual-experience-state.mjs', 'manual-console.css'].map(name => `src/management/${name}`),
+  'src/ui/language.mjs',
+  ...['console.html', 'canvas-i18n.mjs', 'management-http.mjs', 'management-state.mjs', 'manual-bridge.mjs', 'manual-console.mjs', 'manual-i18n.mjs', 'manual-experience-state.mjs', 'manual-console.css'].map(name => `src/management/${name}`),
 ];
 export const SDK_FILES = ['sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-client.mjs',
   'sdk/python/hub_bridge.py', 'sdk/python/requirements.txt',

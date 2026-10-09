@@ -91,6 +91,8 @@ npm run demo:events-explorer
 
 运行 `world-hub --open` 打开通讯管理界面。用途演示另有自己的外部界面，可以从中进入本次会话的枢纽管理。
 
+管理画布、通讯工作台和三套用途演示均支持简体中文／English 切换，并在浏览器中记住选择。切换仅改变界面文案与显示格式，用户提供的名称、注记、主题、业务内容和原始通讯记录保留原文。
+
 ![枢纽管理画布：程序、双向 mod 桥、枢纽与真实信息流](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-topology.jpg)
 
 管理画布显示程序、桥、枢纽和信息流，支持接入通断与关联注记。程序注记不代表外部程序的真实执行状态。

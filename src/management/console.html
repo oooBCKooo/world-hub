@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>世界枢纽 · 拓扑管理画布</title>
+  <title data-i18n="世界枢纽 · 拓扑管理画布">世界枢纽 · 拓扑管理画布</title>
   <link rel="stylesheet" href="/manage/manual-console.css">
   <style>
     :root {
@@ -47,6 +47,7 @@
     /* Common UI Utilities */
     button, input, select, textarea { font: inherit; color: inherit; }
     button { cursor: pointer; border: 0; background: transparent; }
+    #canvas-language { min-width: 86px; background: var(--surface); border: 1px solid var(--border-bright); border-radius: 6px; }
     button:disabled { cursor: not-allowed; opacity: 0.45; }
     button, input, select, textarea { outline-offset: 2px; }
     :focus-visible { outline: 2px solid var(--teal); }
@@ -628,7 +629,7 @@
     .capacity-metric-box strong { font-family: var(--mono); font-size: 16px; color: #fff; display: block; margin: 4px 0; }
 
     /* Responsive Adaptation */
-    @media (max-width: 1120px) {
+    @media (max-width: 1600px) {
       .top-hud { height: auto; padding: 10px 14px; flex-wrap: wrap; gap: 10px; }
       .brand-group { min-width: 0; flex: 1; }
       .brand-group > div:last-child { min-width: 0; }
@@ -647,6 +648,8 @@
       .brand-group { flex-basis: 100%; }
       .metrics-group { order: 3; width: 100%; justify-content: space-around; gap: 6px; padding-top: 8px; border-top: 1px solid var(--border); }
       .top-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+      #canvas-language { min-width: 0; width: 100%; }
+      #btn-manual-console, #btn-stream-toggle { grid-column: span 2; }
       .hud-search-box { grid-column: span 2; min-width: 0; }
       .status-indicator { grid-column: span 2; justify-self: end; margin-right: 0; }
       .hud-btn { justify-content: center; padding: 6px 3px; }
@@ -662,7 +665,7 @@
 <body>
 
   <!-- Fullscreen Interactive Canvas -->
-  <main id="canvas-container" role="region" aria-label="世界枢纽全屏通讯拓扑画布">
+  <main id="canvas-container" role="region" aria-label="世界枢纽全屏通讯拓扑画布" data-i18n-aria-label="世界枢纽全屏通讯拓扑画布">
     <svg id="canvas-svg" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <!-- Background Grid Pattern -->
@@ -691,8 +694,8 @@
         <g id="guides-g">
           <circle cx="0" cy="0" r="380" class="orbit-circle" />
           <circle cx="0" cy="0" r="700" class="orbit-circle" />
-          <text x="0" y="-390" class="orbit-label">MOD BRIDGES · 通讯主体环</text>
-          <text x="0" y="-710" class="orbit-label">PROGRAM ANNOTATIONS · 外部程序注记环</text>
+          <text x="0" y="-390" class="orbit-label" data-i18n="MOD BRIDGES · 通讯主体环">MOD BRIDGES · 通讯主体环</text>
+          <text x="0" y="-710" class="orbit-label" data-i18n="PROGRAM ANNOTATIONS · 外部程序注记环">PROGRAM ANNOTATIONS · 外部程序注记环</text>
         </g>
 
         <!-- Program Annotation Links (N:M dashed lines) -->
@@ -711,7 +714,7 @@
         <g id="pulses-g"></g>
 
         <!-- Center World Hub Core Node -->
-        <g id="hub-node" class="hub-node" transform="translate(0, 0)" role="button" tabindex="0" aria-label="世界枢纽核心中枢，点击查看留存与容量">
+        <g id="hub-node" class="hub-node" transform="translate(0, 0)" role="button" tabindex="0" aria-label="世界枢纽核心中枢，点击查看留存与容量" data-i18n-aria-label="世界枢纽核心中枢，点击查看留存与容量">
           <circle cx="0" cy="0" r="170" fill="url(#hub-core-glow)" />
           <circle cx="0" cy="0" r="105" class="hub-pulse-ring" />
           <circle cx="0" cy="0" r="125" class="hub-radar-ring" />
@@ -722,9 +725,9 @@
           <path d="M-14 -20 L14 -20 M0 -34 L0 -6" class="hub-crossroads-icon" />
           <rect x="-5" y="-25" width="10" height="10" rx="2" fill="#00d2b4" />
           <!-- Hub Texts (Centered in middle/lower half) -->
-          <text x="0" y="10" class="hub-title">世界枢纽</text>
+          <text x="0" y="10" class="hub-title" data-i18n="世界枢纽">世界枢纽</text>
           <text x="0" y="27" id="hub-core-id" class="hub-id-text">world-hub</text>
-          <text x="0" y="42" id="hub-core-instances" class="hub-status-text">3 在线实例</text>
+          <text x="0" y="42" id="hub-core-instances" class="hub-status-text">—</text>
         </g>
       </g>
     </svg>
@@ -736,52 +739,57 @@
       <div class="brand-badge" aria-hidden="true">❖</div>
       <div>
         <div style="display:flex; align-items:center;">
-          <h1 class="brand-title">世界枢纽</h1>
+          <h1 class="brand-title" data-i18n="世界枢纽">世界枢纽</h1>
           <span class="hud-hub-id" id="hud-hub-name">等待连接…</span>
         </div>
-        <div class="brand-sub">程序之间的通讯十字路口 · 语义中立</div>
+        <div class="brand-sub" data-i18n="程序之间的通讯十字路口 · 语义中立">程序之间的通讯十字路口 · 语义中立</div>
       </div>
     </div>
 
-    <div class="metrics-group" aria-label="枢纽通讯状态概览">
+    <div class="metrics-group" aria-label="枢纽通讯状态概览" data-i18n-aria-label="枢纽通讯状态概览">
       <div class="metric-chip">
         <span class="num" id="metric-online">—</span>
-        <span class="lbl">在线实例</span>
+        <span class="lbl" data-i18n="在线实例">在线实例</span>
       </div>
       <div class="metric-chip">
         <span class="num" id="metric-paused">—</span>
-        <span class="lbl">暂停主体</span>
+        <span class="lbl" data-i18n="暂停主体">暂停主体</span>
       </div>
       <div class="metric-chip">
         <span class="num" id="metric-accepted">—</span>
-        <span class="lbl">已接纳消息</span>
+        <span class="lbl" data-i18n="已接纳消息">已接纳消息</span>
       </div>
       <div class="metric-chip">
         <span class="num" id="metric-delivered">—</span>
-        <span class="lbl">已投递至桥</span>
+        <span class="lbl" data-i18n="已投递至桥">已投递至桥</span>
       </div>
     </div>
 
     <div class="top-actions">
+      <label class="sr-only" for="canvas-language" data-i18n="界面语言">界面语言</label>
+      <select class="hud-btn" id="canvas-language" aria-label="界面语言" data-i18n-aria-label="界面语言">
+        <option value="zh-CN">中文</option>
+        <option value="en">English</option>
+      </select>
       <button type="button" class="hud-btn" id="btn-manual-console" title="用界面自己的 mod 手动操作通讯">↗ 通讯工作台</button>
       <div class="hud-search-box" id="hud-search-box">
-        <input type="text" id="hud-search-input" class="hud-search-input" placeholder="🔍 快速定位 (桥/程序)…" autocomplete="off" spellcheck="false" aria-label="搜索并定位桥或程序" />
+        <input type="text" id="hud-search-input" class="hud-search-input" placeholder="🔍 快速定位 (桥/程序)…" autocomplete="off" spellcheck="false" aria-label="搜索并定位桥或程序" data-i18n-placeholder="🔍 快速定位 (桥/程序)…" data-i18n-aria-label="搜索并定位桥或程序">
         <div id="hud-search-dropdown" class="hud-search-dropdown hidden"></div>
       </div>
       <div class="status-indicator">
         <i class="status-dot" id="status-dot"></i>
         <span id="status-text">读取中…</span>
       </div>
-      <button type="button" class="hud-btn" id="btn-flow-anim" title="切换光轨真实通讯粒子动画">
+      <button type="button" class="hud-btn" id="btn-flow-anim" title="切换光轨真实通讯粒子动画" data-i18n="⚡ 动效" data-i18n-title="切换光轨真实通讯粒子动画">
         ⚡ 动效
       </button>
-      <button type="button" class="hud-btn" id="btn-retention-toggle" title="查看留存与容量边界">
+      <button type="button" class="hud-btn" id="btn-retention-toggle" title="查看留存与容量边界" data-i18n="📦 留存容量" data-i18n-title="查看留存与容量边界">
         📦 留存容量
       </button>
-      <button type="button" class="hud-btn" id="btn-stream-toggle" title="展开/收起底部信息流水控制台">
+      <button type="button" class="hud-btn" id="btn-stream-toggle" title="展开/收起底部信息流水控制台" data-i18n="📊 信息流水" data-i18n-title="展开/收起底部信息流水控制台">
         📊 信息流水
       </button>
-      <button type="button" class="hud-btn" id="btn-refresh" title="立即同步枢纽最新快照">
+      <button type="button" class="hud-btn" id="btn-refresh" title="立即同步枢纽最新快照" data-i18n="刷新" data-i18n-title="立即同步枢纽最新快照">
         刷新
       </button>
     </div>
@@ -793,64 +801,64 @@
   </div>
 
   <!-- Canvas Navigation Floating Controls (Bottom-Right) -->
-  <aside class="canvas-controls" aria-label="画布缩放平移控制">
-    <button type="button" class="ctrl-btn" id="btn-fit" title="适屏居中 (Fit All)">⛶</button>
-    <button type="button" class="ctrl-btn" id="btn-center" title="聚焦世界枢纽 (Focus Hub)">◎</button>
-    <button type="button" class="ctrl-btn" id="btn-zoom-in" title="放大 (+)">+</button>
+  <aside class="canvas-controls" aria-label="画布缩放平移控制" data-i18n-aria-label="画布缩放平移控制">
+    <button type="button" class="ctrl-btn" id="btn-fit" title="适屏居中 (Fit All)" data-i18n-title="适屏居中 (Fit All)">⛶</button>
+    <button type="button" class="ctrl-btn" id="btn-center" title="聚焦世界枢纽 (Focus Hub)" data-i18n-title="聚焦世界枢纽 (Focus Hub)">◎</button>
+    <button type="button" class="ctrl-btn" id="btn-zoom-in" title="放大 (+)" data-i18n-title="放大 (+)">+</button>
     <div class="zoom-text" id="zoom-indicator">100%</div>
-    <button type="button" class="ctrl-btn" id="btn-zoom-out" title="缩小 (-)">−</button>
+    <button type="button" class="ctrl-btn" id="btn-zoom-out" title="缩小 (-)" data-i18n-title="缩小 (-)">−</button>
   </aside>
 
   <!-- Right Inspector Drawer (Bridge Inspector) -->
-  <aside class="inspector-drawer" id="inspector-drawer" aria-label="桥属性与接入控制抽屉" aria-hidden="true" inert>
+  <aside class="inspector-drawer" id="inspector-drawer" aria-label="桥属性与接入控制抽屉" aria-hidden="true" inert data-i18n-aria-label="桥属性与接入控制抽屉">
     <div class="drawer-head">
       <div>
         <h2 id="ins-title" tabindex="-1">桥详情</h2>
         <p id="ins-key">—</p>
       </div>
-      <button type="button" class="close-btn" id="ins-close" aria-label="关闭桥详情抽屉">✕</button>
+      <button type="button" class="close-btn" id="ins-close" aria-label="关闭桥详情抽屉" data-i18n-aria-label="关闭桥详情抽屉">✕</button>
     </div>
     <div class="drawer-body">
       <!-- Bridge Specific Container -->
       <div id="ins-bridge-content" class="drawer-content-group">
         <!-- Admission Controls -->
         <div class="section-block">
-          <h3>接入控制</h3>
+          <h3 data-i18n="接入控制">接入控制</h3>
           <div class="btn-group">
-            <button type="button" class="action-btn pause" id="ins-toggle">暂停接入</button>
-            <button type="button" class="action-btn danger" id="ins-disconnect">断开本次连接</button>
+            <button type="button" class="action-btn pause" id="ins-toggle" data-i18n="暂停接入">暂停接入</button>
+            <button type="button" class="action-btn danger" id="ins-disconnect" data-i18n="断开本次连接">断开本次连接</button>
           </div>
-          <p class="action-help-text" id="ins-help-text" style="margin-top: 8px;">
+          <p class="action-help-text" id="ins-help-text" style="margin-top: 8px;" data-i18n="暂停会持久保存状态并断开全部实例，阻止重连；断开只关闭当前连接 ID。">
             暂停会持久保存状态并断开全部实例，阻止重连；断开只关闭当前连接 ID。
           </p>
         </div>
 
         <!-- Watermarks & Subscriptions -->
         <div class="section-block">
-          <h3>订阅与通讯水位</h3>
+          <h3 data-i18n="订阅与通讯水位">订阅与通讯水位</h3>
           <div id="ins-subscriptions">
-            <div class="muted" style="font-size:11px;">暂无在线订阅。</div>
+            <div class="muted" style="font-size:11px;" data-i18n="暂无在线订阅。">暂无在线订阅。</div>
           </div>
         </div>
 
         <!-- Mod Channels -->
         <div class="section-block">
-          <h3>Mod 注册的通道</h3>
+          <h3 data-i18n="Mod 注册的通道">Mod 注册的通道</h3>
           <div id="ins-channels">
-            <div class="muted" style="font-size:11px;">暂无在线通道声明。</div>
+            <div class="muted" style="font-size:11px;" data-i18n="暂无在线通道声明。">暂无在线通道声明。</div>
           </div>
         </div>
 
         <!-- ACL Whitelists -->
         <div class="section-block">
-          <h3>身份授权范围</h3>
+          <h3 data-i18n="身份授权范围">身份授权范围</h3>
           <div style="font-size: 11px;">
             <div style="margin-bottom: 6px;">
-              <span class="muted">可发布主题：</span>
+              <span class="muted" data-i18n="可发布主题：">可发布主题：</span>
               <div class="acl-tag-list" id="ins-acl-pub"></div>
             </div>
             <div>
-              <span class="muted">可订阅主题：</span>
+              <span class="muted" data-i18n="可订阅主题：">可订阅主题：</span>
               <div class="acl-tag-list" id="ins-acl-sub"></div>
             </div>
           </div>
@@ -858,22 +866,22 @@
 
         <!-- N:M Annotation Editor -->
         <div class="section-block">
-          <h3>程序与桥的关联注记</h3>
-          <p class="action-help-text" style="margin-bottom: 8px;">
+          <h3 data-i18n="程序与桥的关联注记">程序与桥的关联注记</h3>
+          <p class="action-help-text" style="margin-bottom: 8px;" data-i18n="此标注仅用于视图阅读，枢纽不感知外部程序形态与真实执行状态。">
             此标注仅用于视图阅读，枢纽不感知外部程序形态与真实执行状态。
           </p>
           <form id="annotation-form">
             <div style="margin-bottom: 8px;">
-              <label class="form-label" for="bridge-name-input">桥显示名称</label>
+              <label class="form-label" for="bridge-name-input" data-i18n="桥显示名称">桥显示名称</label>
               <input type="text" class="drawer-input" id="bridge-name-input" maxlength="120" autocomplete="off">
             </div>
             <div style="margin-bottom: 8px;">
-              <label class="form-label" for="program-names-input">关联外部程序 (每行一个 · 格式: id | 名称)</label>
-              <textarea class="drawer-textarea" id="program-names-input" placeholder="program.alpha | 事件程序 A" spellcheck="false"></textarea>
+              <label class="form-label" for="program-names-input" data-i18n="关联外部程序 (每行一个 · 格式: id | 名称)">关联外部程序 (每行一个 · 格式: id | 名称)</label>
+              <textarea class="drawer-textarea" id="program-names-input" placeholder="program.alpha | 事件程序 A" spellcheck="false" data-i18n-placeholder="program.alpha | 事件程序 A"></textarea>
             </div>
             <div class="drawer-footer">
-              <span id="annotation-dirty" class="muted" style="font-size:10px;">仅保存管理注记</span>
-              <button type="submit" class="action-btn resume" id="annotation-save" style="flex:none; padding: 5px 14px;">保存注记</button>
+              <span id="annotation-dirty" class="muted" style="font-size:10px;" data-i18n="仅保存管理注记">仅保存管理注记</span>
+              <button type="submit" class="action-btn resume" id="annotation-save" style="flex:none; padding: 5px 14px;" data-i18n="保存注记">保存注记</button>
             </div>
           </form>
         </div>
@@ -882,19 +890,19 @@
       <!-- Program Specific Container -->
       <div id="ins-program-content" class="drawer-content-group hidden">
         <div class="section-block">
-          <h3>外部程序注记</h3>
-          <p class="action-help-text">
+          <h3 data-i18n="外部程序注记">外部程序注记</h3>
+          <p class="action-help-text" data-i18n="外部程序通过 Mod 桥接入世界枢纽进行事件通讯。枢纽只做接线与路由，外部程序由其自身独立承载，其生命周期与内部状态不可直接观测。">
             外部程序通过 Mod 桥接入世界枢纽进行事件通讯。枢纽只做接线与路由，外部程序由其自身独立承载，其生命周期与内部状态不可直接观测。
           </p>
           <div class="btn-group" style="margin-top: 10px;">
-            <button type="button" class="action-btn" id="btn-prog-fly" style="background: rgba(0, 210, 180, 0.12); color: var(--teal); border: 1px solid var(--teal);">🎯 定位此程序</button>
+            <button type="button" class="action-btn" id="btn-prog-fly" style="background: rgba(0, 210, 180, 0.12); color: var(--teal); border: 1px solid var(--teal);" data-i18n="🎯 定位此程序">🎯 定位此程序</button>
           </div>
         </div>
 
         <div class="section-block">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
-            <h3 style="margin:0;">关联的 Mod 桥接入点</h3>
-            <span class="muted" id="ins-prog-bridge-count" style="font-size:11px;">0 座</span>
+            <h3 style="margin:0;" data-i18n="关联的 Mod 桥接入点">关联的 Mod 桥接入点</h3>
+            <span class="muted" id="ins-prog-bridge-count" style="font-size:11px;">—</span>
           </div>
           <div id="ins-prog-bridges-list"></div>
         </div>
@@ -903,10 +911,10 @@
   </aside>
 
   <!-- Bottom Stream Console Drawer -->
-  <section class="stream-drawer" id="stream-drawer" aria-label="信息流水与遥测控制台">
-    <div class="stream-bar" id="stream-bar" title="点击展开/收起信息流水">
+  <section class="stream-drawer" id="stream-drawer" aria-label="信息流水与遥测控制台" data-i18n-aria-label="信息流水与遥测控制台">
+    <div class="stream-bar" id="stream-bar" title="点击展开/收起信息流水" data-i18n-title="点击展开/收起信息流水">
       <div class="stream-bar-title">
-        <h3>📊 信息流水</h3>
+        <h3 data-i18n="📊 信息流水">📊 信息流水</h3>
         <span class="stream-count-badge" id="stream-count">采样读取中…</span>
       </div>
       <div class="stream-latest-ticker" id="stream-ticker">
@@ -914,8 +922,8 @@
       </div>
       <div style="display:flex; align-items:center; gap:8px;">
         <div class="stream-tabs" role="tablist">
-          <button type="button" class="tab-btn" id="tab-activity" aria-pressed="true">近期动态</button>
-          <button type="button" class="tab-btn" id="tab-retained" aria-pressed="false">留存信息</button>
+          <button type="button" class="tab-btn" id="tab-activity" aria-pressed="true" data-i18n="近期动态">近期动态</button>
+          <button type="button" class="tab-btn" id="tab-retained" aria-pressed="false" data-i18n="留存信息">留存信息</button>
         </div>
         <button type="button" class="hud-btn" id="btn-stream-toggle-inner">▲ 展开</button>
       </div>
@@ -923,11 +931,11 @@
 
     <div class="stream-body" id="stream-body" aria-hidden="true" inert>
       <div class="stream-filter-bar">
-        <input type="search" class="drawer-input" id="stream-search" placeholder="过滤主题 / 序号 / 桥 / 路由" style="max-width: 320px;" autocomplete="off">
+        <input type="search" class="drawer-input" id="stream-search" placeholder="过滤主题 / 序号 / 桥 / 路由" style="max-width: 320px;" autocomplete="off" data-i18n-placeholder="过滤主题 / 序号 / 桥 / 路由">
         <select class="drawer-input" id="stream-bridge-filter" style="max-width: 220px;">
-          <option value="">所有通讯桥</option>
+          <option value="" data-i18n="所有通讯桥">所有通讯桥</option>
         </select>
-        <span class="muted" style="font-size:10px; margin-left:auto;">
+        <span class="muted" style="font-size:10px; margin-left:auto;" data-i18n="提示：投递与 ACK 仅表示通讯转交，不代表外部业务完成">
           提示：投递与 ACK 仅表示通讯转交，不代表外部业务完成
         </span>
       </div>
@@ -935,16 +943,16 @@
         <table class="stream-table">
           <thead>
             <tr>
-              <th style="width: 76px;">时间</th>
-              <th style="width: 72px;">类型</th>
-              <th>主题 / 路由</th>
-              <th style="width: 80px;">序号</th>
-              <th style="width: 76px;">大小</th>
+              <th style="width: 76px;" data-i18n="时间">时间</th>
+              <th style="width: 72px;" data-i18n="类型">类型</th>
+              <th data-i18n="主题 / 路由">主题 / 路由</th>
+              <th style="width: 80px;" data-i18n="序号">序号</th>
+              <th style="width: 76px;" data-i18n="大小">大小</th>
             </tr>
           </thead>
           <tbody id="stream-table-body"></tbody>
         </table>
-        <div id="stream-empty" class="muted hidden" style="padding: 24px; text-align: center; font-size: 11px;">
+        <div id="stream-empty" class="muted hidden" style="padding: 24px; text-align: center; font-size: 11px;" data-i18n="当前筛选范围内暂无通讯记录。">
           当前筛选范围内暂无通讯记录。
         </div>
       </div>
@@ -955,25 +963,25 @@
   <dialog id="retention-dialog" aria-labelledby="ret-dialog-title">
     <div class="dialog-head">
       <div>
-        <h2 id="ret-dialog-title">📦 系统留存与容量边界</h2>
-        <p>提供者自主决定保留策略；枢纽不越权清理</p>
+        <h2 id="ret-dialog-title" data-i18n="📦 系统留存与容量边界">📦 系统留存与容量边界</h2>
+        <p data-i18n="提供者自主决定保留策略；枢纽不越权清理">提供者自主决定保留策略；枢纽不越权清理</p>
       </div>
-      <button type="button" class="close-btn" id="ret-close" aria-label="关闭">✕</button>
+      <button type="button" class="close-btn" id="ret-close" aria-label="关闭" data-i18n-aria-label="关闭">✕</button>
     </div>
     <div class="dialog-body">
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
         <div class="capacity-metric-box">
-          <span class="muted" style="font-size:10px;">受提供者策略保护的记录</span>
+          <span class="muted" style="font-size:10px;" data-i18n="受提供者策略保护的记录">受提供者策略保护的记录</span>
           <strong id="ret-protected-count">—</strong>
         </div>
         <div class="capacity-metric-box">
-          <span class="muted" style="font-size:10px;">当前最后通讯序号</span>
+          <span class="muted" style="font-size:10px;" data-i18n="当前最后通讯序号">当前最后通讯序号</span>
           <strong id="ret-last-seq">—</strong>
         </div>
       </div>
 
       <div class="capacity-metric-box">
-        <span class="muted" style="font-size:10px;">日志存储容量边界</span>
+        <span class="muted" style="font-size:10px;" data-i18n="日志存储容量边界">日志存储容量边界</span>
         <strong id="ret-capacity-spec" style="font-size:13px; margin: 4px 0;">—</strong>
         <div class="muted" id="ret-usage-text" style="font-size: 11px;">—</div>
         <div class="muted" id="ret-oldest-seq" style="font-size: 11px; margin-top: 2px;">—</div>
@@ -981,12 +989,12 @@
       </div>
 
       <div class="capacity-metric-box">
-        <span class="muted" style="font-size:10px;">最旧段受保护的提供者</span>
+        <span class="muted" style="font-size:10px;" data-i18n="最旧段受保护的提供者">最旧段受保护的提供者</span>
         <div id="ret-blockers" style="font-size:11px; white-space:pre-wrap; overflow-wrap:anywhere;">—</div>
       </div>
 
       <div class="capacity-metric-box">
-        <span class="muted" style="font-size:10px;">附件预约与可回收空间</span>
+        <span class="muted" style="font-size:10px;" data-i18n="附件预约与可回收空间">附件预约与可回收空间</span>
         <div id="ret-blob-usage" style="font-size:11px; overflow-wrap:anywhere;">—</div>
         <div class="muted" id="ret-blob-room" style="font-size:11px; margin-top:2px;">—</div>
         <div class="muted" id="ret-gap-failures" style="font-size:11px; margin-top:2px;">—</div>
@@ -994,7 +1002,7 @@
 
       <p id="ret-warning-text" style="font-size:11px; color:var(--amber); line-height:1.45;"></p>
 
-      <p class="muted" style="font-size:10px; line-height: 1.5; border-top: 1px solid var(--border); padding-top: 10px;">
+      <p class="muted" style="font-size:10px; line-height: 1.5; border-top: 1px solid var(--border); padding-top: 10px;" data-i18n="规范恪守：发送、抽取、ACK 与 caught_up 绝不释放记录。最旧段受保护未释放时，容量耗尽将以 LOG_CAPACITY 拒绝新发布，绝不为了容量覆盖未释放消息。本界面不提供强制清空操作。">
         规范恪守：发送、抽取、ACK 与 caught_up 绝不释放记录。最旧段受保护未释放时，容量耗尽将以 LOG_CAPACITY 拒绝新发布，绝不为了容量覆盖未释放消息。本界面不提供强制清空操作。
       </p>
     </div>
@@ -1005,12 +1013,12 @@
     <div class="dialog-head">
       <div>
         <h2 id="msg-dialog-title">原始通讯帧</h2>
-        <p id="msg-dialog-subtitle">按需读取留存的原始文本 · 零失真展示</p>
+        <p id="msg-dialog-subtitle" data-i18n="按需读取留存的原始文本 · 零失真展示">按需读取留存的原始文本 · 零失真展示</p>
       </div>
-      <button type="button" class="close-btn" id="msg-close" aria-label="关闭原始信息窗口">✕</button>
+      <button type="button" class="close-btn" id="msg-close" aria-label="关闭原始信息窗口" data-i18n-aria-label="关闭原始信息窗口">✕</button>
     </div>
     <div class="dialog-body">
-      <div class="muted" id="msg-dialog-note" style="font-size: 11px;">
+      <div class="muted" id="msg-dialog-note" style="font-size: 11px;" data-i18n="以下为接口返回的原始字符序列，忠实呈现大整数与转义；不执行任何载荷代码。">
         以下为接口返回的原始字符序列，忠实呈现大整数与转义；不执行任何载荷代码。
       </div>
       <pre class="dialog-pre" id="msg-content" tabindex="0">正在读取…</pre>
@@ -1020,6 +1028,11 @@
   <!-- Pure ES Module Logic -->
   <script type="module" src="/manage/manual-console.mjs"></script>
   <script type="module">
+    import { createI18n } from '/ui/language.mjs';
+    import english from '/manage/canvas-i18n.mjs';
+    const i18n = createI18n(english);
+    const t = (source, params = {}) => i18n.t(source, params);
+
     const $ = id => document.getElementById(id);
     const NS = 'http://www.w3.org/2000/svg';
     const MAX_EVENTS = 600, MAX_ROWS = 150, MAX_PULSES = 8;
@@ -1051,14 +1064,17 @@
       programPositions: new Map(), // progId -> { x, y }
       hoveredBridge: null,
       hoveredProgram: null,
-      messageRequest: 0
+      messageRequest: 0,
+      statusError: null,
+      messageView: null
     };
 
     let polling = false, refreshAgain = false, pollTimer = null, toastTimer = null, lastGoodAt = null;
     let pollCompletion = Promise.resolve(), inspectorOpener = null, inspectorProgramKey = null;
     const programBridgeCards = new Map(), streamRows = new Map();
     const pulseTimers = new Set();
-    const fmt = new Intl.NumberFormat('zh-CN');
+    let toastSource = '管理桥的接入与通讯；外部业务由程序自行负责。', toastParams = {};
+    let fmt = new Intl.NumberFormat(i18n.language);
 
     // Utility Helpers
     const formatCount = v => Number.isFinite(v) ? fmt.format(v) : '—';
@@ -1074,7 +1090,7 @@
 
     function time(at) {
       const d = new Date(at);
-      return Number.isNaN(d.getTime()) ? '—' : d.toLocaleTimeString('zh-CN', { hour12: false });
+      return Number.isNaN(d.getTime()) ? '—' : d.toLocaleTimeString(i18n.language, { hour12: false });
     }
 
     function setText(id, value) {
@@ -1113,7 +1129,7 @@
     function selectedBridge() { return bridges().find(b => b.key === state.selected); }
     function selectedProgram() { return state.selectedProgram ? state.programPositions.get(state.selectedProgram) || null : null; }
     function label(b) { return str(b.label || b.key); }
-    function status(b) { return b.paused ? '已暂停接入' : asArray(b.instances).length ? '已接入' : '未接入'; }
+    function status(b) { return b.paused ? t('已暂停接入') : asArray(b.instances).length ? t('已接入') : t('未接入'); }
     function stateClass(b) { return b.paused ? 'paused' : asArray(b.instances).length ? 'online' : 'offline'; }
 
     function endpointBridge(id) {
@@ -1126,18 +1142,20 @@
 
     function endpointName(id) {
       const b = endpointBridge(id);
-      return b ? label(b) : str(id || '未知桥');
+      return b ? label(b) : str(id || t('未知桥'));
     }
 
-    function toast(text, kind = 'neutral', autoClear = true) {
+    function toast(source, kind = 'neutral', autoClear = true, params = {}) {
       clearTimeout(toastTimer);
-      const t = $('toast');
-      t.textContent = text;
-      t.className = 'toast ' + kind;
+      toastSource = source; toastParams = params;
+      const node = $('toast');
+      node.textContent = t(source, translatedErrorParams(params));
+      node.className = 'toast ' + kind;
       if (autoClear) {
         toastTimer = setTimeout(() => {
-          t.textContent = '管理桥的接入与通讯；外部业务由程序自行负责。';
-          t.className = 'toast neutral';
+          toastSource = '管理桥的接入与通讯；外部业务由程序自行负责。'; toastParams = {};
+          node.textContent = t(toastSource);
+          node.className = 'toast neutral';
         }, 9000);
       }
     }
@@ -1188,6 +1206,7 @@
         state.data = data;
         state.fresh = true;
         lastGoodAt = new Date();
+        state.statusError = null;
 
         const epoch = str(data.hub.startedAt) + '|' + str(data.hub.hubId);
         const restarted = state.epoch !== null && epoch !== state.epoch;
@@ -1213,14 +1232,15 @@
         }
         if (!establishEventBaseline && state.flowAnimation) animateEvents(freshEvents);
 
-        setText('status-text', '已同步 · ' + time(lastGoodAt));
+        setText('status-text', t('已同步 · {time}', { time: time(lastGoodAt) }));
         $('status-dot').className = 'status-dot online';
         if (manual) toast('已读取最新枢纽状态。', '', true);
       } catch (error) {
         state.fresh = false;
-        setText('status-text', lastGoodAt ? '状态过期 · ' + time(lastGoodAt) : '无法读取状态');
+        state.statusError = error.message;
+        setText('status-text', lastGoodAt ? t('状态过期 · {time}', { time: time(lastGoodAt) }) : t('无法读取状态'));
         $('status-dot').className = 'status-dot offline';
-        toast('管理连接不可用：' + error.message + '。通断操作暂不可用。', 'error', false);
+        toast('管理连接不可用：{error}。通断操作暂不可用。', 'error', false, { error: error.message });
         renderInspector();
       } finally {
         polling = false;
@@ -1403,8 +1423,8 @@
         guidesG.append(
           svgEl('circle', { cx: 0, cy: 0, r: bridgeOrbitR, class: 'orbit-circle' }),
           svgEl('circle', { cx: 0, cy: 0, r: progOrbitR, class: 'orbit-circle' }),
-          svgEl('text', { x: 0, y: -(bridgeOrbitR + 10), class: 'orbit-label' }, 'MOD BRIDGES · 通讯主体集群环'),
-          svgEl('text', { x: 0, y: -(progOrbitR + 10), class: 'orbit-label' }, 'PROGRAM ANNOTATIONS · 外部程序注记矩阵')
+          svgEl('text', { x: 0, y: -(bridgeOrbitR + 10), class: 'orbit-label' }, t('MOD BRIDGES · 通讯主体集群环')),
+          svgEl('text', { x: 0, y: -(progOrbitR + 10), class: 'orbit-label' }, t('PROGRAM ANNOTATIONS · 外部程序注记矩阵'))
         );
       }
 
@@ -1423,7 +1443,7 @@
       // Top HUD Texts
       setText('hud-hub-name', hub.hubId);
       setText('hub-core-id', hub.hubId);
-      setText('hub-core-instances', onlineInstances + ' 在线实例');
+      setText('hub-core-instances', t('{count} 在线实例', { count: formatCount(onlineInstances) }));
       setText('metric-online', formatCount(onlineInstances));
       setText('metric-paused', formatCount(allBridges.filter(b => b.paused).length));
       setText('metric-accepted', formatCount(hub.counters?.accepted));
@@ -1588,13 +1608,13 @@
           transform: `translate(${p.x}, ${p.y})`,
           role: 'button',
           tabindex: 0,
-          'aria-label': `${p.name}，外部程序标注，关联 ${p.bridgeKeys.size} 座桥，状态不可观测，点击查看详情与关联`
+          'aria-label': t('{name}，外部程序标注，关联 {count} 座桥，状态不可观测，点击查看详情与关联', { name: programName(p), count: formatCount(p.bridgeKeys.size) })
         });
         g.append(
           svgEl('rect', { x: -85, y: -24, width: 170, height: 48, class: 'program-box' }),
-          svgEl('text', { x: -70, y: -4, class: 'program-name' }, shorten(p.name, 18)),
+          svgEl('text', { x: -70, y: -4, class: 'program-name' }, shorten(programName(p), 18)),
           svgEl('text', { x: -70, y: 12, class: 'program-sub' },
-            p.unmarked ? '待标注程序' : (p.bridgeKeys.size > 1 ? `关联 ${p.bridgeKeys.size} 座桥 · 业务自理` : '不可观测 · 用户注记')
+            p.unmarked ? t('待标注程序') : (p.bridgeKeys.size > 1 ? t('关联 {count} 座桥 · 业务自理', { count: formatCount(p.bridgeKeys.size) }) : t('不可观测 · 用户注记'))
           )
         );
 
@@ -1644,7 +1664,7 @@
           transform: `translate(${pos.x}, ${pos.y})`,
           role: 'button',
           tabindex: 0,
-          'aria-label': `${label(b)}，${status(b)}，点击查看详情与控制`
+          'aria-label': t('{name}，{status}，点击查看详情与控制', { name: label(b), status: status(b) })
         });
 
         // Background Box (230 x 104)
@@ -1660,7 +1680,7 @@
         // Registered Channel Pill
         const insts = asArray(b.instances);
         const channels = insts.flatMap(i => asArray(i.channels));
-        const chanText = channels.length ? channels[0].topic || channels[0].name || '已注册通道' : '未注册通道';
+        const chanText = channels.length ? channels[0].topic || channels[0].name || t('已注册通道') : t('未注册通道');
         group.append(
           svgEl('rect', { x: -98, y: 0, width: 196, height: 20, rx: 5, fill: 'rgba(255, 255, 255, 0.05)', class: 'bridge-pill-bg' }),
           svgEl('text', { x: -90, y: 14, class: 'bridge-key bridge-channel-text' }, shorten(chanText, 26))
@@ -1668,7 +1688,7 @@
 
         // Footer: Status label & Instance count
         group.append(
-          svgEl('text', { x: -98, y: 38, class: 'bridge-key bridge-status-text' }, `${status(b)} · ${insts.length} 实例`)
+          svgEl('text', { x: -98, y: 38, class: 'bridge-key bridge-status-text' }, t('{status} · {count} 实例', { status: status(b), count: formatCount(insts.length) }))
         );
 
         // Hover & Click Events
@@ -1711,11 +1731,11 @@
           if (!node) continue;
           node.classList.remove('online', 'offline', 'paused'); node.classList.add(currentState);
         }
-        group.setAttribute('aria-label', `${label(b)}，${status(b)}，点击查看详情与控制`);
+        group.setAttribute('aria-label', t('{name}，{status}，点击查看详情与控制', { name: label(b), status: status(b) }));
         const texts = [
           ['.bridge-name', shorten(label(b), 24)],
-          ['.bridge-channel-text', shorten(channels[0]?.topic || channels[0]?.name || (channels.length ? '已注册通道' : '未注册通道'), 26)],
-          ['.bridge-status-text', `${status(b)} · ${insts.length} 实例`],
+          ['.bridge-channel-text', shorten(channels[0]?.topic || channels[0]?.name || (channels.length ? t('已注册通道') : t('未注册通道')), 26)],
+          ['.bridge-status-text', t('{status} · {count} 实例', { status: status(b), count: formatCount(insts.length) })],
         ];
         for (const [selector, text] of texts) { const node = group.querySelector(selector); if (node && node.textContent !== text) node.textContent = text; }
       }
@@ -1842,11 +1862,11 @@
         $('ins-bridge-content')?.classList.add('hidden');
         $('ins-program-content')?.classList.remove('hidden');
 
-        setText('ins-title', p.name);
-        setText('ins-key', `外部程序注记 · ID: ${p.id}${p.unmarked ? ' (待标注)' : ''}`);
+        setText('ins-title', programName(p));
+        setText('ins-key', t('外部程序注记 · ID: {id}{pending}', { id: p.id, pending: p.unmarked ? t(' (待标注)') : '' }));
 
         const bCount = p.bridgeKeys.size;
-        setText('ins-prog-bridge-count', `${bCount} 座`);
+        setText('ins-prog-bridge-count', t('{count} 座', { count: formatCount(bCount) }));
         const listEl = $('ins-prog-bridges-list');
         if (inspectorProgramKey !== p.key) {
           listEl.replaceChildren(); programBridgeCards.clear(); inspectorProgramKey = p.key;
@@ -1860,7 +1880,7 @@
         }
 
         if (bCount === 0) {
-          listEl.append(el('div', 'muted', '暂无关联的 Mod 桥。'));
+          listEl.append(el('div', 'muted', t('暂无关联的 Mod 桥。')));
         } else {
           for (const bKey of p.bridgeKeys) {
             const br = bridges().find(item => item.key === bKey);
@@ -1894,7 +1914,7 @@
             title.style.fontSize = '12px';
             nameBox.append(dot, title);
 
-            const jumpBtn = el('button', 'action-btn', '切换到此桥 →');
+            const jumpBtn = el('button', 'action-btn', t('切换到此桥 →'));
             jumpBtn.type = 'button';
             jumpBtn.style.padding = '2px 8px';
             jumpBtn.style.fontSize = '10px';
@@ -1902,7 +1922,7 @@
 
             topRow.append(nameBox, jumpBtn);
 
-            const subRow = el('div', 'muted', br ? `${bKey} · ${status(br)} · ${asArray(br.instances).length} 实例` : `${bKey} (未上线)`);
+            const subRow = el('div', 'muted', br ? t('{key} · {status} · {count} 实例', { key: bKey, status: status(br), count: formatCount(asArray(br.instances).length) }) : t('{key} (未上线)', { key: bKey }));
             subRow.style.fontSize = '10px';
             subRow.style.marginTop = '4px';
 
@@ -1916,7 +1936,8 @@
             }
             entry.dot.className = `bridge-dot ${br ? stateClass(br) : 'offline'}`;
             entry.title.textContent = br ? label(br) : bKey;
-            entry.subRow.textContent = br ? `${bKey} · ${status(br)} · ${asArray(br.instances).length} 实例` : `${bKey} (未接入)`;
+            entry.jumpBtn.textContent = t('切换到此桥 →');
+            entry.subRow.textContent = br ? t('{key} · {status} · {count} 实例', { key: bKey, status: status(br), count: formatCount(asArray(br.instances).length) }) : t('{key} (未接入)', { key: bKey });
           }
         }
 
@@ -1940,13 +1961,13 @@
       $('annotation-save').disabled = !state.fresh || state.busy.has(b.key);
 
       // Action button classes & texts
-      $('ins-toggle').textContent = b.paused ? '恢复接入' : '暂停接入';
+      $('ins-toggle').textContent = b.paused ? t('恢复接入') : t('暂停接入');
       $('ins-toggle').className = `action-btn ${b.paused ? 'resume' : 'pause'}`;
       setText('ins-help-text', b.manageable === false
-        ? '此项仅为用户注记，尚无已授权或已连接的通讯身份，暂不可控制接入。'
+        ? t('此项仅为用户注记，尚无已授权或已连接的通讯身份，暂不可控制接入。')
         : b.paused
-        ? '已暂停：该主体全部实例已被断开，后续重连均被拦截；Hub 重启后依然生效。'
-        : '断开本次连接仅关闭当前连接 ID，允许其立即自动重连；过期 ID 不会误断新连接。');
+        ? t('已暂停：该主体全部实例已被断开，后续重连均被拦截；Hub 重启后依然生效。')
+        : t('断开本次连接仅关闭当前连接 ID，允许其立即自动重连；过期 ID 不会误断新连接。'));
 
       // Subscriptions
       const subContainer = $('ins-subscriptions');
@@ -1955,19 +1976,19 @@
       const subs = asArray(state.data?.hub?.subscriptions).filter(s => instIds.has(s.bridgeId));
 
       if (!subs.length) {
-        subContainer.append(el('div', 'muted', '暂无在线订阅；离线不代表信息已被消费。'));
+        subContainer.append(el('div', 'muted', t('暂无在线订阅；离线不代表信息已被消费。')));
       } else {
         for (const s of subs) {
           const card = el('div', 'section-block', '');
           card.style.marginBottom = '6px';
           card.append(
-            el('div', 'mono', s.id + ' · ' + (asArray(s.filters).join(', ') || '无过滤器')),
+            el('div', 'mono', s.id + ' · ' + (asArray(s.filters).join(', ') || t('无过滤器'))),
             el('div', 'watermark-grid', '')
           );
           const grid = card.querySelector('.watermark-grid');
-          for (const [t, val] of [['ACK 水位', s.cursor], ['已发送', s.sentUpTo], ['待 ACK', s.pending]]) {
+          for (const [watermarkLabel, val] of [[t('ACK 水位'), s.cursor], [t('已发送'), s.sentUpTo], [t('待 ACK'), s.pending]]) {
             const wm = el('div', 'wm-card');
-            wm.append(el('span', '', t), el('strong', '', formatCount(val)));
+            wm.append(el('span', '', watermarkLabel), el('strong', '', formatCount(val)));
             grid.append(wm);
           }
           subContainer.append(card);
@@ -1981,24 +2002,24 @@
       for (const i of asArray(b.instances)) {
         for (const c of asArray(i.channels)) {
           const badge = el('div', 'channel-badge');
-          const dir = c.publish && c.subscribe ? '双向通讯' : c.publish ? '输入枢纽' : c.subscribe ? '从枢纽抽取' : 'Mod 声明';
+          const dir = c.publish && c.subscribe ? t('双向通讯') : c.publish ? t('输入枢纽') : c.subscribe ? t('从枢纽抽取') : t('Mod 声明');
           badge.append(
-            el('span', 'topic', c.topic || c.name || c.id || '未命名通道'),
-            el('span', 'dir', `${dir}${c.kind ? ' · ' + c.kind : ''} · 实例: ${i.bridgeId}`)
+            el('span', 'topic', c.topic || c.name || c.id || t('未命名通道')),
+            el('span', 'dir', t('{direction}{kind} · 实例: {id}', { direction: dir, kind: c.kind ? ' · ' + c.kind : '', id: i.bridgeId }))
           );
           chanContainer.append(badge);
           chanCount++;
         }
       }
-      if (!chanCount) chanContainer.append(el('div', 'muted', '暂无通道注册。通道由 mod 动态声明。'));
+      if (!chanCount) chanContainer.append(el('div', 'muted', t('暂无通道注册。通道由 mod 动态声明。')));
 
       // ACL Whitelist
       const aclPub = $('ins-acl-pub'); aclPub.replaceChildren();
       const aclSub = $('ins-acl-sub'); aclSub.replaceChildren();
       for (const p of asArray(b.allow?.publish)) aclPub.append(el('span', 'acl-pill', p));
       for (const s of asArray(b.allow?.subscribe)) aclSub.append(el('span', 'acl-pill', s));
-      if (!aclPub.childNodes.length) aclPub.append(el('span', 'muted', '未授权'));
-      if (!aclSub.childNodes.length) aclSub.append(el('span', 'muted', '未授权'));
+      if (!aclPub.childNodes.length) aclPub.append(el('span', 'muted', t('未授权')));
+      if (!aclSub.childNodes.length) aclSub.append(el('span', 'muted', t('未授权')));
 
       // Form: Bridge Name & Programs
       const form = $('annotation-form');
@@ -2012,18 +2033,18 @@
         $('bridge-name-input').value = label(b);
         $('program-names-input').value = asArray(b.programs).map(p => p.id + ' | ' + str(p.name || p.id)).join('\n');
       }
-      setText('annotation-dirty', state.dirty ? '注记未保存' : '仅保存管理注记');
+      setText('annotation-dirty', state.dirty ? t('注记未保存') : t('仅保存管理注记'));
     }
 
     // Bridge Filter Dropdown in Stream Drawer
     function renderBridgeFilter() {
-      const signature = JSON.stringify(bridges().map(b => [b.key, label(b)]));
+      const signature = JSON.stringify([i18n.language, bridges().map(b => [b.key, label(b)])]);
       if (signature === state.bridgeSelectSignature) return;
       state.bridgeSelectSignature = signature;
 
       const sel = $('stream-bridge-filter');
       const prev = sel.value;
-      sel.replaceChildren(el('option', '', '所有通讯桥'));
+      sel.replaceChildren(el('option', '', t('所有通讯桥')));
       sel.firstChild.value = '';
 
       for (const b of bridges()) {
@@ -2036,24 +2057,24 @@
 
     // Stream Table & Ticker Rendering
     function eventType(e) {
-      if (e.kind === 'delivery' && e.sent === false) return '投递失败';
+      if (e.kind === 'delivery' && e.sent === false) return t('投递失败');
       const labels = {
-        message: '输入', delivery: '投递', retained: '留存', ack: 'ACK', caught_up: '追平',
-        pause: '暂停', paused: '暂停', resume: '恢复', resumed: '恢复', disconnect: '断开',
-        gap: '缺口', release: '释放保护', 'bridge.attached': '接入', 'bridge.detached': '断开',
-        'bridge.rejected': '拒绝', 'management.pause': '暂停', 'management.resume': '恢复',
-        'management.disconnect': '断开', 'management.annotation': '注记', 'message.released': '释放保护'
+        message: t('输入'), delivery: t('投递'), retained: t('留存'), ack: 'ACK', caught_up: t('追平'),
+        pause: t('暂停'), paused: t('暂停'), resume: t('恢复'), resumed: t('恢复'), disconnect: t('断开'),
+        gap: t('缺口'), release: t('释放保护'), 'bridge.attached': t('接入'), 'bridge.detached': t('断开'),
+        'bridge.rejected': t('拒绝'), 'management.pause': t('暂停'), 'management.resume': t('恢复'),
+        'management.disconnect': t('断开'), 'management.annotation': t('注记'), 'message.released': t('释放保护')
       };
-      return labels[e.kind] || str(e.kind || '通讯');
+      return labels[e.kind] || str(e.kind || t('通讯'));
     }
 
     function eventRoute(e) {
-      if (e.kind === 'message' || e.kind === 'retained') return endpointName(e.from) + ' → 枢纽';
-      if (e.kind === 'delivery') return '枢纽 → ' + endpointName(e.to) + (e.sent === false ? ' (写入连接失败)' : '');
-      if (e.kind === 'subscribe') return endpointName(e.bridgeId) + ' 抽取主题: ' + asArray(e.filters).join(', ');
-      if (e.kind === 'caught_up') return endpointName(e.bridgeId) + ' 追平至水位: ' + str(e.cursor ?? '—');
+      if (e.kind === 'message' || e.kind === 'retained') return t('{name} → 枢纽', { name: endpointName(e.from) });
+      if (e.kind === 'delivery') return t('枢纽 → {name}{failure}', { name: endpointName(e.to), failure: e.sent === false ? t(' (写入连接失败)') : '' });
+      if (e.kind === 'subscribe') return t('{name} 抽取主题: {topics}', { name: endpointName(e.bridgeId), topics: asArray(e.filters).join(', ') });
+      if (e.kind === 'caught_up') return t('{name} 追平至水位: {cursor}', { name: endpointName(e.bridgeId), cursor: str(e.cursor ?? '—') });
       if (e.bridgeId || e.key || e.principal) return endpointName(e.bridgeId || e.key || e.principal) + (e.code ? ' · ' + e.code : '');
-      return str(e.message || e.reason || e.code || '通讯流转记录');
+      return str(e.message || e.reason || e.code || t('通讯流转记录'));
     }
 
     function concernsBridge(e, key) {
@@ -2083,7 +2104,7 @@
           entry.seqButton.addEventListener('click', () => viewMessage(entry.seq)); entry.seqCell.replaceChildren(entry.seqButton);
         }
         entry.seqButton.textContent = '#' + event.seq;
-        entry.seqButton.setAttribute('aria-label', '查看序号 ' + event.seq + ' 的原始通讯帧');
+        entry.seqButton.setAttribute('aria-label', t('查看序号 {seq} 的原始通讯帧', { seq: event.seq }));
       } else { entry.seq = null; entry.seqButton = null; entry.seqCell.textContent = '—'; }
     }
 
@@ -2108,18 +2129,20 @@
       if (focusedEntry && focusedEntry.epoch === state.epoch && focusedEntry.view === state.view && matches(focusedEntry.event) && !rows.some(event => streamRowKey(event) === focusedKey)) {
         if (rows.length >= MAX_ROWS) rows.pop(); rows.push(focusedEntry.event); pinnedFocus = true;
       }
-      setText('stream-count', `${state.view === 'retained' ? '近期留存记录' : '近期采样'} · ${rows.length} / ${found.length}${pinnedFocus ? ' · 保留键盘焦点行' : ''}`);
+      setText('stream-count', t('{view} · {shown} / {total}{focus}', { view: state.view === 'retained' ? t('近期留存记录') : t('近期采样'), shown: formatCount(rows.length), total: formatCount(found.length), focus: pinnedFocus ? t(' · 保留键盘焦点行') : '' }));
 
       // Update Mini Ticker
       if (rows.length) {
         const top = rows[0];
         setText('stream-ticker', `[${time(top.at)}] ${eventType(top)}: ${top.topic || eventRoute(top)} (#${top.seq || '—'})`);
+      } else {
+        setText('stream-ticker', t('当前筛选范围内暂无通讯记录。'));
       }
 
       // 若流抽屉未展开，跳过庞大的 DOM 表格构造
       if (!$('stream-drawer').classList.contains('expanded')) return;
 
-      const sig = JSON.stringify([state.view, query, filter, rows, bridges().map(b => [b.key, label(b)])]);
+      const sig = JSON.stringify([i18n.language, state.view, query, filter, rows, bridges().map(b => [b.key, label(b)])]);
       if (sig === state.streamSignature) return;
       state.streamSignature = sig;
 
@@ -2145,35 +2168,35 @@
       setText('ret-protected-count', formatCount(log.protectedCount));
       setText('ret-last-seq', '#' + formatCount(log.lastSeq ?? state.data?.hub?.lastSeq));
       setText('ret-capacity-spec', Number.isFinite(capacity.segmentMaxBytes) && Number.isFinite(capacity.segmentMaxCount)
-        ? `${bytes(capacity.segmentMaxBytes)} / 段 × ${capacity.segmentMaxCount} 段`
-        : '未配置固定容量');
+        ? t('{bytes} / 段 × {count} 段', { bytes: bytes(capacity.segmentMaxBytes), count: formatCount(capacity.segmentMaxCount) })
+        : t('未配置固定容量'));
       setText('ret-usage-text', Number.isFinite(log.bytes)
-        ? `当前日志占用: ${bytes(log.bytes)} · 共 ${formatCount(log.segmentCount)} 段 · 留存 ${formatCount(log.retainedCount)} 条`
+        ? t('当前日志占用: {bytes} · 共 {segments} 段 · 留存 {records} 条', { bytes: bytes(log.bytes), segments: formatCount(log.segmentCount), records: formatCount(log.retainedCount) })
         : '');
       setText('ret-oldest-seq', Number.isFinite(log.oldestSeq)
-        ? `最早可抽取记录序号: #${log.oldestSeq}`
-        : '当前暂无可抽取记录');
+        ? t('最早可抽取记录序号: #{seq}', { seq: log.oldestSeq })
+        : t('当前暂无可抽取记录'));
       setText('ret-segment-room', Number.isFinite(log.unusedSegmentSlots)
-        ? `未使用段位: ${log.unusedSegmentSlots} · 活动段距轮转目标: ${bytes(log.activeSegmentTargetRemainingBytes)}（非精确可写容量）`
+        ? t('未使用段位: {slots} · 活动段距轮转目标: {bytes}（非精确可写容量）', { slots: formatCount(log.unusedSegmentSlots), bytes: bytes(log.activeSegmentTargetRemainingBytes) })
         : '');
       setText('ret-blockers', asArray(log.oldestProtectedOwners).map(owner =>
-        `${owner.principal == null ? '身份未知（旧记录）' : str(owner.principal)} · ${formatCount(owner.count)} 条 · #${owner.firstSeq}–#${owner.lastSeq}`).join('\n') || '最旧段没有受保护的提供者记录');
+        t('{principal} · {count} 条 · #{first}–#{last}', { principal: owner.principal == null ? t('身份未知（旧记录）') : str(owner.principal), count: formatCount(owner.count), first: owner.firstSeq, last: owner.lastSeq })).join('\n') || t('最旧段没有受保护的提供者记录'));
       const blobs = state.data?.blobs;
       setText('ret-blob-usage', blobs
-        ? `预约 ${str(blobs.reservedBytesExact)} B / ${str(blobs.limits?.maxTotalBytes)} B · ${formatCount(blobs.count)} / ${formatCount(blobs.limits?.maxObjects)} 个对象 · 未完成 ${formatCount(blobs.uploadingCount)} 个`
-        : '附件状态不可用');
+        ? t('预约 {reserved} B / {limit} B · {count} / {max} 个对象 · 未完成 {uploading} 个', { reserved: str(blobs.reservedBytesExact), limit: str(blobs.limits?.maxTotalBytes), count: formatCount(blobs.count), max: formatCount(blobs.limits?.maxObjects), uploading: formatCount(blobs.uploadingCount) })
+        : t('附件状态不可用'));
       setText('ret-blob-room', blobs
-        ? `剩余 ${str(blobs.remainingBytes)} B / ${formatCount(blobs.remainingObjectSlots)} 个对象位 · 可按需回收 ${str(blobs.reclaimableBytes)} B / ${formatCount(blobs.reclaimableObjectCount)} 个（已释放且未被提交占用）`
+        ? t('剩余 {bytes} B / {slots} 个对象位 · 可按需回收 {reclaimable} B / {count} 个（已释放且未被提交占用）', { bytes: str(blobs.remainingBytes), slots: formatCount(blobs.remainingObjectSlots), reclaimable: str(blobs.reclaimableBytes), count: formatCount(blobs.reclaimableObjectCount) })
         : '');
       const gapFailures = state.data?.hub?.counters?.gapLogFailures;
       setText('ret-gap-failures', Number.isFinite(gapFailures)
-        ? `本次枢纽进程缺口落盘失败: ${gapFailures} 次；最近详情见 /status。计数重启归零。`
+        ? t('本次枢纽进程缺口落盘失败: {count} 次；最近详情见 /status。计数重启归零。', { count: formatCount(gapFailures) })
         : '');
 
       setText('ret-warning-text', log.maintenanceError
-        ? '日志存储异常：' + str(log.maintenanceError)
+        ? t('日志存储异常：{error}', { error: str(log.maintenanceError) })
         : log.nextRotationBlocked
-        ? '下次段轮转受到受保护记录阻挡；触及容量上限后新发布将返回 LOG_CAPACITY。'
+        ? t('下次段轮转受到受保护记录阻挡；触及容量上限后新发布将返回 LOG_CAPACITY。')
         : '');
     }
 
@@ -2197,15 +2220,15 @@
         });
 
         const msg = actName === 'pause'
-          ? `${label(b)} 已持久暂停接入，全部实例已断开；留存信息继续受保护。`
+          ? ['{name} 已持久暂停接入，全部实例已断开；留存信息继续受保护。', { name: label(b) }]
           : actName === 'resume'
-          ? `${label(b)} 接入许可已恢复，等待 mod 自行重连。`
-          : `${label(b)} 已断开 ${formatCount(res.disconnected)} 个当前连接；mod 可自动重连。`;
+          ? ['{name} 接入许可已恢复，等待 mod 自行重连。', { name: label(b) }]
+          : ['{name} 已断开 {count} 个当前连接；mod 可自动重连。', { name: label(b), count: formatCount(res.disconnected) }];
 
-        toast(msg, 'neutral', true);
+        toast(msg[0], 'neutral', true, msg[1]);
         await refresh({ afterMutation: true });
       } catch (err) {
-        toast('操作失败：' + err.message, 'error', true);
+        toast('操作失败：{error}', 'error', true, { error: err.message });
       } finally {
         state.busy.delete(key);
         renderInspector();
@@ -2255,7 +2278,7 @@
         toast('程序与桥注记已成功保存。', 'neutral', true);
         await refresh({ afterMutation: true });
       } catch (err) {
-        toast('注记保存失败：' + err.message, 'error', true);
+        toast('注记保存失败：{error}', 'error', true, { error: err.message });
       } finally {
         state.busy.delete(key);
         renderInspector();
@@ -2265,17 +2288,20 @@
     // Raw Message Viewer Modal
     async function viewMessage(seq) {
       const serial = ++state.messageRequest;
-      setText('msg-dialog-title', `原始通讯帧 · #${seq}`);
-      setText('msg-content', '正在读取…');
+      setText('msg-dialog-title', t('原始通讯帧 · #{seq}', { seq }));
+      state.messageView = { seq, phase: 'loading' };
+      setText('msg-content', t('正在读取…'));
       if (!$('message-dialog').open) $('message-dialog').showModal();
 
       try {
         const original = await request('/manage/api/message?seq=' + encodeURIComponent(seq), {}, true);
         if (serial !== state.messageRequest || !$('message-dialog').open) return;
+        state.messageView = { seq, phase: 'ready' };
         setText('msg-content', original);
       } catch (err) {
         if (serial === state.messageRequest && $('message-dialog').open) {
-          setText('msg-content', '无法读取原文：' + err.message);
+          state.messageView = { seq, phase: 'error', error: err.message };
+          setText('msg-content', t('无法读取原文：{error}', { error: t(err.message) }));
         }
       }
     }
@@ -2598,16 +2624,17 @@
         }
       }
       for (const [pId, p] of state.programPositions) {
-        const n = str(p.name).toLowerCase();
+        const n = programName(p).toLowerCase();
         const id = str(p.id).toLowerCase();
         if (n.includes(q) || id.includes(q)) {
-          results.push({ type: 'program', id: pId, title: p.name, sub: `${p.bridgeKeys.size} 座关联桥 · ${p.id}` });
+          results.push({ type: 'program', id: pId, title: programName(p), sub: t('{count} 座关联桥 · {id}', { count: formatCount(p.bridgeKeys.size), id: p.id }) });
         }
       }
 
       searchDropdown.replaceChildren();
       if (results.length === 0) {
-        const empty = el('div', 'hud-search-item', '无匹配的桥或程序');
+        const empty = el('div', 'hud-search-item', t('无匹配的桥或程序'));
+        empty.dataset.noMatch = 'true';
         empty.style.color = 'var(--muted)';
         searchDropdown.append(empty);
       } else {
@@ -2625,7 +2652,7 @@
           sub.style.fontFamily = 'var(--mono)';
           left.append(title, sub);
 
-          const tag = el('span', `tag ${r.type}`, r.type === 'bridge' ? '桥' : '程序');
+          const tag = el('span', `tag ${r.type}`, r.type === 'bridge' ? t('桥') : t('程序'));
           item.append(left, tag);
           item.addEventListener('click', () => {
             searchDropdown.classList.add('hidden');
@@ -2645,7 +2672,7 @@
     searchInput.addEventListener('keydown', e => {
       if (e.key === 'Enter') {
         const first = searchDropdown.querySelector('.hud-search-item');
-        if (first && !first.textContent.includes('无匹配')) first.click();
+        if (first && first.dataset.noMatch !== 'true') first.click();
       } else if (e.key === 'Escape') {
         searchDropdown.classList.add('hidden');
       }
@@ -2923,7 +2950,7 @@
       const body = $('stream-body'), focusedInside = body.contains(document.activeElement);
       body.inert = !isExp; body.setAttribute('aria-hidden', String(!isExp));
       if (!isExp && focusedInside) $('btn-stream-toggle-inner').focus({ preventScroll: true });
-      $('btn-stream-toggle-inner').textContent = isExp ? '▼ 收起' : '▲ 展开';
+      $('btn-stream-toggle-inner').textContent = isExp ? t('▼ 收起') : t('▲ 展开');
       $('btn-stream-toggle').classList.toggle('active', isExp);
       if (isExp) {
         state.streamSignature = '';
@@ -2965,7 +2992,7 @@
     $('annotation-form').addEventListener('input', () => {
       state.dirty = true;
       captureDraft();
-      setText('annotation-dirty', '注记尚未保存');
+      setText('annotation-dirty', t('注记尚未保存'));
     });
 
     // Stream Console Tabs & Filters
@@ -2990,6 +3017,7 @@
     $('msg-close').addEventListener('click', () => $('message-dialog').close());
     $('message-dialog').addEventListener('close', () => {
       ++state.messageRequest;
+      state.messageView = null;
       setText('msg-content', '');
     });
 
@@ -3003,6 +3031,67 @@
     function updateHudBoundary() { document.documentElement.style.setProperty('--hud-bottom', `${Math.ceil(hud.getBoundingClientRect().bottom)}px`); }
     const hudObserver = new ResizeObserver(updateHudBoundary);
     hudObserver.observe(hud); window.addEventListener('resize', updateHudBoundary); updateHudBoundary();
+
+    // Language changes update presentation only, preserving topology and interaction state.
+    function translatedErrorParams(params) { return params.error == null ? params : { ...params, error: t(params.error) }; }
+
+    function programName(program) { return program.unmarked ? t('未标注程序') : str(program.name); }
+
+    function updateProgramNodeContents() {
+      for (const [key, program] of state.programPositions) {
+        const node = program.el || $('pnode-' + safeId(key));
+        if (!node) continue;
+        node.setAttribute('aria-label', t('{name}，外部程序标注，关联 {count} 座桥，状态不可观测，点击查看详情与关联', { name: programName(program), count: formatCount(program.bridgeKeys.size) }));
+        const name = node.querySelector('.program-name'), sub = node.querySelector('.program-sub');
+        if (name) name.textContent = shorten(programName(program), 18);
+        if (sub) sub.textContent = program.unmarked ? t('待标注程序') : program.bridgeKeys.size > 1 ? t('关联 {count} 座桥 · 业务自理', { count: formatCount(program.bridgeKeys.size) }) : t('不可观测 · 用户注记');
+      }
+      const guides = $('guides-g')?.querySelectorAll('.orbit-label');
+      if (guides?.[0]) guides[0].textContent = t('MOD BRIDGES · 通讯主体集群环');
+      if (guides?.[1]) guides[1].textContent = t('PROGRAM ANNOTATIONS · 外部程序注记矩阵');
+    }
+
+    function applyCanvasLabels() {
+      // The workbench has its own dictionary and owns its separate dialog.
+      for (const selector of ['title', '.top-hud', '#canvas-container', '.canvas-controls', '#inspector-drawer', '#stream-drawer', '#retention-dialog', '#message-dialog']) {
+        const root = document.querySelector?.(selector);
+        if (root) i18n.apply(root);
+      }
+    }
+
+    function renderCanvasLanguage() {
+      applyCanvasLabels();
+      document.title = t('世界枢纽 · 拓扑管理画布');
+      $('canvas-language').value = i18n.language;
+      fmt = new Intl.NumberFormat(i18n.language);
+      setText('toast', t(toastSource, translatedErrorParams(toastParams)));
+      setText('btn-stream-toggle-inner', t($('stream-drawer').classList.contains('expanded') ? '▼ 收起' : '▲ 展开'));
+      setText('status-text', state.statusError ? lastGoodAt ? t('状态过期 · {time}', { time: time(lastGoodAt) }) : t('无法读取状态') : lastGoodAt ? t('已同步 · {time}', { time: time(lastGoodAt) }) : t('读取中…'));
+      if (!state.data) {
+        setText('hud-hub-name', t('等待连接…'));
+        setText('ins-title', t('桥详情'));
+        setText('ins-help-text', t('暂停会持久保存状态并断开全部实例，阻止重连；断开只关闭当前连接 ID。'));
+        setText('annotation-dirty', t('仅保存管理注记'));
+        setText('ins-prog-bridge-count', t('{count} 座', { count: 0 }));
+        setText('stream-count', t('采样读取中…'));
+      }
+      if (!state.events.length && !(state.view === 'retained' && asArray(state.data?.log?.records).length)) setText('stream-ticker', t('等待通讯事件…'));
+      if (state.messageView) {
+        setText('msg-dialog-title', t('原始通讯帧 · #{seq}', { seq: state.messageView.seq }));
+        if (state.messageView.phase === 'loading') setText('msg-content', t('正在读取…'));
+        if (state.messageView.phase === 'error') setText('msg-content', t('无法读取原文：{error}', { error: t(state.messageView.error) }));
+      } else {
+        setText('msg-dialog-title', t('原始通讯帧'));
+      }
+      updateProgramNodeContents();
+      state.streamSignature = ''; state.bridgeSelectSignature = '';
+      render();
+      if (!$('hud-search-dropdown').classList.contains('hidden')) updateSearchDropdown();
+      updateHudBoundary();
+    }
+    $('canvas-language').addEventListener('change', event => i18n.setLanguage(event.target.value));
+    i18n.onChange(renderCanvasLanguage);
+    renderCanvasLanguage();
 
     // Initialize Viewport Position & Fetch
     fitAll();

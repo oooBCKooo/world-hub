@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deriveView, describeResult, experimentProgress, injectionEvidence } from '../../../examples/purpose-demos/explorer.js';
+import { deriveView, describeResult, experimentProgress, injectionEvidence, displayDemoOutput } from '../../../examples/purpose-demos/explorer.js';
 
 test('ordered experiments require a later repeated action and never treat a business refusal as a completed step', () => {
   const experiment = { steps: [{ action: 'summary' }, { action: 'enable' }, { action: 'summary' }] };
@@ -66,4 +66,36 @@ test('new world state overrides a previous run while its historical timeline rem
   assert.equal(view.run, run);
   assert.equal(view.run.body.initialState, undefined, 'the UI never invents an unreported pre-run state');
   assert.match(describeResult({ response: { body: { ok: false, error: 'business refusal' } } }), /业务拒绝/);
+});
+
+test('English summaries retain actual source and round counts without changing application data', () => {
+  const result = { label: '运行分布上下文', body: { prompt: '用户原创中文输入', materialProviders: ['material', 'extension'] },
+    response: { seq: 42, from: 'opaque:composer:1', fromPrincipal: 'demo.modular-assistant.composer',
+      body: { kind: 'demo.distributed-assistant-result', sources: [{ provider: 'system' }, { provider: 'dialogue' }, { provider: 'material' }, { provider: 'extension' }],
+        context: { systemPrompt: '系统原文', messages: [{ role: 'user', content: '<script>用户原文</script>' }], materials: [{ text: '参考材料原文' }] },
+        answer: '执行器业务原文', harnessProvider: 'checklist' } } };
+  const before = JSON.stringify(result);
+  assert.match(describeResult(result, { language: 'en' }), /context from 4 sources/);
+  assert.match(describeResult(result), /4 个来源/);
+  assert.match(describeResult({ response: { body: { kind: 'demo.world-run', rounds: 3, receipts: [{}, {}, {}, {}, {}, {}, {}, {}, {}, {}] } } }, { language: 'en' }), /3 actual rounds and 10 program call receipts/);
+  assert.equal(JSON.stringify(result), before, 'translating summaries must not change context, input, raw response, identities, or business output');
+});
+
+test('English injection and denial copy preserves acceptance and business execution boundaries', () => {
+  assert.match(describeResult({ operation: 'inject', receipt: { seq: 9 } }, { language: 'en' }), /accepted the injection.*still needs to be observed/);
+  const refusal = { response: { body: { ok: false, error: 'rounds 必须是 1–12 的整数' } } };
+  assert.match(describeResult(refusal, { language: 'en' }), /declined the business request: rounds must be an integer from 1 to 12/);
+  assert.equal(refusal.response.body.error, 'rounds 必须是 1–12 的整数');
+  const unknown = '<img src=x onerror=alert(1)>提供者自己的错误';
+  assert.match(describeResult({ response: { body: { ok: false, error: unknown } } }, { language: 'en' }), /declined the business request:/);
+  assert.ok(describeResult({ response: { body: { ok: false, error: unknown } } }, { language: 'en' }).endsWith(unknown));
+});
+
+test('world presentation translates known demo phrases and preserves unknown program output', () => {
+  assert.equal(displayDemoOutput('晴朗', 'en'), 'Clear');
+  assert.equal(displayDemoOutput('交换 2 份补给恢复体力', 'en'), 'Trade 2 supply items to recover energy');
+  assert.equal(displayDemoOutput('NPC 提供两份补给', 'en'), 'The NPC offers two supply items');
+  assert.equal(displayDemoOutput('交换 2 份补给恢复体力'), '交换 2 份补给恢复体力');
+  const externalText = '自定义世界叙述 {position} <em>原文</em>';
+  assert.equal(displayDemoOutput(externalText, 'en'), externalText, 'a language preference cannot reinterpret arbitrary program text');
 });

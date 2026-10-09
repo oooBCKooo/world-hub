@@ -9,7 +9,9 @@ import { getProfile, principalFor, bridgeFor } from './profiles.mjs';
 
 const assets = fileURLToPath(new URL('./', import.meta.url));
 const MIME = { '/': ['explorer.html', 'text/html; charset=utf-8'],
-  '/explorer.css': ['explorer.css', 'text/css; charset=utf-8'], '/explorer.js': ['explorer.js', 'text/javascript; charset=utf-8'] };
+  '/explorer.css': ['explorer.css', 'text/css; charset=utf-8'], '/explorer.js': ['explorer.js', 'text/javascript; charset=utf-8'],
+  '/explorer-i18n.mjs': ['explorer-i18n.mjs', 'text/javascript; charset=utf-8'],
+  '/src/ui/language.mjs': ['../../src/ui/language.mjs', 'text/javascript; charset=utf-8'] };
 const fault = (status, message) => Object.assign(new Error(message), { status });
 const safeEqual = (a, b) => typeof a === 'string' && typeof b === 'string' &&
   Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));

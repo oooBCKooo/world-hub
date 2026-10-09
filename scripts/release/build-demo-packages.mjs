@@ -16,7 +16,7 @@ export const DEMO_PROFILE_IDS = Object.freeze(['event-desk', 'modular-assistant'
 export const DEMO_FILES = Object.freeze([
   ...['profiles.mjs', 'peer.mjs', 'common.mjs', 'event-desk.mjs', 'modular-assistant.mjs',
     'digital-world.mjs', 'traffic-source.mjs', 'extension-material.mjs', 'checklist-harness.mjs',
-    'run-demo.mjs', 'explorer.mjs', 'explorer.html', 'explorer.css', 'explorer.js']
+    'run-demo.mjs', 'explorer.mjs', 'explorer.html', 'explorer.css', 'explorer.js', 'explorer-i18n.mjs']
     .map(name => `examples/purpose-demos/${name}`),
 ]);
 const lifecycleFiles = ['tests/helpers/owned-program.mjs', 'examples/distributed-context/hub-process.mjs'];

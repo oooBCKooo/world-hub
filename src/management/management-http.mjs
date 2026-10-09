@@ -80,10 +80,13 @@ export async function createManagementHttp(hub, config) {
     return value;
   }
   return { state, snapshot, async handle(req, res, url) {
-    if (!(url.pathname === '/manage' || url.pathname.startsWith('/manage/'))) return false;
+    if (!(url.pathname === '/manage' || url.pathname.startsWith('/manage/') || url.pathname === '/ui/language.mjs')) return false;
     try {
       access(req);
       const asset = {
+        '/ui/language.mjs': ['../ui/language.mjs', 'text/javascript; charset=utf-8'],
+        '/manage/canvas-i18n.mjs': ['./canvas-i18n.mjs', 'text/javascript; charset=utf-8'],
+        '/manage/manual-i18n.mjs': ['./manual-i18n.mjs', 'text/javascript; charset=utf-8'],
         '/manage/manual-bridge.mjs': ['./manual-bridge.mjs', 'text/javascript; charset=utf-8'],
         '/manage/manual-console.mjs': ['./manual-console.mjs', 'text/javascript; charset=utf-8'],
         '/manage/manual-experience-state.mjs': ['./manual-experience-state.mjs', 'text/javascript; charset=utf-8'],

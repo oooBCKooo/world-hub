@@ -91,6 +91,8 @@ You can also build standalone source bundles or Windows portable bundles. See th
 
 Run `world-hub --open` to open the communications management interface. Purpose demos have their own external interfaces, with a link to Hub management for the current session.
 
+The management canvas, communication workbench, and all three purpose demos offer Simplified Chinese / English switching and remember your choice in the browser. Switching changes interface wording and display formats; user-provided names, annotations, topics, application content, and original communication records retain their original text.
+
 ![Hub management canvas: programs, bidirectional mod bridges, the Hub, and actual information flow](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-topology.jpg)
 
 The management canvas displays programs, bridges, the Hub, and information flow. It supports enabling and disabling connections and editing association annotations. Program annotations do not represent the actual execution state of external programs.
@@ -160,7 +162,7 @@ scripts/              Launch, validation, build, and distribution tools
 .github/workflows/    Windows continuous integration
 ```
 
-See [repository structure](docs/repository.md) for component responsibilities, SDK usage, and distribution contents. The detailed guides and demo interfaces are currently primarily in Chinese.
+See [repository structure](docs/repository.md) for component responsibilities, SDK usage, and distribution contents. The detailed guides are currently primarily in Chinese.
 
 Supported environments, test scope, and known limits are described in [verification notes](docs/verification.md). For deployment, message appends do not guarantee durability through power loss, and the local management interface is intended for a single trust domain. See [deployment documentation](docs/deployment.md) for configuration and capacity details.
 

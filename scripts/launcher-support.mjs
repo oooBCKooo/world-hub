@@ -15,7 +15,8 @@ export const REQUIRED_FILES = [
   ...['acl', 'address', 'blob-protocol', 'blob-store', 'hub', 'identity', 'router', 'store', 'topic', 'wire-json']
     .map(name => `src/hub/lib/${name}.mjs`),
   'src/debug/page.mjs',
-  ...['management-http.mjs', 'management-state.mjs', 'console.html', 'manual-bridge.mjs', 'manual-console.mjs', 'manual-experience-state.mjs', 'manual-console.css']
+  'src/ui/language.mjs',
+  ...['management-http.mjs', 'management-state.mjs', 'console.html', 'canvas-i18n.mjs', 'manual-bridge.mjs', 'manual-console.mjs', 'manual-i18n.mjs', 'manual-experience-state.mjs', 'manual-console.css']
     .map(name => `src/management/${name}`),
 ];
 

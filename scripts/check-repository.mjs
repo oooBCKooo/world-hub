@@ -11,6 +11,7 @@ const directories = ['bin', 'src', 'sdk', 'config', 'examples', 'tests', 'script
 const rootFiles = ['README.md', 'README.en.md', 'LICENSE', 'package.json', '.gitignore', '.gitattributes'];
 const required = [...rootFiles, 'config/hub.json', 'src/hub/hub-server.mjs', 'src/hub/ws-server.mjs',
   'src/management/console.html', 'sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-client.mjs',
+  'src/ui/language.mjs', 'src/management/canvas-i18n.mjs', 'src/management/manual-i18n.mjs',
   'sdk/python/hub_bridge.py', 'sdk/python/requirements.txt', 'sdk/powershell/HubBridge.psm1',
   'sdk/powershell/HubBridge.cs', 'docs/specs/index.md', 'docs/onboarding.md',
   'bin/world-hub.mjs', 'scripts/launcher.mjs', 'scripts/verify.mjs', 'scripts/release/build-package.mjs', '.github/workflows/ci.yml'];

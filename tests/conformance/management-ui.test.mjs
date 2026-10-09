@@ -3,6 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
+import { createI18n } from '../../src/ui/language.mjs';
+import english from '../../src/management/canvas-i18n.mjs';
 
 const html = readFileSync(new URL('../../src/management/console.html', import.meta.url), 'utf8');
 function sourceFunction(name, endMarker) {
@@ -44,6 +46,7 @@ class NodeModel {
 }
 
 function harness() {
+  const i18n = createI18n(english);
   const doc = { hidden: false, body: null, activeElement: null };
   doc.body = new NodeModel('body', doc); doc.activeElement = doc.body;
   doc.createElement = tag => new NodeModel(tag, doc); doc.createElementNS = (_ns, tag) => new NodeModel(tag, doc);
@@ -57,30 +60,89 @@ function harness() {
   for (const id of ['bridge-name-input', 'program-names-input', 'annotation-dirty', 'annotation-save']) add(id, 'input', form);
   for (const id of ['ins-prog-bridge-count', 'ins-prog-bridges-list', 'btn-prog-fly']) add(id, 'div', programContent);
   for (const id of ['hud-search-input', 'stream-search', 'stream-bridge-filter', 'stream-count', 'stream-ticker', 'stream-empty', 'btn-refresh', 'status-dot', 'status-text']) add(id, 'input');
+  for (const id of ['canvas-language', 'toast', 'btn-stream-toggle-inner', 'hud-hub-name', 'msg-dialog-title', 'msg-content', 'hud-search-dropdown']) add(id);
+  dom.get('hud-search-dropdown').classList.add('hidden');
   add('stream-drawer').classList.add('expanded'); add('stream-table-body', 'tbody');
   for (const id of ['ret-protected-count', 'ret-last-seq', 'ret-capacity-spec', 'ret-usage-text', 'ret-oldest-seq',
     'ret-segment-room', 'ret-blockers', 'ret-blob-usage', 'ret-blob-room', 'ret-gap-failures', 'ret-warning-text']) add(id);
   const raf = [], timers = [], animations = [], readRequests = [];
   const state = { data: { hub: { hubId: 'probe-hub', startedAt: 'one', subscriptions: [] }, bridges: [], events: [], log: { records: [] } }, selected: null, selectedProgram: null, hoveredBridge: null, hoveredProgram: null, fresh: true, busy: new Set(), dirty: false, drafts: new Map(), view: 'activity', epoch: 'probe-hub|one', first: false, eventIds: new Set(), maxEventId: 0, events: [], streamSignature: '', programPositions: new Map(), nodePositions: new Map(), viewport: { x: 500, y: 400, scale: 1 }, flowAnimation: true };
-  const context = vm.createContext({ state, document: doc, NS: 'http://www.w3.org/2000/svg', MAX_EVENTS: 600, MAX_ROWS: 150, MAX_PULSES: 8,
+  const context = vm.createContext({ state, i18n, t: i18n.t, Intl, fmt: new Intl.NumberFormat('zh-CN'), document: doc, NS: 'http://www.w3.org/2000/svg', MAX_EVENTS: 600, MAX_ROWS: 150, MAX_PULSES: 8,
     str: value => value == null ? '' : String(value), asArray: value => Array.isArray(value) ? value : [],
     formatCount: value => Number.isFinite(value) ? String(value) : '—', bytes: value => String(value), time: value => String(value),
     $: id => dom.get(id) ?? null, setText: (id, value) => { const node = dom.get(id); if (node) node.textContent = value; },
     polling: false, refreshAgain: false, pollTimer: null, pollCompletion: Promise.resolve(), lastGoodAt: null,
     inspectorOpener: null, inspectorProgramKey: null, programBridgeCards: new Map(), streamRows: new Map(),
+    toastSource: '管理桥的接入与通讯；外部业务由程序自行负责。', toastParams: {}, updateHudBoundary: () => {},
     render: () => {}, renderRetentionData: () => {}, fitAll: () => {}, toast: () => {}, updateViewportCulling: () => {}, updateTransform: () => {},
     window: { innerWidth: 1000, innerHeight: 800 }, performance: { now: () => 0 }, viewportG: { style: {} },
     requestAnimationFrame: callback => { raf.push(callback); return raf.length; }, setTimeout: callback => { timers.push(callback); return timers.length; }, clearTimeout: () => {},
     request: async path => { readRequests.push(path); return state.data; }, animateEvents: events => animations.push(events.map(event => ({ ...event }))), viewMessage: seq => readRequests.push(seq),
   });
-  const names = ['el', 'svgEl', 'shorten', 'bridges', 'selectedBridge', 'selectedProgram', 'label', 'status', 'stateClass', 'endpointBridge', 'endpointName',
+  const names = ['el', 'svgEl', 'shorten', 'bridges', 'selectedBridge', 'selectedProgram', 'label', 'status', 'stateClass', 'endpointBridge', 'endpointName', 'programName', 'translatedErrorParams', 'updateProgramNodeContents', 'applyCanvasLabels',
     'safeId', 'programKey', 'computeGraphLayout', 'applyHighlightTopology', 'highlightProgram', 'captureDraft', 'openInspector', 'closeInspector', 'selectBridge', 'selectProgram', 'renderInspector',
     'updateBridgeNodeContents', 'eventType', 'eventRoute', 'concernsBridge', 'streamRowKey', 'createStreamRow', 'updateStreamRow', 'renderStream', 'renderRetentionData', 'refresh', 'collectEvents', 'saveAnnotation'];
   vm.runInContext(names.map(name => sourceFunction(name)).join('\n'), context);
+  vm.runInContext(sourceFunction('renderCanvasLanguage', "    $('canvas-language').addEventListener"), context);
   vm.runInContext(sourceFunction('flyToNode', '// Top HUD Search'), context);
   function bridge(key, programs = []) { return { key, label: key, manageable: true, paused: false, kind: 'bridge', programs, instances: [], allow: { publish: [], subscribe: [] } }; }
-  return { context, state, doc, dom, add, bridge, animations, raf, readRequests };
+  return { context, state, doc, dom, add, bridge, animations, raf, readRequests, i18n };
 }
+
+test('language: English dynamic topology and history switch back without changing data, draft, selected node or raw text', () => {
+  const h = harness(), bridge = h.bridge('身份中文', [{ id: '用户程序', name: '中文原名' }]);
+  bridge.label = '桥中文原名'; bridge.instances = [{ bridgeId: '身份中文:1', channels: [{ name: '任意/主题', publish: true, subscribe: true }] }];
+  h.state.data.bridges = [bridge]; h.state.data.log = { oldestSeq: 1, protectedCount: 1, oldestProtectedOwners: [{ principal: '身份中文', count: 1, firstSeq: 1, lastSeq: 1 }] };
+  h.state.events = [{ eventId: 1, kind: 'message', seq: 1, from: '身份中文:1', topic: '任意/主题', message: '用户的原始说明' }];
+  h.context.computeGraphLayout();
+  const graphNode = h.add('node-身份中文', 'g');
+  for (const name of ['bridge-dot', 'bridge-name', 'bridge-channel-text', 'bridge-status-text']) { const node = new NodeModel('text', h.doc); node.className = name; graphNode.append(node); }
+  h.state.nodePositions.get(bridge.key).el = graphNode;
+  const program = h.state.programPositions.get(h.context.programKey('用户程序'));
+  const programNode = h.add('pnode-' + h.context.safeId(program.key), 'g'); program.el = programNode;
+  for (const name of ['program-name', 'program-sub']) { const node = new NodeModel('text', h.doc); node.className = name; programNode.append(node); }
+  h.context.selectBridge(bridge.key, graphNode);
+  h.dom.get('bridge-name-input').value = '未保存的自定义名称'; h.dom.get('program-names-input').value = '用户程序 | 未保存的用户名称'; h.state.dirty = true; h.context.captureDraft();
+  h.dom.get('stream-bridge-filter').value = bridge.key;
+  const raw = '{"body":"原始中文\\n", "large":9007199254740993}';
+  h.dom.get('msg-content').textContent = raw; h.state.messageView = { seq: 1, phase: 'ready' };
+  h.context.render = () => { h.context.updateBridgeNodeContents(); h.context.renderInspector(); h.context.renderStream(); h.context.renderRetentionData(); };
+  h.i18n.onChange(h.context.renderCanvasLanguage);
+  const savedData = JSON.stringify(h.state.data), savedEvents = JSON.stringify(h.state.events), viewport = { ...h.state.viewport }, beforeRequests = h.readRequests.length;
+  const row = h.context.streamRows.get(h.context.streamRowKey(h.state.events[0]));
+  const seqButton = row.seqButton;
+
+  h.i18n.setLanguage('en');
+  assert.equal(h.dom.get('ins-toggle').textContent, 'Pause connections');
+  assert.equal(h.context.status(bridge), 'Connected');
+  assert.equal(graphNode.querySelector('.bridge-status-text').textContent, 'Connected · 1 instances');
+  assert.equal(programNode.querySelector('.program-sub').textContent, 'Unobservable · User annotation');
+  assert.equal(programNode.querySelector('.program-name').textContent, '中文原名');
+  assert.match(programNode.getAttribute('aria-label'), /中文原名, an external program annotation/);
+  assert.match(row.routeText.textContent, /桥中文原名 → Hub/);
+  assert.match(h.dom.get('ins-channels').textContent, /任意\/主题Bidirectional communication.*身份中文:1/);
+  assert.match(h.dom.get('ret-blockers').textContent, /身份中文 · 1 records · #1–#1/);
+  assert.equal(h.dom.get('msg-dialog-title').textContent, 'Original communication frame · #1');
+  assert.equal(h.dom.get('msg-content').textContent, raw);
+  assert.equal(h.dom.get('bridge-name-input').value, '未保存的自定义名称');
+  assert.equal(h.dom.get('program-names-input').value, '用户程序 | 未保存的用户名称');
+  assert.equal(h.dom.get('stream-bridge-filter').value, bridge.key);
+  assert.equal(h.state.selected, bridge.key); assert.equal(h.state.dirty, true);
+  assert.equal(h.context.streamRows.get(h.context.streamRowKey(h.state.events[0])).seqButton, seqButton);
+  assert.equal(h.state.nodePositions.get(bridge.key).el, graphNode);
+  assert.equal(h.readRequests.length, beforeRequests);
+  assert.equal(JSON.stringify(h.state.data), savedData); assert.equal(JSON.stringify(h.state.events), savedEvents);
+  assert.deepEqual({ ...h.state.viewport }, viewport);
+
+  h.i18n.setLanguage('zh-CN');
+  assert.equal(h.dom.get('ins-toggle').textContent, '暂停接入');
+  assert.match(row.routeText.textContent, /桥中文原名 → 枢纽/);
+  assert.match(h.dom.get('ret-blockers').textContent, /身份中文 · 1 条 · #1–#1/);
+  assert.equal(h.dom.get('msg-content').textContent, raw);
+  assert.equal(h.dom.get('bridge-name-input').value, '未保存的自定义名称');
+  assert.equal(JSON.stringify(h.state.data), savedData); assert.equal(JSON.stringify(h.state.events), savedEvents);
+  assert.equal(h.readRequests.length, beforeRequests);
+});
 
 test('P6: retention view exposes capacity blockers and exact blob bytes without executing provider text', () => {
   const h = harness();

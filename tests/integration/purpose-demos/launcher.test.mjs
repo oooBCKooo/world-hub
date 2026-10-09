@@ -54,7 +54,11 @@ test('explorer serves actual assets, rejects invalid operations, and exports pro
   assert.equal(response.status, 200); assert.match(page, /id="programs"/);
   assert.match(page, /id="dashboard"/); assert.match(page, /运行这个操作/);
   assert.match(response.headers.get('content-security-policy'), /frame-ancestors 'none'/);
-  for (const asset of ['explorer.css', 'explorer.js']) assert.equal((await fetch(new URL(asset, base))).status, 200);
+  for (const asset of ['explorer.css', 'explorer.js', 'explorer-i18n.mjs', '/src/ui/language.mjs']) {
+    const resource = await fetch(new URL(asset, base));
+    assert.equal(resource.status, 200, asset);
+    if (asset.endsWith('.mjs') || asset.endsWith('.js')) assert.match(resource.headers.get('content-type'), /javascript/);
+  }
   const state = await (await fetch(new URL('api/state', base))).json();
   assert.equal(state.explorer.connected, true); assert.equal(state.hubStatus.bridges.length, 6);
   const action = state.profile.actions.find(value => value.id === 'sensor-reading');

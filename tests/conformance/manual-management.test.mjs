@@ -11,6 +11,9 @@ import { createManagementHttp } from '../../src/management/management-http.mjs';
 import { Harness, until } from '../helpers/hub-harness.mjs';
 
 const ASSETS = [
+  ['/ui/language.mjs', /^(?:text|application)\/javascript(?:;|$)/],
+  ['/manage/canvas-i18n.mjs', /^(?:text|application)\/javascript(?:;|$)/],
+  ['/manage/manual-i18n.mjs', /^(?:text|application)\/javascript(?:;|$)/],
   ['/manage/manual-bridge.mjs', /^(?:text|application)\/javascript(?:;|$)/],
   ['/manage/manual-console.mjs', /^(?:text|application)\/javascript(?:;|$)/],
   ['/manage/manual-experience-state.mjs', /^(?:text|application)\/javascript(?:;|$)/],

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createContext, runInContext } from 'node:vm';
 import { AnnotationDrafts, LatestRead, boundedJson, matchesLog, reconcileRows } from '../../src/management/manual-experience-state.mjs';
+import { createI18n } from '../../src/ui/language.mjs';
+import { manualEnglish } from '../../src/management/manual-i18n.mjs';
 
 const source = readFileSync(new URL('../../src/management/manual-console.mjs', import.meta.url), 'utf8');
 const draftValue = name => ({ bridgeName: name, programs: [{ id: 'custom:program', name: '程序' }] });
@@ -13,6 +15,12 @@ function functionSource(name, next) {
   const end = source.indexOf(next, start);
   assert.ok(end > start);
   return source.slice(start, end);
+}
+function withPresentation(context, i18n = createI18n(manualEnglish)) {
+  context.i18n = i18n;
+  runInContext(source.slice(source.indexOf('const t ='), source.indexOf('// This page is one ordinary external mod.')), context);
+  runInContext(functionSource('uiError', 'const safeError ='), context);
+  return context;
 }
 
 test('per-subject drafts survive switching and saved version cannot remove newer edits', () => {
@@ -74,8 +82,8 @@ test('finite HTTP wait includes stalled JSON body reading and surfaces server re
 test('actual management mutation disables stale operations and never retries unknown result', async () => {
   const pending = deferred(); let calls = 0, stale = 0;
   const node = { textContent: '' };
-  const context = createContext({ managementMutation: false, managementFresh: true, managementState: { csrfToken: 'local-only-token' }, managementReads: new LatestRead(),
-    boundedJson: () => { calls++; return pending.promise; }, fetch: () => {}, $: () => node, updateControls() {}, staleManagement() { stale++; }, addLog() {}, format: JSON.stringify });
+  const context = withPresentation(createContext({ managementMutation: false, managementFresh: true, managementState: { csrfToken: 'local-only-token' }, managementReads: new LatestRead(),
+    boundedJson: () => { calls++; return pending.promise; }, fetch: () => {}, $: () => node, updateControls() {}, staleManagement() { stale++; }, addLog() {}, format: JSON.stringify }));
   runInContext('async ' + functionSource('managementPost', "$('managed-key').onchange"), context);
   const first = context.managementPost('/manage/api/annotation', { key: 'a' });
   assert.equal(context.managementFresh, false); assert.equal(context.managementMutation, true);
@@ -138,8 +146,11 @@ class NodeModel {
   insertBefore(node, next) { if (node.parentElement) node.remove(); const index = next ? this.children.indexOf(next) : this.children.length; assert.ok(index >= 0); this.children.splice(index, 0, node); node.parentElement = this; }
   append(...nodes) { for (const node of nodes) this.insertBefore(node, null); }
   replaceChildren(...nodes) { for (const child of [...this.children]) child.remove(); this.append(...nodes); }
-  querySelectorAll(selector) { return this.children.flatMap(child => [...(child.tagName.toLowerCase() === selector ? [child] : []), ...child.querySelectorAll(selector)]); }
+  matches(selector) { return selector.split(',').some(part => { const attribute = part.match(/^\[([^\]]+)\]$/); return attribute ? this.getAttribute(attribute[1]) !== null : this.tagName.toLowerCase() === part; }); }
+  querySelectorAll(selector) { return this.children.flatMap(child => [...(child.matches(selector) ? [child] : []), ...child.querySelectorAll(selector)]); }
   setAttribute(name, value) { this[name] = String(value); }
+  getAttribute(name) { return Object.hasOwn(this, name) ? String(this[name]) : null; }
+  removeAttribute(name) { delete this[name]; }
   addEventListener(name, callback) { this.listeners.set(name, callback); }
   remove() { if (this.parentElement) { const parent = this.parentElement; if (this.contains(this.ownerDocument.activeElement)) this.ownerDocument.activeElement = null; parent.children.splice(parent.children.indexOf(this), 1); this.parentElement = null; } }
   focus() { this.ownerDocument.activeElement = this; }
@@ -173,9 +184,9 @@ test('actual managed-instance render keeps expanded diagnosis while updated curs
   const document = { activeElement: null }; document.createElement = () => new NodeModel(document);
   const nodes = new Map(); const $ = id => { if (!nodes.has(id)) nodes.set(id, new NodeModel(document)); return nodes.get(id); };
   const entry = { key: 'a', kind: 'bridge', manageable: true, paused: false, instances: [{ connectionId: 'connection-one', bridgeId: 'a', session: 'session-one', authenticated: true }] };
-  const context = createContext({ $, document, managedEntry: () => entry, managedRowsKey: null, managedRows: new Map(), managedEmpty: document.createElement(), managementFresh: true,
+  const context = withPresentation(createContext({ $, document, managedEntry: () => entry, managedRowsKey: null, managedRows: new Map(), managedEmpty: document.createElement(), managementFresh: true,
     annotationKey: 'a', showAnnotation() {}, reconcileRows, perform() {}, managementPost() {}, refreshManagement() {}, notice() {},
-    managementState: { hub: { subscriptions: [{ id: 'sub', bridgeId: 'a', cursor: 1 }] } }, format: JSON.stringify });
+    managementState: { hub: { subscriptions: [{ id: 'sub', bridgeId: 'a', cursor: 1 }] } }, format: JSON.stringify }));
   runInContext(functionSource('renderManagedEntry', 'function applyManagementState'), context);
   context.renderManagedEntry(); const first = context.managedRows.get('connection-one'), details = first.children[2];
   details.open = true; first.mcParts.disconnect.focus();
@@ -195,7 +206,7 @@ function annotationDomHarness() {
   const state = { csrfToken: 'test-only', bridges: ['a', 'b'].map(key => ({ key, kind: 'bridge', manageable: true, paused: false,
     label: key.toUpperCase(), annotation: { bridgeName: key.toUpperCase() }, programs: [{ id: `program.${key}`, name: `Program ${key}` }], instances: [] })), hub: { subscriptions: [] } };
   const post = deferred(), messages = [], failures = []; let posted, calls = 0;
-  const context = createContext({ $, document, structuredClone, AnnotationDrafts, LatestRead, boundedJson, reconcileRows, managementMutation: false,
+  const context = withPresentation(createContext({ $, document, structuredClone, AnnotationDrafts, LatestRead, boundedJson, reconcileRows, managementMutation: false,
     managementFresh: false, managementState: null, annotationKey: null, annotationBase: null, drafts: new AnnotationDrafts(), managementReads: new LatestRead(),
     managedRows: new Map(), managedRowsKey: null, managedEmpty: document.createElement('p'), busyButtons: new Set(),
     textValue: id => $(id).value.trim(), updateControls() {}, safeError: error => { failures.push(error); return error.message; },
@@ -205,7 +216,7 @@ function annotationDomHarness() {
       if (options.method === 'POST') { posted = JSON.parse(options.body); return post.promise; }
       return { ok: true, json: async () => structuredClone(state) };
     },
-  });
+  }));
   runInContext(source.slice(source.indexOf('const managedEntry ='), source.indexOf("$('open-capacity').onclick")), context);
   runInContext('async ' + functionSource('perform', 'function requireFeature'), context);
   context.applyManagementState(structuredClone(state));
@@ -252,4 +263,40 @@ test('save-to-refresh DOM chain keeps another selected subject input and its foc
   assert.equal(h.document.activeElement, otherInput); assert.equal(otherInput.selectionStart, 2); assert.equal(otherInput.selectionEnd, 4);
   assert.equal(h.context.drafts.get('b').value.programs[0].name, 'B continued input');
   assert.equal(h.context.drafts.get('a'), null);
+});
+
+test('actual workbench language switch updates English state without losing drafts, token, subscriptions or raw data', () => {
+  const h = annotationDomHarness(), dialog = new NodeModel(h.document, 'dialog');
+  h.context.dialog = dialog;
+  const token = new NodeModel(h.document, 'input'), body = new NodeModel(h.document, 'textarea'), raw = new NodeModel(h.document, 'pre');
+  token.value = 'private-token-kept-in-input'; body.value = '{"body":"用户原文","n":123456789012345678901234567890}'; raw.textContent = body.value;
+  const heading = new NodeModel(h.document, 'h2'); heading.setAttribute('data-i18n', '手动通讯工作台'); heading.textContent = '手动通讯工作台';
+  const descriptor = new NodeModel(h.document, 'pre'); descriptor.setAttribute('data-i18n', '上传成功后显示可信附件描述符。');
+  h.context.uiData(descriptor, '{"id":"provider-owned-object","name":"保留原文"}');
+  dialog.append(heading, h.$('annotation-form'), h.$('annotation-dirty'), h.$('managed-summary'), h.$('management-status'), h.$('language'), token, body, raw, descriptor);
+  const input = h.$('annotation-rows').querySelectorAll('input').find(node => node.dataset.field === 'name');
+  input.value = '程序用户自己的注记'; input.focus(); input.selectionStart = 2; input.selectionEnd = 5; h.context.captureAnnotation();
+  const subscriptions = new Map([['sub-kept', { cursor: 7, filters: ['程序/自定/主题'] }]]);
+  const deliveries = [{ raw: body.value }], logItems = [{ raw: body.value }], bridge = { connected: true, session: 'existing-session', subscriptions };
+  Object.assign(h.context, { bridge, subscriptions, deliveries, logItems });
+  const baselineDraft = structuredClone(h.context.drafts.get('a')), baselineLog = JSON.stringify(logItems), beforeHttp = h.calls;
+  h.context.i18n.onChange(h.context.refreshLanguage);
+  h.context.i18n.setLanguage('en');
+  assert.equal(heading.textContent, 'Manual communication workbench');
+  assert.match(h.$('annotation-dirty').textContent, /Unsaved page drafts/);
+  assert.match(h.$('managed-summary').textContent, /Not paused.*0 online instances/);
+  assert.equal(h.$('language').value, 'en'); assert.equal(dialog.lang, 'en');
+  assert.equal(h.$('annotation-rows').querySelectorAll('input').find(node => node.dataset.field === 'name'), input);
+  assert.equal(h.document.activeElement, input); assert.equal(input.value, '程序用户自己的注记');
+  assert.equal(input.selectionStart, 2); assert.equal(input.selectionEnd, 5);
+  assert.equal(token.value, 'private-token-kept-in-input'); assert.equal(raw.textContent, body.value);
+  assert.equal(descriptor.textContent, '{"id":"provider-owned-object","name":"保留原文"}');
+  assert.deepEqual(h.context.drafts.get('a'), baselineDraft); assert.equal(h.context.bridge, bridge); assert.equal(bridge.connected, true);
+  assert.equal(h.context.subscriptions, subscriptions); assert.equal(subscriptions.get('sub-kept').cursor, 7);
+  assert.equal(JSON.stringify(logItems), baselineLog); assert.equal(h.calls, beforeHttp);
+  h.context.i18n.setLanguage('zh-CN');
+  assert.equal(heading.textContent, '手动通讯工作台'); assert.match(h.$('annotation-dirty').textContent, /未保存的本页草稿/);
+  assert.equal(h.document.activeElement, input); assert.equal(input.selectionStart, 2); assert.equal(input.value, '程序用户自己的注记');
+  assert.equal(token.value, 'private-token-kept-in-input'); assert.equal(descriptor.textContent, '{"id":"provider-owned-object","name":"保留原文"}');
+  assert.equal(JSON.stringify(logItems), baselineLog); assert.equal(h.calls, beforeHttp);
 });

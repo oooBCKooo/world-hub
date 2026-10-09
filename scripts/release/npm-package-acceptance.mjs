@@ -156,6 +156,16 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
     assert.equal(manage.status, 200); assert.match(manage.headers.get('content-type'), /text\/html/);
     assert.match(await manage.text(), /世界枢纽|world-hub/i);
     report.checks.push({ label: 'Installed default Hub serves its real management interface', passed: true, port: server.ready.port });
+    for (const [url, path] of [
+      ['/ui/language.mjs', 'src/ui/language.mjs'],
+      ['/manage/canvas-i18n.mjs', 'src/management/canvas-i18n.mjs'],
+      ['/manage/manual-i18n.mjs', 'src/management/manual-i18n.mjs'],
+    ]) {
+      const asset = await fetch(`http://127.0.0.1:${server.ready.port}${url}`, { signal: AbortSignal.timeout(5000) });
+      assert.equal(asset.status, 200); assert.match(asset.headers.get('content-type'), /text\/javascript/);
+      assert.equal(await asset.text(), await readFile(join(sourceRoot, path), 'utf8'), `Installed UI asset differs: ${path}`);
+    }
+    report.checks.push({ label: 'Installed bilingual UI serves the exact shared language module and both dictionaries', passed: true });
     const probe = join(localApp, 'sdk-probe.mjs');
     await writeFile(probe, `import assert from 'node:assert/strict';
 import { Bridge, WIRE_VERSION } from ${JSON.stringify(pkg.name)};
