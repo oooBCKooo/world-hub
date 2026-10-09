@@ -15,6 +15,7 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "README.en.md",
     "bin/world-hub.mjs",
     "src/**/*.mjs", "src/**/*.html", "src/**/*.css",
     "sdk/javascript/bridge-kit.mjs", "sdk/javascript/blob-client.mjs", "sdk/javascript/README.md",

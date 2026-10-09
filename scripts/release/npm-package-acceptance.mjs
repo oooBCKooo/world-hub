@@ -38,7 +38,7 @@ async function tree(directory, prefix = '') {
 function allowedPackageFile(path) {
   if (path.split('/').some(part => ['.local', '.artifacts', 'data', 'dist', 'node_modules', '__pycache__', '.venv', '.hub', '.state', 'generated'].includes(part))
       || /(?:\.py[co]|\.log|\.bak|\.tmp|\.tgz|\.zip|\.local\.json)$/i.test(path)) return false;
-  return ['package.json', 'README.md', 'LICENSE', 'config/hub.json', 'bin/world-hub.mjs',
+  return ['package.json', 'README.md', 'README.en.md', 'LICENSE', 'config/hub.json', 'bin/world-hub.mjs',
     'scripts/launcher.mjs', 'scripts/launcher-support.mjs',
     'sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-client.mjs', 'sdk/javascript/README.md',
     'sdk/python/hub_bridge.py', 'sdk/python/requirements.txt', 'sdk/python/README.md',
@@ -99,6 +99,7 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
       assert.deepEqual(forbidden.map(file => file.path), [], 'Unexpected or generated source in npm allowlist');
       assert.ok(report.pack.files.some(file => file.path === 'LICENSE'));
       assert.ok(report.pack.files.some(file => file.path === 'bin/world-hub.mjs'));
+      assert.ok(report.pack.files.some(file => file.path === 'README.en.md'));
       archive = join(directory, report.pack.filename);
     }
     const archiveBytes = await readFile(archive);
@@ -122,6 +123,7 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
       assert.deepEqual(installed.dependencies ?? {}, {}); assert.deepEqual(installed.optionalDependencies ?? {}, {});
     }
     for (const entries of [beforeLocal, beforeGlobal]) {
+      assert.ok(entries.some(file => file.path === 'README.en.md'), 'English README is absent from the installed package');
       assert.deepEqual(entries.filter(file => !allowedPackageFile(file.path)).map(file => file.path), [], 'Unexpected or generated installed file');
       assert.ok(entries.every(file => !file.path.split('/').some(part => ['.local', '.artifacts', 'data', 'dist', 'node_modules'].includes(part))
         && !/^(?:tests|examples)\//.test(file.path)));

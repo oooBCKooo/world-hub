@@ -1,7 +1,7 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, readdir, cp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, cp, writeFile, rm, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,6 +36,14 @@ test('source distribution is independent of local runtime caches and copies only
     assert.equal(hash(await readFile(join(bundle, path))), hash(await readFile(join(repository, path))), path);
   }
   assert.ok(manifest.files.every(item => !/(?:\.local|\.artifacts|node_modules|__pycache__|\.bak|worker\.py|ProtocolWorker\.cs|harness-program|programs\.config)/.test(item.path)));
+  assert.ok(manifest.files.some(item => item.path === 'README.en.md' && item.role === 'documentation'));
+  const chineseReadme = await readFile(join(bundle, 'README.md'), 'utf8');
+  const englishReadme = await readFile(join(bundle, 'README.en.md'), 'utf8');
+  assert.match(chineseReadme, /\[English\]\(README\.en\.md\)/);
+  for (const match of englishReadme.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
+    if (/^(?:https?:|mailto:|#)/i.test(match[1])) continue;
+    await access(resolve(bundle, match[1].replace(/#.*$/, '').replace(/:\d+$/, '')));
+  }
   const start = await readFile(join(bundle, 'start.cmd'), 'utf8');
   const verify = await readFile(join(bundle, 'verify.cmd'), 'utf8');
   const demo = await readFile(join(bundle, 'demo.cmd'), 'utf8');

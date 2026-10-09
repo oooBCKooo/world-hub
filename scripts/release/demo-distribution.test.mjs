@@ -1,7 +1,7 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, writeFile, readdir, mkdir, cp, lstat, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, readdir, mkdir, cp, lstat, rm, symlink, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname, basename, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -56,6 +56,14 @@ test('all profiles are separate source packages with exact allowlist and fixed s
     const expected = [...DEMO_SOURCE_FILES, 'package.json', 'demo-profile.json', 'README.md',
       'start.cmd', 'check.cmd', 'verify.cmd'].sort();
     assert.deepEqual(manifest.files.map(item => item.path).sort(), expected);
+    assert.ok(manifest.files.some(item => item.path === 'README.en.md' && item.role === 'documentation'));
+    const chineseReadme = await readFile(join(result.directory, 'README.md'), 'utf8');
+    const englishReadme = await readFile(join(result.directory, 'README.en.md'), 'utf8');
+    assert.match(chineseReadme, /\[English\]\(README\.en\.md\)/);
+    for (const match of englishReadme.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
+      if (/^(?:https?:|mailto:|#)/i.test(match[1])) continue;
+      await access(resolve(result.directory, match[1].replace(/#.*$/, '').replace(/:\d+$/, '')));
+    }
     assert.ok(manifest.files.every(item => !/(?:^|\/)(?:\.local|\.artifacts|data|node_modules|fixtures|conformance|integration)(?:\/|$)/.test(item.path)));
     for (const item of manifest.files.filter(item => item.role !== 'documentation')) {
       if (!DEMO_SOURCE_FILES.includes(item.path)) continue;

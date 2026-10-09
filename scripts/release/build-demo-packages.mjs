@@ -21,6 +21,7 @@ export const DEMO_FILES = Object.freeze([
 ]);
 const lifecycleFiles = ['tests/helpers/owned-program.mjs', 'examples/distributed-context/hub-process.mjs'];
 const documentationFiles = [
+  'README.en.md',
   'examples/purpose-demos/README.md', 'sdk/javascript/README.md', 'sdk/python/README.md',
   'sdk/powershell/README.md', 'docs/README.md', 'docs/onboarding.md', 'docs/development.md',
   'docs/deployment.md', 'docs/verification.md', 'docs/repository.md', 'docs/releases.md', 'docs/npm.md',
@@ -178,7 +179,7 @@ export async function buildDemoPackages({ profile = 'all', outputRoot, runtimeDi
         'verify:package': 'node scripts/release/verify-demo-package.mjs',
       } }, null, 2) + '\n', 'tooling');
     await add('demo-profile.json', JSON.stringify({ schemaVersion: 1, profile: id, version, wire: '0.1' }, null, 2) + '\n', 'configuration');
-    await add('README.md', bundleReadme(version, kind, id), 'documentation');
+    await add('README.md', bundleReadme(version, kind, id).replace('\n\n', '\n\n[English](README.en.md)\n\n'), 'documentation');
     for (const mode of ['start', 'check', 'verify']) await add(mode + '.cmd', wrapper(mode, id), 'tooling');
     for (const [name, bytes] of runtime.files) await add('runtime/' + name, bytes, 'runtime');
     // Source documentation may link to conformance tests or core-only tools.
@@ -190,7 +191,11 @@ export async function buildDemoPackages({ profile = 'all', outputRoot, runtimeDi
         if (/^(?:https?:|mailto:|#)/i.test(match[2])) continue;
         const clean = match[2].replace(/#.*$/, '').replace(/:\d+$/, '');
         try { await access(resolve(dirname(target), clean)); }
-        catch { content = content.replace(match[0], `${match[1]}（源码仓库文件，未随演示包）`); }
+        catch {
+          content = content.replace(match[0], item.path === 'README.en.md'
+            ? `${match[1]} (source repository file; not included in this demo bundle)`
+            : `${match[1]}（源码仓库文件，未随演示包）`);
+        }
       }
       await writeFile(target, content);
       item.size = Buffer.byteLength(content); item.sha256 = hash(content);

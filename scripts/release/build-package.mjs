@@ -69,7 +69,8 @@ export async function buildPackage({ output, runtimeDirectory = null, sourceRoot
   await copy('config/hub.json', 'configuration');
   await copy('LICENSE', 'license');
   await add('package.json', JSON.stringify({ name: 'world-hub-bundle', version, private: true, type: 'module', license: 'MIT', engines: { node: '>=22.4.0' }, scripts: { start: 'node scripts/launcher.mjs', check: 'node scripts/launcher.mjs --check', 'verify:package': 'node scripts/release/verify-package.mjs' } }, null, 2) + '\n', 'tooling');
-  await add('README.md', portableReadme(version, kind), 'documentation');
+  await add('README.md', portableReadme(version, kind).replace('\n\n', '\n\n[English](README.en.md)\n\n'), 'documentation');
+  await copy('README.en.md', 'documentation');
   await add('start.cmd', wrapper('start'), 'tooling');
   await add('check.cmd', wrapper('check'), 'tooling');
   await add('verify.cmd', wrapper('verify'), 'tooling');
@@ -91,7 +92,11 @@ export async function buildPackage({ output, runtimeDirectory = null, sourceRoot
       const href = match[2]; if (/^(?:https?:|mailto:|#)/i.test(href)) continue;
       const clean = href.replace(/#.*$/, '').replace(/:\d+$/, '');
       try { await access(resolve(dirname(full), clean)); }
-      catch { text = text.replace(match[0], `${match[1]}（源码仓库文件，未随分发包）`); }
+      catch {
+        text = text.replace(match[0], item.path === 'README.en.md'
+          ? `${match[1]} (source repository file; not included in this bundle)`
+          : `${match[1]}（源码仓库文件，未随分发包）`);
+      }
     }
     await writeFile(full, text); item.size = Buffer.byteLength(text); item.sha256 = hash(text);
   }
