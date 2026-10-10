@@ -107,7 +107,7 @@ export function createAdvancedUi(ctx) {
   function openRestore() {
     let inspected = null;
     const review = el('div'), title = el('h2', {}, say('恢复到新实例', 'Restore to a new instance'));
-    const restoreForm = form([field('backup', say('私有备份文件', 'Private backup file')), field('instanceId', t('instanceId'), '', { pattern: '[a-z0-9][a-z0-9._-]{0,63}' }), review], say('检查备份', 'Inspect backup'), async f => {
+    const restoreForm = form([field('backup', say('私有备份文件', 'Private backup file')), field('instanceId', t('instanceId'), '', { pattern: '[a-z0-9][a-z0-9._\\-]{0,63}' }), review], say('检查备份', 'Inspect backup'), async f => {
       const backup = value(f, 'backup'), instanceId = value(f, 'instanceId');
       if (!inspected || inspected.path !== backup) {
         const data = await api('/api/backups/inspect', { backup }); const inspection = data.inspection ?? data;
