@@ -169,7 +169,8 @@ export class SourceRegistry {
   async recordFetch(chosen, result) {
     await this.assertCurrent(chosen);
     const directory = await ordinaryPath(result.directory);
-    if (!same(dirname(directory), resolve(this.cacheRoot)) || basename(directory) !== result.entry.sha256) throw fault('SOURCE_RECEIPT_INVALID', 'Fetch result is outside the exact artifact cache.');
+    const cache = await ordinaryPath(this.cacheRoot);
+    if (!same(dirname(directory), cache) || basename(directory) !== result.entry.sha256) throw fault('SOURCE_RECEIPT_INVALID', 'Fetch result is outside the exact artifact cache.');
     const bytes = await readBounded(join(this.cacheRoot, `${result.entry.sha256}.artifact.json`), 96 * 1024 * 1024);
     if (hash(bytes) !== result.entry.sha256) throw fault('SOURCE_RECEIPT_INVALID', 'Fetched artifact archive changed.');
     const checked = validateArtifactBytes(bytes);
@@ -188,7 +189,8 @@ export class SourceRegistry {
   async recognize(directory, reference) {
     const canonical = await ordinaryPath(directory); let receiptId = reference?.receiptId;
     if (!receiptId) {
-      if (!same(dirname(canonical), resolve(this.cacheRoot)) || !sha.test(basename(canonical))) return null;
+      const cache = await ordinaryPath(this.cacheRoot, { allowMissing: true });
+      if (!same(dirname(canonical), cache) || !sha.test(basename(canonical))) return null;
       try { receiptId = (await json(join(this.receiptsRoot, 'by-digest', basename(canonical) + '.json'))).receiptId; }
       catch (error) { if (error.code === 'ENOENT') return null; throw error; }
     }

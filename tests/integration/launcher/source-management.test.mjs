@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFile, unlink, access } from 'node:fs/promises';
+import { writeFile, unlink, access, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { ordinaryPath } from '../../../scripts/runtime/paths.mjs';
 import { LauncherManager } from '../../../tools/launcher/manager.mjs';
 import { publishArtifact } from '../../../scripts/runtime/sources.mjs';
 import { createLock } from '../../../scripts/runtime/package.mjs';
@@ -83,4 +86,23 @@ test('SOURCE-MANAGEMENT-04 an unregistered source review cannot authorize a chan
   const chosen = await manager.sourceRegistry.resolve({ source: published.indexPath });
   await manager.saveSource({ name: 'New registration', source: published.indexPath });
   await assert.rejects(manager.sourceRegistry.assertCurrent(chosen), { code: 'SOURCE_CHANGED' });
+});
+
+test('SOURCE-MANAGEMENT-05 provenance compares physical cache roots when Windows uses an 8.3 directory alias', { timeout: 60000 }, async t => {
+  const app = await workspace(t), pack = await fixturePackage(app); await mkdir(app.root);
+  let selectedRoot = app.root;
+  if (process.platform === 'win32') {
+    const script = join(app.directory, 'short-path.ps1');
+    await writeFile(script, 'param([string]$Directory)\n$fso=New-Object -ComObject Scripting.FileSystemObject\n$fso.GetFolder($Directory).ShortPath\n');
+    selectedRoot = (await promisify(execFile)('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-File', script, app.root], { windowsHide: true })).stdout.trim();
+  }
+  assert.equal((await ordinaryPath(selectedRoot)).toLowerCase(), (await ordinaryPath(app.root)).toLowerCase());
+  const manager = new LauncherManager({ root: selectedRoot, ...environment }); await manager.initialize(); app.cleanups.push(() => manager.close());
+  const published = await publishArtifact(pack, { destination: join(app.directory, 'published'), kind: 'pack', redistributionAcknowledged: true, ...environment });
+  const { source } = await manager.saveSource({ name: 'Alias acceptance', source: published.indexPath });
+  const reviewed = await manager.source({ sourceId: source.id });
+  const fetched = await operation(manager, manager.fetchSource({ sourceId: source.id, receiptId: reviewed.receiptId, entryId: reviewed.index.entries[0].entryId }));
+  assert.equal((await manager.sourceRegistry.recognize(fetched.directory)).artifactSha256, fetched.entry.sha256);
+  assert.equal((await manager.review(fetched.directory, environment)).sourceReceipt.artifactSha256, fetched.entry.sha256);
+  app.record('physical-cache-root', { usesShortPathAlias: selectedRoot.toLowerCase() !== (await ordinaryPath(selectedRoot)).toLowerCase(), cacheReceiptRecognized: true });
 });
