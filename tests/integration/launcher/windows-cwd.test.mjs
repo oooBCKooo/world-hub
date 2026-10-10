@@ -73,7 +73,9 @@ for line in sys.stdin:
 for (const kind of ['node', 'python']) test(`WIN-CWD-${kind} actual child preserves a Unicode working directory longer than 300 characters, relative I/O and graceful ownership`, options, async t => {
   const app = await workspace(t), directory = await deepDirectory(app, kind);
   await writeFile(join(directory, 'input 中文.txt'), text, 'utf8');
-  const handle = ownProcess(kind === 'node' ? environment.nodePath : environment.pythonPath,
+  const interpreter = await probe(kind === 'node' ? environment.nodePath : environment.pythonPath, kind);
+  assert.equal(interpreter.available, true, 'Select and resolve the actual interpreter before filtering its process environment');
+  const handle = ownProcess(interpreter.executable,
     kind === 'node' ? ['-e', nodeProgram] : ['-B', '-s', '-c', pythonProgram], { cwd: directory });
   if (handle.pid) app.trackedPids.add(handle.pid);
   app.cleanups.push(() => handle.stop(2000));
