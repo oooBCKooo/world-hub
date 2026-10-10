@@ -9,6 +9,12 @@ const messages = {
 
 messages.zh.detached = '软件已隔离';
 messages.en.detached = 'Software detached';
+Object.assign(messages.zh, { useNavigation: '使用', createNavigation: '创作', observationUnknown: '当前观察未知', currentObservation: '当前运行观察', historicalLogs: '已结束运行的历史日志', currentRunLogs: '本次运行日志', reviewExpired: '审阅已过期，请重新检查后授权。', createFromPack: '以此包创作' });
+Object.assign(messages.en, { useNavigation: 'Use', createNavigation: 'Create', observationUnknown: 'Current observation unknown', currentObservation: 'Current runtime observation', historicalLogs: 'Historical logs from a finished run', currentRunLogs: 'Logs for this run', reviewExpired: 'The review expired. Check again before authorizing.', createFromPack: 'Create from this pack' });
+Object.assign(messages.zh, { reviewValidUntil: '审阅有效期', sourceReceipt: '软件源来源收据', integrityNotIdentity: '摘要证明内容一致性；发布者身份与代码安全未验证。执行授权仍由你决定，当前没有 OS 沙箱。' });
+Object.assign(messages.en, { reviewValidUntil: 'Review expires at', sourceReceipt: 'Software source provenance receipt', integrityNotIdentity: 'Digests establish content integrity. Publisher identity and code safety are unverified. You authorize execution; no OS sandbox is provided.' });
+Object.assign(messages.zh, { healthUnknown: '健康未知', mappingUnknown: '归属观察未知' });
+Object.assign(messages.en, { healthUnknown: 'Health unknown', mappingUnknown: 'Ownership observation unknown' });
 
 export function initialLanguage() {
   try { const saved = localStorage.getItem('world-hub.launcher.language'); if (saved === 'zh' || saved === 'en') return saved; } catch {}

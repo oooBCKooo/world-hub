@@ -1,7 +1,7 @@
 {
   "format": "world-hub.pack/v1",
   "id": "demo.polyglot",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "title": "Cross-language text desk / 跨语言文本台",
   "license": "MIT",
   "topics": { "source": "sample/text/read", "stats": "sample/text/statistics" },

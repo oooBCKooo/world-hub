@@ -11,6 +11,7 @@ class Element {
   setAttribute(name, value) { this.attributes[name] = String(value); if (name === 'class') this.className = value; if (name === 'id') this.id = value; if (name === 'value') this.value = String(value); if (name.startsWith('data-')) this.dataset[name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = value; }
   append(...items) { for (let child of items) { if (child === null || child === undefined) continue; if (!(child instanceof Element)) child = new Element('#text', String(child)); child.parent = this; this.children.push(child); } if (this.tagName === 'select' && !this.value) this.value = this.children[0]?.value ?? ''; }
   replaceChildren(...items) { this.children = []; this.text = ''; this.append(...items); }
+  prepend(...items) { const old = this.children; this.children = []; this.append(...items); this.children.push(...old); }
   insertBefore(child, next) { child.parent = this; const index = this.children.indexOf(next); this.children.splice(index < 0 ? this.children.length : index, 0, child); }
   get textContent() { return this.text + this.children.map(child => child.textContent).join(''); }
   set textContent(value) { this.text = String(value); this.children = []; }
@@ -74,20 +75,47 @@ test('creator derives the displayed composition against its inspected revision a
   const [, request] = calls.find(([path]) => path.endsWith('/derive')); assert.equal(request.expectedRevision, 'revision-1'); assert.equal(request.redistributionAcknowledged, true); assert.equal(request.pack.components[0].settings.message, untrusted); assert.equal(request.destination, 'new-derived'); assert.ok(calls.every(([path]) => !path.endsWith('/start')));
 });
 
+test('replacement needs a current second preview and displays the actual candidate in the graph', async () => {
+  let revision = 'base-1'; const calls = [];
+  const pack = { id: 'sample', version: '1.0.0', components: [{ id: 'stats', module: 'old.stats' }], bindings: [] };
+  const { body, ui } = harness(async (path, request) => {
+    calls.push([path, request]);
+    if (path.endsWith('/inspect')) return { authoring: { revision, pack, modules: [{ id: 'old.stats', runtime: { kind: 'python' } }] } };
+    if (path.endsWith('/preview')) return { preview: { compatible: true, sourceRevision: revision, candidateDigest: 'candidate',
+      candidate: { directory: 'new-module', manifest: { id: 'new.stats', runtime: { kind: 'node' }, provides: [] } } } };
+    throw new Error('Unexpected mutation: ' + path);
+  });
+  ui.navigate('creator'); const root = body.querySelector('#creator-content'), inspect = root.querySelector('form');
+  inspect.elements.directory.value = 'source-pack'; await inspect.dispatch('submit');
+  await byText(root, 'Edit settings & module').dispatch('click');
+  const dialog = body.querySelectorAll('dialog').find(node => node.open), editor = dialog.querySelector('form');
+  editor.elements.moduleDirectory.value = 'new-module'; await editor.dispatch('submit');
+  assert.equal(dialog.open, true); assert.match(root.querySelector('.composition-graph').textContent, /old.stats/);
+  revision = 'base-2'; await editor.dispatch('submit'); assert.equal(dialog.open, true);
+  await editor.dispatch('submit'); assert.equal(dialog.open, false);
+  assert.match(root.querySelector('.composition-graph').textContent, /new.stats/); assert.match(root.querySelector('.composition-graph').textContent, /node/);
+  assert.equal(calls.filter(([path]) => path.endsWith('/preview')).length, 3);
+  assert.ok(calls.every(([path]) => !path.endsWith('/derive') && !path.endsWith('/start')));
+});
+
 test('software source network policy defaults closed and fetch uses the inspected policy receipt', async () => {
   for (const privateOptIn of [false, true]) {
-    const calls = [], digest = 'b'.repeat(64);
+    const calls = [], digest = 'b'.repeat(64); let registered;
     const { body, ui } = harness(async (path, request) => {
       calls.push([path, request]);
-      if (path.endsWith('/inspect')) return { digest, networkPolicy: privateOptIn ? 'trusted-private-ipv4' : 'public-ipv4', index: { entries: [{ entryId: 'module-1', kind: 'module', id: 'module', title: '<img src=x onerror=alert(1)>', version: '1.0.0', license: 'MIT', platforms: ['win32-x64'], sha256: 'c'.repeat(64) }] } };
+      if (path === '/api/sources') return { sources: registered ? [registered] : [], conflicts: [] };
+      if (path.endsWith('/save')) { registered = { ...request, id: 'source.one' }; return { source: registered }; }
+      if (path.endsWith('/inspect')) return { sourceId: 'source.one', receiptId: 'receipt.one', digest, networkPolicy: privateOptIn ? 'trusted-private-ipv4' : 'public-ipv4', index: { entries: [{ entryId: 'module-1', kind: 'module', id: 'module', title: '<img src=x onerror=alert(1)>', version: '1.0.0', license: 'MIT', platforms: ['win32-x64'], sha256: 'c'.repeat(64) }] } };
       if (path.endsWith('/fetch')) return { operationId: 'fetch-1' };
       return { operation: { state: 'succeeded', result: { kind: 'module', directory: 'verified-cache' } } };
     });
     ui.navigate('sources'); const root = body.querySelector('#sources-content'), add = root.querySelectorAll('form').find(form => form.elements.name);
     assert.equal(add.elements.allowPrivateNetwork.checked, undefined); add.elements.allowPrivateNetwork.checked = privateOptIn; add.elements.name.value = 'my-source'; add.elements.source.value = 'https://source.example/index.json'; await add.dispatch('submit');
-    assert.equal(calls[0][1].allowPrivateNetwork, privateOptIn || undefined); assert.equal(root.querySelectorAll('img').length, 0);
-    await byText(root, 'Verify and fetch to cache').dispatch('click'); assert.equal(calls.length, 1); assert.match(body.querySelector('#advanced-action-dialog').textContent, privateOptIn ? /Trusted private network/ : /Public network/);
-    await (await consent(body)).dispatch('click'); const [, request] = calls.find(([path]) => path.endsWith('/fetch')); assert.equal(request.indexDigest, digest); assert.equal(request.allowPrivateNetwork, privateOptIn || undefined); assert.ok(calls.every(([path]) => !path.endsWith('/start')));
+    assert.equal(calls.find(([path]) => path.endsWith('/save'))[1].allowPrivateNetwork, privateOptIn); assert.equal(root.querySelectorAll('img').length, 0);
+    const browse = root.querySelectorAll('form').find(form => form.elements.source?.tagName === 'select'); browse.elements.source.value = registered.source; await browse.dispatch('submit');
+    assert.deepEqual(calls.find(([path]) => path.endsWith('/inspect'))[1], { sourceId: 'source.one' });
+    await byText(root, 'Verify and fetch to cache').dispatch('click'); assert.equal(calls.some(([path]) => path.endsWith('/fetch')), false); assert.match(body.querySelector('#advanced-action-dialog').textContent, privateOptIn ? /Trusted private network/ : /Public network/);
+    await (await consent(body)).dispatch('click'); const [, request] = calls.find(([path]) => path.endsWith('/fetch')); assert.deepEqual(request, { sourceId: 'source.one', receiptId: 'receipt.one', entryId: 'module-1' }); assert.ok(calls.every(([path]) => !path.endsWith('/start')));
   }
 });
 
@@ -98,7 +126,9 @@ test('UI source modules have no markup execution sinks or private credential lin
 
 test('distribution allowlists close over every optional Launcher and Runtime module import', async () => {
   const files = new Set([...APPLICATION_FILES, ...SDK_FILES, ...ECOSYSTEM_RUNTIME_FILES, ...LAUNCHER_FILES, 'scripts/launcher.mjs', 'scripts/launcher-support.mjs', 'scripts/release/verify-package.mjs']);
-  for (const file of [...ECOSYSTEM_RUNTIME_FILES, ...LAUNCHER_FILES].filter(file => file.endsWith('.mjs'))) {
+  // Author templates materialize their SDK imports into a new module directory;
+  // generated-module and installed-package tests validate that complete tree.
+  for (const file of [...ECOSYSTEM_RUNTIME_FILES, ...LAUNCHER_FILES].filter(file => file.endsWith('.mjs') && !file.startsWith('scripts/runtime/templates/'))) {
     const source = await readFile(new URL(`../../../${file}`, import.meta.url), 'utf8');
     for (const match of source.matchAll(/(?:from\s*|import\(\s*)['"](\.[^'"]+)['"]/g)) {
       const target = posix.normalize(posix.join(dirname(file).replaceAll('\\', '/'), match[1])); assert.ok(files.has(target), `${file} imports omitted distribution file ${target}`);

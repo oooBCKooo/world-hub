@@ -7,9 +7,10 @@ const state = {
   language: initialLanguage(), view: 'packs', tab: 'status', instances: [], hubs: [],
   selected: null, session: null, auth: null, online: false, loading: false,
   reviews: new Map(), operations: new Map(), topology: null, logs: null,
-  importReview: null, trustReview: null, trustKind: 'start', environment: null,
+  importReview: null, trustReview: null, trustKind: 'start', trustInstanceId: null, environment: null,
   environmentSelection: {}, lastRefresh: null, renderStamp: '', detailStamp: '', headingStamp: '', topologyStamp: '', topologyLoading: false,
-  logSelection: 'all', importRequest: 0, trustRequest: 0, returnNotice: '',
+  logSelection: 'all', importRequest: 0, trustRequest: 0, logsRequest: 0, returnNotice: '',
+  hubsObservedAt: null, hubsUnavailable: false, topologyUnavailable: false,
 };
 const t = (key, variables) => translate(state.language, key, variables);
 const idOf = instance => instance?.instanceId ?? instance?.id;
@@ -17,7 +18,10 @@ const current = () => state.instances.find(instance => idOf(instance) === state.
 const endpoint = (id, action = '') => `/api/instances/${encodeURIComponent(id)}${action ? `/${action}` : ''}`;
 const running = instance => ['running', 'starting', 'stopping'].includes(instance?.status?.state) && !instance?.status?.stoppedAt;
 const exitUnconfirmed = instance => Boolean(instance?.status?.runId) && (!instance?.status?.stoppedAt || instance?.status?.cleanupIncomplete === true);
-const isStale = status => status?.observation === 'stale' || status?.supervisorUnavailable === true;
+const observationMaxAgeMs = 10000;
+const freshObservation = value => Boolean(value) && Number.isFinite(Date.parse(value)) && Date.now() - Date.parse(value) <= observationMaxAgeMs;
+const observationLive = () => state.online && freshObservation(state.lastRefresh);
+const isStale = status => status?.observation === 'stale' || status?.supervisorUnavailable === true || !observationLive();
 const operationFor = instance => state.operations.get(idOf(instance)) ?? (instance?.operation?.state === 'running' ? instance.operation : null);
 const stopBlocked = instance => { const operation = operationFor(instance); return operation && !['start', 'restart'].includes(operation.kind); };
 const preparing = instance => ['start', 'restart'].includes(operationFor(instance)?.kind);
@@ -121,7 +125,7 @@ function statusLabel(instance) {
 }
 function processBadge(value) { return pill(t(value === 'running' ? 'processRunning' : value === 'exited' ? 'processExited' : ['starting', 'failed'].includes(value) ? value : 'unknown'), value === 'running' ? 'teal' : value === 'failed' ? 'red' : ''); }
 function commBadge(value) { return pill(t(value === 'connected' ? 'connected' : value === 'disconnected' ? 'disconnected' : 'unknown'), value === 'connected' ? 'teal' : ''); }
-function healthBadge(value) { return pill(t(!value?.lastCheckedAt ? 'noHealthCheck' : value.ready === true ? 'healthPassed' : 'healthFailed'), !value?.lastCheckedAt ? '' : value.ready === true ? 'teal' : 'red'); }
+function healthBadge(value) { const fresh = freshObservation(value?.lastCheckedAt); return pill(t(!value?.lastCheckedAt ? 'noHealthCheck' : !fresh ? 'healthUnknown' : value.ready === true ? 'healthPassed' : 'healthFailed'), !fresh ? '' : value.ready === true ? 'teal' : 'red'); }
 function readinessBadge(value) { return pill(t(value === 'ready' ? 'ready' : value === 'not-ready' ? 'notReady' : 'unknown'), value === 'ready' ? 'teal' : ''); }
 
 function stats() {
@@ -136,7 +140,7 @@ function packCard(instance) {
   const [label, tone] = statusLabel(instance);
   const facts = definition([[t('modules'), `${modules.length || reviewCount || '—'}`], [t('communication'), isStale(status) ? t('unknown') : modules.length ? `${modules.filter(c => c.communication === 'connected').length} / ${modules.length}` : '—']], 'pack-facts');
   const detached = instance.detached === true || status.state === 'detached';
-  const primary = detached ? button(advanced.label('storage'), () => selectInstance(id, 'storage'), 'button button-small button-quiet') : running(instance) || exitUnconfirmed(instance) || preparing(instance) ? button(t('stop'), () => stopInstance(id), 'button button-small button-quiet', stopBlocked(instance) || status.state === 'stopping') : button(t('start'), () => reviewInstance(id, 'start'), 'button button-small button-primary', busy);
+  const primary = detached ? button(advanced.label('storage'), () => selectInstance(id, 'storage'), 'button button-small button-quiet') : running(instance) || exitUnconfirmed(instance) || preparing(instance) ? button(t('stop'), () => stopInstance(id), 'button button-small button-quiet', stopBlocked(instance) || status.state === 'stopping') : button(t('start'), () => reviewInstance(id, 'start'), 'button button-small button-primary', busy || isStale(status));
   return el('article', { class: 'pack-card' }, [el('div', { class: 'pack-card-top' }, [el('div', { class: 'pack-title-row' }, [el('div', { class: 'pack-symbol', 'aria-hidden': 'true' }, '◇'), el('div', {}, [el('h3', {}, instance.pack?.title ?? instance.pack?.id ?? id), el('div', { class: 'pack-version' }, `v${instance.pack?.version ?? '—'}`)]), pill(label, tone)]), el('div', { class: 'pack-id' }, id), facts]), el('div', { class: 'pack-card-footer' }, [button(`${t('viewDetails')} →`, () => selectInstance(id), 'text-link'), primary])]);
 }
 function empty(title, description, action) { return el('div', { class: 'empty-state' }, [el('div', { class: 'empty-icon', 'aria-hidden': 'true' }, '◇'), el('h3', {}, title), description ? el('p', {}, description) : null, action]); }
@@ -156,11 +160,12 @@ function hubCards(workbench = false) {
   return hubs.map(hub => {
     const isDefault = hub.id === 'default', busy = state.operations.has(`hub:${hub.id}`);
     const actions = [];
-    if (hub.managementUrl) actions.push(localLink(t('topology'), hub.managementUrl));
-    if (hub.workbenchUrl) actions.push(localLink(t('openWorkbench'), hub.workbenchUrl, 'button button-primary'));
+    const observed = state.online && !state.hubsUnavailable && freshObservation(state.hubsObservedAt);
+    if (observed && hub.managementUrl) actions.push(localLink(t('topology'), hub.managementUrl));
+    if (observed && hub.workbenchUrl) actions.push(localLink(t('openWorkbench'), hub.workbenchUrl, 'button button-primary'));
     if (isDefault) actions.push(button(t(hub.state === 'running' ? 'stopHub' : 'startHub'), () => hubOperation(hub.state === 'running' ? 'stop' : 'start'), `button${hub.state === 'running' ? ' button-quiet' : ' button-primary'}`, busy));
     else actions.push(button(t('viewInstance'), () => selectInstance(hub.id), 'button button-quiet'));
-    return el('article', { class: 'link-card' }, [el('div', {}, [el('div', { class: 'module-header' }, [el('h3', {}, isDefault ? t('defaultHub') : currentTitle(hub.id)), pill(t(hub.state ?? 'unknown'), hub.state === 'running' ? 'teal' : '')]), el('p', {}, isDefault ? t('defaultHubDescription') : t('independentHub')), el('p', { class: 'link-metadata' }, hub.url ?? t('hubWaiting'))]), el('div', { class: 'link-card-actions' }, actions.filter(Boolean))]);
+    return el('article', { class: 'link-card' }, [el('div', {}, [el('div', { class: 'module-header' }, [el('h3', {}, isDefault ? t('defaultHub') : currentTitle(hub.id)), pill(t(observed ? hub.state ?? 'unknown' : 'unknown'), observed && hub.state === 'running' ? 'teal' : 'amber')]), el('p', {}, isDefault ? t('defaultHubDescription') : t('independentHub')), el('p', { class: 'link-metadata' }, hub.url ?? t('hubWaiting')), el('p', { class: 'observation-note' }, `${t('observedAt')}: ${date(state.hubsObservedAt)}`)]), el('div', { class: 'link-card-actions' }, actions.filter(Boolean))]);
   });
 }
 function currentTitle(id) { const instance = state.instances.find(i => idOf(i) === id); return instance?.pack?.title ? `${instance.pack.title} · ${id}` : id; }
@@ -198,8 +203,9 @@ function moduleView(module, review, full = true) {
 function reviewView(data, mode = 'execution') {
   const review = data.review;
   const nodes = [el('div', { class: 'review-summary' }, [el('div', {}, [el('h3', {}, review.pack?.title ?? review.pack?.id ?? '—'), el('p', {}, `${review.pack?.id ?? '—'} · v${review.pack?.version ?? '—'}`)]), pill(t('noSandbox'), 'amber')]), el('div', { class: `notice ${mode === 'execution' ? 'notice-warning' : ''}` }, t(mode === 'execution' ? 'codeExecutionNotice' : 'importNoExecution')), el('div', { class: 'review-section' }, [el('h3', {}, t('source')), el('p', { class: 'review-digest' }, review.directory ?? '—')]), el('div', { class: 'review-section' }, [el('h3', {}, t('modulesPermissions')), el('div', { class: 'review-modules' }, (review.modules ?? []).map(module => moduleView(module, review, false)))]), el('div', { class: 'review-section' }, [el('h3', {}, t('executionOrder')), el('div', { class: 'review-order' }, (review.order ?? []).flatMap((id, i) => [i ? '→' : null, el('span', {}, id)]))]), el('div', { class: 'review-section' }, [el('h3', {}, t('environmentReview')), ...runtimeEnvironment(review.environment)])];
+  if (data.sourceReceipt) nodes.push(el('details', { class: 'json-details', open: true }, [el('summary', {}, t('sourceReceipt')), el('p', {}, t('integrityNotIdentity')), el('pre', {}, JSON.stringify(data.sourceReceipt, null, 2))]));
   if (data.permissionDiff?.length) nodes.push(el('div', { class: 'notice notice-warning' }, [el('h3', {}, t('permissionChanges')), el('p', {}, t('changesRequireReview')), ...data.permissionDiff.map(change => el('div', { class: 'review-module' }, [el('h4', {}, change.module ?? '—'), ...Object.keys({ ...change.before, ...change.after }).filter(key => JSON.stringify(change.before?.[key]) !== JSON.stringify(change.after?.[key])).map(key => el('p', {}, `${key}: ${display(change.before?.[key])} → ${display(change.after?.[key])}`))]))]));
-  nodes.push(el('details', { class: 'json-details' }, [el('summary', {}, t('reviewFingerprint')), el('p', { class: 'review-digest' }, review.digest)]));
+  nodes.push(el('p', { class: 'field-help' }, `${t('reviewValidUntil')}: ${date(data.expiresAt)}`), el('details', { class: 'json-details' }, [el('summary', {}, t('reviewFingerprint')), el('p', { class: 'review-digest' }, review.digest)]));
   return nodes;
 }
 
@@ -210,13 +216,14 @@ function renderDetailHeading(instance) {
   if (running(instance) || exitUnconfirmed(instance) || preparing(instance)) {
     actions.push(button(t('stop'), () => stopInstance(id), 'button button-danger', stopBlocked(instance) || status.state === 'stopping'));
     if (status.state === 'running' && !isStale(status)) actions.push(button(t('restart'), () => reviewInstance(id, 'restart'), 'button', busy));
-  } else if (!instance.detached && status.state !== 'detached') actions.push(button(t('start'), () => reviewInstance(id, 'start'), 'button button-primary', busy));
+  } else if (!instance.detached && status.state !== 'detached') actions.push(button(t('start'), () => reviewInstance(id, 'start'), 'button button-primary', busy || isStale(status)));
   if (status.state === 'running' && !isStale(status)) { const entry = localLink(t('openApp'), instance.links?.entryUrl, 'button button-primary', true); if (entry) actions.push(entry); }
-  const topology = localLink(t('topology'), instance.links?.managementUrl); if (topology) actions.push(topology);
+   const topology = !isStale(status) && localLink(t('topology'), instance.links?.managementUrl); if (topology) actions.push(topology);
   actions.push(button(t('review'), () => reviewInstance(id, 'review'), 'button button-quiet', busy), button(t('exportPackage'), () => { $('#export-error').hidden = true; $('#export-dialog').showModal(); }, 'button button-quiet', busy || instance.detached || status.state === 'detached'));
+  actions.push(button(t('createFromPack'), () => advanced.openCreator(instance.packageDirectory), 'button button-quiet', busy));
   $('#detail-actions').replaceChildren(...actions);
   const notices = [];
-  if (isStale(status)) notices.push(el('div', { class: 'notice notice-warning' }, t('staleMeaning')));
+  if (isStale(status)) notices.push(el('div', { class: 'notice notice-warning' }, `${t('observationUnknown')} ${t('observedAt')}: ${date(state.lastRefresh)}. ${t('staleMeaning')}`));
   if ((status.cleanupIncomplete || status.state === 'failed') && exitUnconfirmed(instance)) notices.push(el('div', { class: 'notice notice-error' }, t('cleanupMeaning')));
   if (status.failure) notices.push(el('div', { class: 'notice notice-error' }, `${t('startupFailure')}: ${status.failure.message ?? display(status.failure)}`));
   if (operationFor(instance)) notices.push(el('div', { class: 'notice' }, `${t('processing')} ${t(operationFor(instance).kind)}`));
@@ -225,16 +232,18 @@ function renderDetailHeading(instance) {
 function renderStatus(instance) {
   const status = instance.status ?? {}, components = status.components ?? [];
   const headers = ['modules', 'process', 'communication', 'readiness', 'health', 'businessResult'];
-  const table = el('table', {}, [el('thead', {}, el('tr', {}, headers.map(key => el('th', { scope: 'col' }, t(key))))), el('tbody', {}, components.map(c => el('tr', {}, [el('td', {}, [el('div', {}, c.id), el('small', { class: 'subtle' }, c.module)]), el('td', {}, [processBadge(isStale(status) ? null : c.process), el('div', { class: 'subtle mono' }, `PID ${c.pid ?? '—'}`)]), el('td', {}, commBadge(isStale(status) ? null : c.communication)), el('td', {}, readinessBadge(isStale(status) ? null : c.readiness)), el('td', {}, healthBadge(isStale(status) ? null : c.health)), el('td', { class: 'subtle' }, t('businessUnknown'))]))) ]);
-  const nodes = [components.length ? el('div', { class: 'status-table-wrap' }, table) : el('div', { class: 'panel' }, el('p', {}, t('notStarted'))), el('p', { class: 'observation-note' }, t('statusMeaning'))];
+  const table = el('table', {}, [el('thead', {}, el('tr', {}, headers.map(key => el('th', { scope: 'col' }, t(key))))), el('tbody', {}, components.map(c => el('tr', {}, [el('td', {}, [el('div', {}, c.id), el('small', { class: 'subtle' }, c.module)]), el('td', {}, [processBadge(isStale(status) ? null : c.process), el('div', { class: 'subtle mono' }, `PID ${c.pid ?? '—'}`)]), el('td', {}, commBadge(isStale(status) ? null : c.communication)), el('td', {}, readinessBadge(isStale(status) || c.process !== 'running' ? null : c.readiness)), el('td', {}, isStale(status) || c.process !== 'running' ? pill(t('healthUnknown')) : healthBadge(c.health)), el('td', { class: 'subtle' }, t('businessUnknown'))]))) ]);
+  const nodes = [el('div', { class: `notice${isStale(status) ? ' notice-warning' : ''}` }, [el('p', {}, isStale(status) ? t('observationUnknown') : t('currentObservation')), definition([[t('runId'), status.runId], [t('observedAt'), date(state.lastRefresh)]]), isStale(status) ? button(t('refresh'), () => refresh({ explicit: true }), 'button button-small button-quiet') : null]), components.length ? el('div', { class: 'status-table-wrap' }, table) : el('div', { class: 'panel' }, el('p', {}, isStale(status) ? t('unknown') : t('notStarted'))), el('p', { class: 'observation-note' }, t('statusMeaning'))];
   nodes.push(el('div', { class: 'panel topology-panel' }, [el('div', { class: 'panel-heading' }, [el('h2', {}, t('bridgeOwnership')), button(t('refreshTopology'), () => loadTopology(idOf(instance), true), 'button button-small button-quiet')]), el('div', { id: 'bridge-mapping' }, topologyView(instance)), el('p', { class: 'observation-note' }, t('mappingNotice'))]));
   return nodes;
 }
 function topologyView(instance) {
   const topology = state.topology?.instanceId === idOf(instance) ? state.topology : null;
   if (!topology || topology.runId !== instance.status?.runId) return [el('p', { class: 'field-help' }, t('topologyUnavailable'))];
-  if (!topology.bridges?.length) return [el('p', { class: 'field-help' }, t('noBridges'))];
-  return topology.bridges.map(bridge => el('div', { class: 'runtime-row' }, [el('div', {}, [el('h3', {}, bridge.bridgeId ?? bridge.declaredId ?? '—'), el('p', {}, `${t('principal')}: ${bridge.principal ?? '—'} · ${t('bridgeSession')}: ${bridge.session ?? '—'}`), bridge.ownership === 'managed' ? el('p', {}, `${bridge.componentId ?? '—'} · ${bridge.moduleId ?? '—'} · PID ${bridge.pid ?? '—'}`) : null]), el('div', {}, [pill(t(bridge.ownership === 'managed' ? 'managedBridge' : 'externalUnknown'), bridge.ownership === 'managed' ? 'teal' : 'amber'), bridge.ownership === 'managed' ? button(t('logs'), () => { state.logSelection = bridge.componentId; changeTab('logs'); }, 'button button-small button-quiet') : null, localLink(t('topology'), bridge.managementUrl, 'button button-small button-quiet')]) ]));
+  const observed = !isStale(instance.status) && !state.topologyUnavailable && topology.observation === 'live' && freshObservation(topology.observedAt);
+  const note = el('p', { class: 'observation-note' }, `${observed ? t('currentObservation') : t('observationUnknown')} · ${t('observedAt')}: ${date(topology.observedAt)}`);
+  if (!topology.bridges?.length) return [note, el('p', { class: 'field-help' }, t(observed ? 'noBridges' : 'topologyUnavailable'))];
+  return [note, ...topology.bridges.map(bridge => el('div', { class: 'runtime-row' }, [el('div', {}, [el('h3', {}, bridge.bridgeId ?? bridge.declaredId ?? '—'), el('p', {}, `${t('principal')}: ${bridge.principal ?? '—'} · ${t('bridgeSession')}: ${bridge.session ?? '—'}`), bridge.ownership === 'managed' ? el('p', {}, `${bridge.componentId ?? '—'} · ${bridge.moduleId ?? '—'} · PID ${bridge.pid ?? '—'}`) : null]), el('div', {}, [pill(t(!observed ? 'mappingUnknown' : bridge.ownership === 'managed' ? 'managedBridge' : 'externalUnknown'), observed && bridge.ownership === 'managed' ? 'teal' : 'amber'), bridge.ownership === 'managed' ? button(t('logs'), () => { state.logSelection = bridge.componentId; changeTab('logs'); }, 'button button-small button-quiet') : null, observed ? localLink(t('topology'), bridge.managementUrl, 'button button-small button-quiet') : null]) ]))];
 }
 function renderModules(instance) {
   const review = state.reviews.get(idOf(instance))?.review;
@@ -242,7 +251,8 @@ function renderModules(instance) {
   return [el('div', { class: 'notice notice-warning' }, t('sandboxNotice')), ...(review.modules ?? []).map(module => moduleView(module, review)), el('p', { class: 'observation-note' }, t('sourceSafeText'))];
 }
 function renderLogs(instance) {
-  const logs = state.logs?.instanceId === idOf(instance) ? state.logs.logs ?? {} : {};
+  const matching = state.logs?.instanceId === idOf(instance) && state.logs?.runId === instance.status?.runId;
+  const logs = matching ? state.logs.logs ?? {} : {};
   const selection = state.logSelection;
   const select = el('select', { id: 'log-component', 'aria-label': t('modules') }, [el('option', { value: 'all' }, t('allComponents')), ...Object.keys(logs).map(id => el('option', { value: id }, id))]);
   select.value = Object.hasOwn(logs, selection) || selection === 'all' ? selection : 'all';
@@ -252,7 +262,7 @@ function renderLogs(instance) {
     if (select.value !== 'all' && select.value !== id) continue;
     for (const stream of ['stdout', 'stderr']) if (values[stream]) panels.push(el('section', { class: `log-panel${stream === 'stderr' ? ' log-stderr' : ''}` }, [el('h3', {}, `${id} / ${t(stream)}${values.truncated ? ` · ${t('truncated')}` : ''}`), el('pre', {}, values[stream])]));
   }
-  return [el('div', { class: 'log-toolbar' }, [select, button(t('refreshLogs'), () => loadLogs(idOf(instance), true), 'button button-small button-quiet')]), el('div', { class: 'notice' }, t('privacyNotice')), ...(panels.length ? panels : [el('div', { class: 'panel' }, el('p', {}, t('noLogs')))])];
+  return [el('div', { class: 'log-toolbar' }, [select, button(t('refreshLogs'), () => loadLogs(idOf(instance), true), 'button button-small button-quiet')]), el('div', { class: 'notice' }, t('privacyNotice')), matching ? el('div', { class: 'notice' }, [el('p', {}, t(instance.status?.stoppedAt ? 'historicalLogs' : 'currentRunLogs')), definition([[t('runId'), state.logs.runId], [t('observedAt'), date(state.logs.observedAt)]])]) : null, ...(panels.length ? panels : [el('div', { class: 'panel' }, el('p', {}, t('noLogs')))])];
 }
 function renderDetails(instance) {
   const status = instance.status ?? {};
@@ -262,19 +272,19 @@ function renderDetail(force = false) {
   if (state.view !== 'detail') return;
   const instance = current();
   if (!instance) { navigate('packs'); return; }
-  const headingStamp = JSON.stringify([instance.pack, instance.links, instance.status?.state, instance.status?.observation, instance.status?.cleanupIncomplete, instance.status?.stoppedAt, instance.status?.failure, state.language, state.operations.get(state.selected)]);
+  const headingStamp = JSON.stringify([instance.pack, instance.links, instance.status?.state, instance.status?.observation, instance.status?.cleanupIncomplete, instance.status?.stoppedAt, instance.status?.failure, isStale(instance.status), state.language, state.operations.get(state.selected)]);
   if (force || headingStamp !== state.headingStamp) { renderDetailHeading(instance); state.headingStamp = headingStamp; }
   const content = state.tab === 'status'
     ? [instance.status?.components?.map(c => [c.id, c.module, c.pid, c.process, c.communication, c.readiness, Boolean(c.health?.lastCheckedAt), c.health?.ready]), instance.status?.runId, instance.status?.observation, state.topology]
     : state.tab === 'logs' ? state.logs : state.tab === 'modules' ? state.reviews.get(state.selected)?.reviewId : instance;
-  const stamp = JSON.stringify([state.selected, content, state.tab, state.language]);
+  const stamp = JSON.stringify([state.selected, content, state.tab, state.language, isStale(instance.status), state.topologyUnavailable]);
   if (!force && stamp === state.detailStamp) return;
   state.detailStamp = stamp;
   const children = state.tab === 'status' ? renderStatus(instance) : state.tab === 'modules' ? renderModules(instance) : state.tab === 'logs' ? renderLogs(instance) : state.tab === 'storage' ? advanced.renderStorage(instance) : renderDetails(instance);
   $('#detail-content').replaceChildren(...children);
 }
 function renderAll(force = false) {
-  const stamp = JSON.stringify([state.instances.map(i => [idOf(i), i.pack, i.status?.state, i.status?.observation, i.status?.cleanupIncomplete, i.status?.components?.map(c => [c.id, c.communication]), state.reviews.get(idOf(i))?.reviewId]), state.hubs, [...state.operations.entries()], state.language]);
+  const stamp = JSON.stringify([state.instances.map(i => [idOf(i), i.pack, i.status?.state, i.status?.observation, i.status?.cleanupIncomplete, i.status?.components?.map(c => [c.id, c.communication]), state.reviews.get(idOf(i))?.reviewId]), state.hubs, [...state.operations.entries()], state.language, observationLive(), state.hubsUnavailable, freshObservation(state.hubsObservedAt)]);
   if (force || stamp !== state.renderStamp) { renderStats(); renderPacks(); renderOverview(); renderHubs(); state.renderStamp = stamp; }
   renderDetail(force);
 }
@@ -290,7 +300,7 @@ function navigate(view, updateHash = true) {
   renderAll(true);
 }
 async function selectInstance(id, tab = 'status', componentId = null) {
-  state.selected = id; state.topology = null; state.logs = null; state.detailStamp = ''; state.headingStamp = ''; state.topologyStamp = '';
+  state.selected = id; state.topology = null; state.topologyUnavailable = false; state.logs = null; state.logsRequest++; state.detailStamp = ''; state.headingStamp = ''; state.topologyStamp = '';
   state.logSelection = componentId ?? 'all';
   changeTab(tab, false); navigate('detail');
   try { const result = await api(endpoint(id)); replaceInstance(result.instance); renderDetail(true); if (tab === 'logs') await loadLogs(id); else if (tab === 'status') await loadTopology(id); }
@@ -304,7 +314,13 @@ function changeTab(tab, updateHash = true) {
   if (updateHash) { history.replaceState(null, '', `${location.pathname}?instance=${encodeURIComponent(state.selected)}#${tab}`); if (tab === 'logs') void loadLogs(state.selected, true); if (tab === 'status') void loadTopology(state.selected, true); }
   if (tab === 'storage') advanced?.loadStorage(state.selected);
 }
-function replaceInstance(instance) { const id = idOf(instance), index = state.instances.findIndex(i => idOf(i) === id); if (index === -1) state.instances.push(instance); else state.instances[index] = instance; }
+function invalidateChangedRun(instance) {
+  const previous = state.instances.find(item => idOf(item) === idOf(instance));
+  if (state.selected === idOf(instance) && previous?.status?.runId !== instance.status?.runId) {
+    state.logs = null; state.logsRequest++; state.topology = null; state.topologyUnavailable = false; state.topologyStamp = '';
+  }
+}
+function replaceInstance(instance) { invalidateChangedRun(instance); const id = idOf(instance), index = state.instances.findIndex(i => idOf(i) === id); if (index === -1) state.instances.push(instance); else state.instances[index] = instance; }
 
 async function refresh({ explicit = false } = {}) {
   if (state.loading || !state.auth?.token) return;
@@ -312,31 +328,33 @@ async function refresh({ explicit = false } = {}) {
   try {
     const results = await Promise.allSettled([api('/api/instances'), api('/api/hubs')]);
     if (results[0].status === 'rejected') throw results[0].reason;
-    state.instances = results[0].value.instances ?? [];
-    if (results[1].status === 'fulfilled') state.hubs = results[1].value.hubs ?? [];
-    else if (explicit) toast(results[1].reason.message);
+    const instances = results[0].value.instances ?? []; instances.forEach(invalidateChangedRun); state.instances = instances;
+    if (results[1].status === 'fulfilled') { state.hubs = results[1].value.hubs ?? []; state.hubsObservedAt = new Date().toISOString(); state.hubsUnavailable = false; }
+    else { state.hubsUnavailable = true; if (explicit) toast(results[1].reason.message); }
     state.online = true; state.lastRefresh = new Date().toISOString(); showNotice('#connection-notice', state.returnNotice, state.returnNotice ? 'warning' : ''); renderAll(explicit);
     if (state.view === 'detail' && state.tab === 'status') {
       const instance = current(), topologyStamp = JSON.stringify([instance?.status?.runId, instance?.status?.components?.map(c => c.bridges)]);
       if (topologyStamp !== state.topologyStamp && !state.topologyLoading) { state.topologyStamp = topologyStamp; void loadTopology(state.selected); }
     }
-  } catch (error) { state.online = false; showNotice('#connection-notice', error.message); }
+  } catch (error) { state.online = false; state.topologyUnavailable = true; showNotice('#connection-notice', `${t('observationUnknown')} ${error.message}`); renderAll(true); }
   finally { state.loading = false; $('#connection-state').textContent = t(state.online ? 'online' : 'offline'); }
 }
 async function loadTopology(id, explicit = false) {
   const instance = current(); if (!id || !instance?.status?.runId || !running(instance)) return;
+  const runId = instance.status.runId;
   if (state.topologyLoading) return;
   state.topologyLoading = true;
   try {
-    const data = await api(`${endpoint(id, 'topology')}?runId=${encodeURIComponent(instance.status.runId)}`);
+    const data = await api(`${endpoint(id, 'topology')}?runId=${encodeURIComponent(runId)}`);
     if (state.selected !== id || current()?.status?.runId !== data.topology?.runId) return;
-    state.topology = data.topology; renderDetail(true);
-  } catch (error) { if (explicit) toast(error.message); }
+    state.topology = data.topology; state.topologyUnavailable = false; renderDetail(true);
+  } catch (error) { if (state.selected === id && current()?.status?.runId === runId) { state.topologyUnavailable = true; state.topologyStamp = ''; renderDetail(true); if (explicit) toast(error.message); } }
   finally { state.topologyLoading = false; }
 }
 async function loadLogs(id, explicit = false) {
   if (!id) return;
-  try { const data = await api(endpoint(id, 'logs')); if (state.selected !== id) return; state.logs = data.logs; renderDetail(true); }
+  const runId = state.instances.find(instance => idOf(instance) === id)?.status?.runId, request = ++state.logsRequest;
+  try { const data = await api(endpoint(id, 'logs')); if (request !== state.logsRequest || state.selected !== id || current()?.status?.runId !== runId || data.logs?.instanceId !== id || data.logs?.runId !== runId) return; state.logs = data.logs; renderDetail(true); }
   catch (error) { if (explicit) toast(error.message); }
 }
 
@@ -352,12 +370,20 @@ function openImport() {
   $('#import-dialog').showModal();
 }
 function environmentOptions(form) { return Object.fromEntries(['nodePath', 'pythonPath'].map(key => [key, form.elements[key]?.value.trim()]).filter(([, value]) => value)); }
+const reviewExpired = review => Boolean(review?.expiresAt) && (!Number.isFinite(Date.parse(review.expiresAt)) || Date.now() >= Date.parse(review.expiresAt));
+function invalidateExecutionReview(error) {
+  if (state.trustInstanceId) state.reviews.delete(state.trustInstanceId);
+  state.trustReview = null; $('#trust-consent').checked = false; $('#trust-consent').disabled = true; $('#trust-submit').disabled = true;
+  if (error) renderError('#trust-error', error); else showNotice('#trust-error', t('reviewExpired'), 'warning');
+  $('#trust-error').append(button(t('checkAgain'), () => reviewInstance(state.trustInstanceId, state.trustKind), 'button button-small button-primary'));
+}
 async function importSubmit(event) {
   event.preventDefault(); const form = event.currentTarget, submit = $('#import-submit');
   if (submit.disabled) return;
   const request = state.importRequest;
   $('#import-error').hidden = true; submit.disabled = true;
   try {
+    if (reviewExpired(state.importReview)) { state.importReview = null; $('#import-review').hidden = true; $('#import-fields').hidden = false; $('#import-back').hidden = true; throw new Error(t('reviewExpired')); }
     if (!state.importReview) {
       submit.textContent = t('checking');
       const data = await api('/api/review', { directory: form.elements.directory.value.trim(), ...environmentOptions(form) });
@@ -369,32 +395,33 @@ async function importSubmit(event) {
       const data = await api('/api/instances', { reviewId: state.importReview.reviewId, instanceId: form.elements.instanceId.value.trim() });
       const id = idOf(data.instance); state.reviews.set(id, state.importReview); replaceInstance(data.instance); $('#import-dialog').close(); state.importReview = null; renderAll(true); toast(t('importedSuccess', { id })); await selectInstance(id);
     }
-  } catch (error) { if (request === state.importRequest) renderError('#import-error', error); }
+  } catch (error) { if (request === state.importRequest) { if (['REVIEW_REQUIRED', 'REVIEW_CHANGED'].includes(error.code)) { state.importReview = null; $('#import-review').hidden = true; $('#import-fields').hidden = false; $('#import-back').hidden = true; } renderError('#import-error', error); } }
   finally { if (request === state.importRequest) { submit.disabled = false; submit.textContent = t(state.importReview ? 'confirmImport' : 'checkPackage'); } }
 }
 async function reviewInstance(id, kind) {
   const instance = state.instances.find(i => idOf(i) === id); if (!instance || operationFor(instance)) return;
   const request = ++state.trustRequest;
-  state.trustReview = null; state.trustKind = kind; $('#trust-consent').checked = false; $('#trust-submit').disabled = true; $('#trust-error').hidden = true;
+  state.trustReview = null; state.trustKind = kind; state.trustInstanceId = id; $('#trust-consent').checked = false; $('#trust-consent').disabled = true; $('#trust-submit').disabled = true; $('#trust-error').hidden = true;
   $('#trust-review').replaceChildren(el('p', { class: 'dialog-description' }, t('checking')));
   $('#trust-submit').textContent = t(kind === 'restart' ? 'trustAndRestart' : 'trustAndStart');
-  $('.consent').hidden = kind === 'review'; $('#trust-submit').hidden = kind === 'review'; $('#trust-dialog').showModal();
+  $('.consent').hidden = kind === 'review'; $('#trust-submit').hidden = kind === 'review'; if (!$('#trust-dialog').open) $('#trust-dialog').showModal();
   try {
     const selected = Object.keys(state.environmentSelection).length ? state.environmentSelection : instance.environment ?? {};
     const data = await api(endpoint(id, 'review'), selected);
     if (request !== state.trustRequest || !$('#trust-dialog').open) return;
-    state.reviews.set(id, data); state.trustReview = { ...data, instanceId: id };
+    state.reviews.set(id, data); state.trustReview = { ...data, instanceId: id }; $('#trust-consent').disabled = false;
     $('#trust-review').replaceChildren(...reviewView(data), el('p', { class: 'field-help' }, t('reviewEnvironmentHint'))); renderDetail(true);
   } catch (error) { if (request !== state.trustRequest) return; $('#trust-review').replaceChildren(el('p', {}, t('envMissing'))); renderError('#trust-error', error); }
 }
 async function authorizeExecution() {
   const review = state.trustReview;
   if (!review || !$('#trust-consent').checked) return;
+  if (reviewExpired(review)) { invalidateExecutionReview(); return; }
   $('#trust-submit').disabled = true; $('#trust-error').hidden = true;
   try {
     const data = await api(endpoint(review.instanceId, state.trustKind), { reviewId: review.reviewId, accepted: true });
     $('#trust-dialog').close(); state.trustReview = null; await followOperation(data.operationId, review.instanceId, state.trustKind);
-  } catch (error) { renderError('#trust-error', error); $('#trust-submit').disabled = false; }
+  } catch (error) { if (['REVIEW_REQUIRED', 'REVIEW_CHANGED'].includes(error.code) || error.status === 401) invalidateExecutionReview(error); else { renderError('#trust-error', error); $('#trust-submit').disabled = !$('#trust-consent').checked; } }
 }
 async function stopInstance(id) {
   const instance = state.instances.find(i => idOf(i) === id);
@@ -444,8 +471,8 @@ async function detectEnvironment(event) {
 
 function languageChanged() {
   applyLanguage(state.language); $('#language').value = state.language;
-  for (const item of document.querySelectorAll('[data-view]')) item.setAttribute('aria-label', t({packs:'myPacks',overview:'overview',hubs:'hubs',workbench:'workbench',environment:'environment'}[item.dataset.view]));
-  $('#theme').title = t('toggleTheme'); $('#theme').setAttribute('aria-label', t('toggleTheme')); $('#navigation').setAttribute('aria-label', t('mainNavigation')); $('.sidebar nav:nth-of-type(2)').setAttribute('aria-label', t('systemNavigation')); $('#search').setAttribute('aria-label', t('searchInstances'));
+  for (const item of document.querySelectorAll('[data-view]')) item.setAttribute('aria-label', ['creator', 'sources'].includes(item.dataset.view) ? advanced.label(item.dataset.view) : t({packs:'myPacks',overview:'overview',hubs:'hubs',workbench:'workbench',environment:'environment'}[item.dataset.view]));
+  $('#theme').title = t('toggleTheme'); $('#theme').setAttribute('aria-label', t('toggleTheme')); $('#navigation').setAttribute('aria-label', t('useNavigation')); $('#creator-navigation').setAttribute('aria-label', t('createNavigation')); $('#system-navigation').setAttribute('aria-label', t('systemNavigation')); $('#search').setAttribute('aria-label', t('searchInstances'));
   for (const close of document.querySelectorAll('.close-dialog')) close.setAttribute('aria-label', t('close'));
   $('#connection-state').textContent = t(state.online ? 'online' : 'offline');
   renderAll(true); renderEnvironment();
@@ -460,13 +487,13 @@ function initializeEvents() {
   for (const item of document.querySelectorAll('[data-tab]')) item.addEventListener('click', () => changeTab(item.dataset.tab));
   $('.detail-tabs').addEventListener('keydown', event => { if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; const tabs = [...document.querySelectorAll('[data-tab]')], index = tabs.findIndex(tab => tab.dataset.tab === state.tab); const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length; event.preventDefault(); changeTab(tabs[next].dataset.tab); tabs[next].focus(); });
   for (const item of document.querySelectorAll('.close-dialog')) item.addEventListener('click', () => $(`#${item.dataset.dialog}`).close());
-  $('#trust-dialog').addEventListener('close', () => { state.trustRequest++; state.trustReview = null; $('#trust-consent').checked = false; $('#trust-submit').disabled = true; });
+  $('#trust-dialog').addEventListener('close', () => { state.trustRequest++; state.trustReview = null; $('#trust-consent').checked = false; $('#trust-consent').disabled = true; $('#trust-submit').disabled = true; });
   $('#import-dialog').addEventListener('close', () => { state.importRequest++; });
   $('#language').addEventListener('change', event => { state.language = event.target.value; try { localStorage.setItem('world-hub.launcher.language', state.language); } catch {} languageChanged(); });
   $('#theme').addEventListener('click', () => { const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; try { localStorage.setItem('world-hub.launcher.theme', theme); } catch {} });
   $('#refresh').addEventListener('click', () => refresh({ explicit: true })); $('#search').addEventListener('input', renderPacks); $('#back-to-packs').addEventListener('click', () => navigate('packs'));
   $('#import-form').addEventListener('submit', importSubmit); $('#import-back').addEventListener('click', () => { state.importReview = null; $('#import-review').hidden = true; $('#import-fields').hidden = false; $('#import-back').hidden = true; $('#import-submit').textContent = t('checkPackage'); $('#import-error').hidden = true; $('#step-review').classList.remove('active'); $('#step-create').classList.remove('active'); });
-  $('#trust-consent').addEventListener('change', event => { $('#trust-submit').disabled = !event.target.checked || !state.trustReview; }); $('#trust-submit').addEventListener('click', authorizeExecution); $('#export-form').addEventListener('submit', exportSubmit); $('#environment-form').addEventListener('submit', detectEnvironment);
+  $('#trust-consent').addEventListener('change', event => { if (reviewExpired(state.trustReview)) invalidateExecutionReview(); else $('#trust-submit').disabled = !event.target.checked || !state.trustReview; }); $('#trust-submit').addEventListener('click', authorizeExecution); $('#export-form').addEventListener('submit', exportSubmit); $('#environment-form').addEventListener('submit', detectEnvironment);
   $('.brand').addEventListener('click', event => { event.preventDefault(); navigate('packs'); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh(); });
 }
@@ -514,7 +541,7 @@ async function boot() {
     advanced.sessionReady();
     await refresh({ explicit: true });
     if (!await resolveReturnHint(hints)) navigate(initialView);
-    setInterval(() => { if (!document.hidden && state.auth?.token) void refresh(); }, 1000);
+    setInterval(() => { if (!document.hidden) { if (reviewExpired(state.trustReview)) invalidateExecutionReview(); renderAll(); if (state.auth?.token) void refresh(); } }, 1000);
   } catch (error) { showNotice('#connection-notice', error.message); $('#connection-state').textContent = t('offline'); }
 }
 

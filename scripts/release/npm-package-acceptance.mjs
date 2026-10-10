@@ -7,14 +7,13 @@ import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startOwnedProgram } from '../../tests/helpers/owned-program.mjs';
-import { LAUNCHER_FILES, WORKSHOP_FILES } from './build-package.mjs';
+import { LAUNCHER_FILES, WORKSHOP_FILES, ECOSYSTEM_RUNTIME_FILES } from './build-package.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const nonce = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID()}`;
 const safe = value => value.replaceAll('\\', '/');
-const ecosystemFiles = ['bin/world-hub-pack.mjs',
-  ...['index', 'package', 'paths', 'process', 'runtime', 'hub-process', 'maintenance', 'authoring', 'sources'].map(name => `scripts/runtime/${name}.mjs`),
+const ecosystemFiles = [...ECOSYSTEM_RUNTIME_FILES,
   'docs/ecosystem/pack-spec.md', 'docs/ecosystem/runtime.md',
   ...['module', 'pack', 'pack-lock'].map(name => `docs/ecosystem/${name}.schema.json`)];
 const developerMaterial = ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md', 'docs/ecosystem/launcher.md', ...ecosystemFiles, ...LAUNCHER_FILES, ...WORKSHOP_FILES];
@@ -204,6 +203,18 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
     const runtime = JSON.parse(await execute('Public installed Runtime API imports, starts, observes, stops and exports a real Node pack', process.execPath, [runtimeCheckPath], { cwd: workspace }));
     assert.equal(runtime.passed, true); assert.equal(runtime.version, pkg.version); assert.equal(runtime.exited, true);
     await execute('Installed optional pack CLI exposes its public command contract', process.execPath, [join(localPackage, 'bin/world-hub-pack.mjs'), '--help'], { cwd: workspace });
+    const generatedModule = join(workspace, 'installed author module');
+    const generated = JSON.parse(await execute('Installed CLI generates a complete independent author sample outside its installation', process.execPath,
+      [join(localPackage, 'bin/world-hub-pack.mjs'), 'init-module', generatedModule, '--id', 'npm.author', '--runtime', 'node'], { cwd: workspace }));
+    assert.equal(generated.startsModules, false); assert.equal(generated.installsDependencies, false);
+    const validated = JSON.parse(await execute('Installed CLI statically validates its generated sample', process.execPath,
+      [join(localPackage, 'bin/world-hub-pack.mjs'), 'validate-module', generatedModule], { cwd: workspace }));
+    assert.equal(validated.ok, true); assert.equal(validated.behaviorValidated, false);
+    const diagnosed = JSON.parse(await execute('Installed CLI uses its bundled fixed interpreter probe without running the generated module', process.execPath,
+      [join(localPackage, 'bin/world-hub-pack.mjs'), 'doctor-module', generatedModule], { cwd: workspace }));
+    assert.equal(diagnosed.ok, true); assert.equal(diagnosed.interpreter.executable, process.execPath);
+    await execute('Generated installed sample exercises exact business semantics through its own self-test', process.execPath,
+      ['--test', join(generatedModule, 'logic.test.mjs')], { cwd: workspace });
     await execute('Installed unified UI CLI exposes its optional command contract', process.execPath, [join(localPackage, 'bin/world-hub.mjs'), 'ui', '--help'], { cwd: workspace });
     const launcherCheckPath = join(localApp, 'launcher-check.mjs');
     await writeFile(launcherCheckPath, await readFile(join(sourceRoot, 'scripts/release/npm-launcher-check.mjs')));

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light">
   <title>World Hub</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%2314b8a6' d='M16 2 30 16 16 30 2 16z'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%230f172a'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -15,17 +16,20 @@
         <span class="brand-mark" aria-hidden="true"><span></span></span>
         <span>World Hub<small data-i18n="localWorkspace">本地工作空间</small></span>
       </a>
-      <div class="nav-caption" data-i18n="workspace">工作空间</div>
+      <div class="nav-caption" data-i18n="useNavigation">使用</div>
       <nav id="navigation" aria-label="主导航">
         <button class="nav-item" data-view="overview"><span class="nav-icon" aria-hidden="true">◫</span><span data-i18n="overview">状态总览</span></button>
         <button class="nav-item active" data-view="packs" aria-current="page"><span class="nav-icon" aria-hidden="true">◇</span><span data-i18n="myPacks">我的整合包</span><span id="nav-count" class="nav-count">0</span></button>
         <button class="nav-item" data-view="hubs"><span class="nav-icon" aria-hidden="true">◎</span><span data-i18n="hubs">枢纽管理</span></button>
         <button class="nav-item" data-view="workbench"><span class="nav-icon" aria-hidden="true">⌘</span><span data-i18n="workbench">通信工作台</span></button>
+      </nav>
+      <div class="nav-caption" data-i18n="createNavigation">创作</div>
+      <nav id="creator-navigation" aria-label="创作导航">
         <button class="nav-item" data-view="sources"><span class="nav-icon" aria-hidden="true">⇩</span><span data-advanced-i18n="sources">软件源</span></button>
         <button class="nav-item" data-view="creator"><span class="nav-icon" aria-hidden="true">✧</span><span data-advanced-i18n="creator">创作工作台</span></button>
       </nav>
       <div class="nav-caption" data-i18n="system">系统</div>
-      <nav aria-label="系统导航">
+      <nav id="system-navigation" aria-label="系统导航">
         <button class="nav-item" data-view="environment"><span class="nav-icon" aria-hidden="true">⚙</span><span data-i18n="environment">环境与诊断</span></button>
       </nav>
       <div class="sidebar-bottom">

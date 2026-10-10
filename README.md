@@ -29,6 +29,19 @@ Launcher 是可选的本机部署与导航工具，调用外部 Runtime。Hub Co
 
 ![统一入口：实际运行的跨语言整合包及其独立程序](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-launcher.jpg?v=0.16.1)
 
+## 编写并交付独立模块
+
+```powershell
+world-hub-pack init-module ./my-statistics --id author.statistics --runtime node
+world-hub-pack validate-module ./my-statistics
+world-hub-pack doctor-module ./my-statistics
+node --test ./my-statistics/logic.test.mjs
+```
+
+也可选择 `--runtime python`。工具生成可选 Runtime 的文字统计作者样板，包含独立程序、完整桥 SDK、许可、业务合同和自测；不安装或执行生成代码。按[模块作者指南](docs/ecosystem/developer.md)发布开放索引，再发现、下载、预检替换并重新审阅启动。模块结构与业务由作者选择，Hub 不规定必须使用这些样板。
+
+软件源可持久启用、禁用和排序；相同对象身份不同摘要会明确提示冲突。创作工作台可查看实际候选的合同、桥、权限和平台差异。声明兼容仍须用真实消费者验证业务结果。完整能力与验证边界见[第十七期](docs/ecosystem/phase17.md)。
+
 ## 可选托管社区
 
 [World Hub Workshop](https://peros.cn/workshop/) 提供公开的 Pack／Module 目录和下载。受邀开发者可以发布不可变版本、发表评论，并提交绑定原版摘要的改进提案；作者检查后发布新版本。将 `https://peros.cn/workshop/index.json` 加到 Launcher 的“软件源”，即可校验、缓存，再按本机审阅流程导入与启动。

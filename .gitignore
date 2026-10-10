@@ -1,6 +1,7 @@
 # Local history, credentials, deployed data and validation/build outputs.
 .local/
 .artifacts/
+.playwright-mcp/
 dist/
 data/
 world-hub-data/

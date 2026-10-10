@@ -1,5 +1,9 @@
 # Open static software sources
 
+Launcher additionally persists named source configurations in its own private root. Enable/disable, digest pins, private-network policy and priority are backend decisions. Disabling a registered address also rejects legacy raw-address requests, retaining caches and local instances. Priority only orders candidates; it never silently chooses conflicting bytes or updates running programs. Current and withdrawn entries retain observation times, with explicit same-kind/ID/version conflicts when hashes differ. These are observations, not publisher signatures or revocation of an already running program.
+
+Verified fetches produce backend provenance receipts bound to the actual index and artifact digests. Receipts identify content integrity while explicitly leaving publisher identity, code safety and OS isolation unverified. Import and later execution reviews preserve the receipt only while the reviewed content/environment digest remains unchanged. Raw UI input cannot invent this provenance. See the [Launcher guide](launcher.md) and [module author quickstart](developer.en.md).
+
 Software sources are optional distribution inputs. Local package inspection, import, start, stop and export continue to work when every source is unavailable. They have no role in Hub routing or program business logic. Third parties can implement the following formats without an official account, website or GUI.
 
 ## Index version 1

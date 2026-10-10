@@ -1,6 +1,6 @@
 {
   "name": "world-hub",
-  "version": "0.16.2",
+  "version": "0.17.0",
   "license": "MIT",
   "author": "oooBCKooo",
   "repository": {
@@ -36,6 +36,8 @@
     "bin/world-hub.mjs",
     "bin/world-hub-pack.mjs",
     "scripts/runtime/*.mjs",
+    "scripts/runtime/templates/**/*.mjs",
+    "scripts/runtime/templates/**/*.py",
     "docs/ecosystem/*.json",
     "src/**/*.mjs",
     "src/**/*.html",

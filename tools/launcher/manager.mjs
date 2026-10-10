@@ -9,10 +9,11 @@ import { ownProcess } from '../../scripts/runtime/process.mjs';
 import { detectEnvironment, discoverEnvironment } from './environment.mjs';
 import { planPythonEnvironment, preparePythonEnvironment, cleanupPreparedEnvironment } from './environment-prepare.mjs';
 import { backupInstance, inspectBackup, restoreInstance, storageInstance, detachInstance, reattachInstance } from '../../scripts/runtime/maintenance.mjs';
-import { inspectAuthoring, derivePackage, rebuildPackage, exportProposal, applyProposal, addComment, readComments, exportComments, importComments } from '../../scripts/runtime/authoring.mjs';
+import { inspectAuthoring, previewReplacement, derivePackage, rebuildPackage, exportProposal, applyProposal, addComment, readComments, exportComments, importComments } from '../../scripts/runtime/authoring.mjs';
 import { readSourceIndex, fetchSourceArtifact, publishArtifact } from '../../scripts/runtime/sources.mjs';
 import { loopbackUrl, mapTopology, managementLink } from './topology.mjs';
 import { diagnose } from './diagnostics.mjs';
+import { SourceRegistry } from './source-registry.mjs';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
 export function launcherError(code, message, status = 409) { return Object.assign(new Error(message), { code, status }); }
@@ -33,10 +34,12 @@ export class LauncherManager {
     this.root = resolve(options.root); this.defaults = { nodePath: options.nodePath ?? process.execPath,
       pythonPath: options.pythonPath ?? (process.platform === 'win32' ? 'python.exe' : 'python3') };
     this.records = new Map(); this.reviews = new Map(); this.operations = new Map(); this.sessions = new Map();
+    this.sourceRegistry = new SourceRegistry(this.root); this.sourceReviews = new Map();
     this.busy = new Map(); this.registryQueue = Promise.resolve(); this.saveQueue = Promise.resolve(); this.environmentPlans = new Map(); this.preparationOwners = new Map(); this.url = ''; this.hub = null; this.hubFailure = null; this.closing = false;
   }
   async initialize() {
     await ordinaryPath(this.root, { allowMissing: true }); await mkdir(this.root, { recursive: true, mode: 0o700 });
+    await this.sourceRegistry.initialize();
     try {
       const data = await json(join(this.root, 'launcher-instances.json'));
       if (!Array.isArray(data.instances) || data.instances.length > 128) throw new Error('Invalid Launcher instance registry');
@@ -89,10 +92,12 @@ export class LauncherManager {
     const names = new Set([...old, ...plan.permissions].map(p => p.module));
     const permissionDiff = [...names].map(module => ({ module, before: old.find(p => p.module === module)?.declared ?? null,
       after: plan.permissions.find(p => p.module === module)?.declared ?? null })).filter(p => JSON.stringify(p.before) !== JSON.stringify(p.after));
-    const reviewId = randomUUID();
-    this.reviews.set(reviewId, { reviewId, plan, environment: chosen, instanceId, createdAt: Date.now() });
+    const row = instanceId ? this.records.get(instanceId) : null;
+    const sourceReceipt = row?.sourceDigest === plan.digest ? row.sourceReceipt ?? null : await this.sourceRegistry.recognize(plan.directory);
+    const reviewId = randomUUID(), created = Date.now();
+    this.reviews.set(reviewId, { reviewId, plan, environment: chosen, instanceId, createdAt: created, sourceReceipt });
     while (this.reviews.size > 64) this.reviews.delete(this.reviews.keys().next().value);
-    return { reviewId, review: plan, permissionDiff };
+    return { reviewId, review: plan, permissionDiff, sourceReceipt, createdAt: new Date(created).toISOString(), expiresAt: new Date(created + 10 * 60000).toISOString() };
   }
   reviewed(reviewId, instanceId) {
     const review = this.reviews.get(reviewId);
@@ -135,7 +140,8 @@ export class LauncherManager {
     const imported = await importPackage(reviewed.plan.directory, { root: this.root, instanceId, ...reviewed.environment });
     if (imported.digest !== reviewed.plan.digest) throw launcherError('REVIEW_CHANGED', 'Source changed during import; incomplete instance is retained for inspection. Choose a new instance ID after review.');
     this.records.set(instanceId, { root: this.root, instanceId, pack: { id: imported.plan.pack.id, version: imported.plan.pack.version, title: imported.plan.pack.title },
-      importedAt: new Date().toISOString(), environment: reviewed.environment, permissions: imported.plan.permissions });
+      importedAt: new Date().toISOString(), environment: reviewed.environment, permissions: imported.plan.permissions,
+      sourceReceipt: reviewed.sourceReceipt ?? null, sourceDigest: imported.digest });
     await this.save(); return this.instance(instanceId);
   }
   async instance(id) {
@@ -254,13 +260,26 @@ export class LauncherManager {
       row.detached = false; row.environment = review.environment; row.permissions = result.plan.permissions; await this.save(); return result; });
   }
   authoring(input) { return inspectAuthoring(input.directory, this.environment(input)); }
+  previewReplacement(input) { return previewReplacement(input.directory, { ...input, ...this.environment(input) }); }
   async commentDirectory(directory) {
     const source = await ordinaryPath(directory), key = createHash('sha256').update(process.platform === 'win32' ? source.toLowerCase() : source).digest('hex');
     const journal = join(this.root, 'creator-comments', key); await ordinaryPath(journal, { allowMissing: true }); await mkdir(journal, { recursive: true, mode: 0o700 });
     return journal;
   }
   async comments(input) { return readComments(await this.commentDirectory(input.directory)); }
-  source(input) { return readSourceIndex(input.source, { expectedSha256: input.expectedSha256, allowPrivateNetwork: input.allowPrivateNetwork }); }
+  sources() { return this.sourceRegistry.list(); }
+  saveSource(input) { return this.sourceRegistry.save(input); }
+  deleteSource(id) { return this.sourceRegistry.delete(id); }
+  async source(input) {
+    const chosen = await this.sourceRegistry.resolve(input);
+    try {
+      const result = await readSourceIndex(chosen.source, { expectedSha256: chosen.expectedSha256, allowPrivateNetwork: chosen.allowPrivateNetwork });
+      await this.sourceRegistry.assertCurrent(chosen); await this.sourceRegistry.observed(chosen, result);
+      const receiptId = randomUUID(), created = Date.now(); this.sourceReviews.set(receiptId, { chosen, result, created });
+      while (this.sourceReviews.size > 64) this.sourceReviews.delete(this.sourceReviews.keys().next().value);
+      return { ...result, receiptId, sourceId: chosen.sourceId ?? null, createdAt: new Date(created).toISOString(), expiresAt: new Date(created + 10 * 60000).toISOString() };
+    } catch (error) { await this.sourceRegistry.unavailable(chosen); throw error; }
+  }
   creator(kind, input) {
     const key = '$creator-' + createHash('sha256').update(resolve(input.directory ?? this.root)).digest('hex');
     return this.launch(kind, key, async (_, signal) => {
@@ -278,7 +297,19 @@ export class LauncherManager {
   }
   fetchSource(input) {
     const key = '$source-cache';
-    return this.launch('fetch-source', key, (_, signal) => fetchSourceArtifact(input.source, input.indexDigest, input.entryId, { cacheRoot: join(this.root, 'source-cache'), allowPrivateNetwork: input.allowPrivateNetwork, signal }));
+    return this.launch('fetch-source', key, async (_, signal) => {
+      const chosen = await this.sourceRegistry.resolve(input); let indexDigest = input.indexDigest;
+      if (input.receiptId !== undefined) {
+        const receipt = this.sourceReviews.get(input.receiptId);
+        if (!receipt || Date.now() - receipt.created > 10 * 60000 || receipt.chosen.source !== chosen.source || receipt.chosen.revision !== chosen.revision
+          || receipt.chosen.sourceId !== chosen.sourceId || receipt.chosen.allowPrivateNetwork !== chosen.allowPrivateNetwork
+          || receipt.chosen.expectedSha256 !== chosen.expectedSha256) throw launcherError('SOURCE_REVIEW_REQUIRED', 'Inspect this current source configuration again.');
+        indexDigest = receipt.result.digest;
+      } else if (input.sourceId) throw launcherError('SOURCE_REVIEW_REQUIRED', 'Inspect the registered source and supply its current receiptId.');
+      const result = await fetchSourceArtifact(chosen.source, indexDigest, input.entryId, { cacheRoot: join(this.root, 'source-cache'), allowPrivateNetwork: chosen.allowPrivateNetwork, signal });
+      await this.sourceRegistry.assertCurrent(chosen);
+      return { ...result, sourceReceipt: await this.sourceRegistry.recordFetch(chosen, { ...result, indexDigest }) };
+    });
   }
   async logs(id) {
     const row = this.row(id);

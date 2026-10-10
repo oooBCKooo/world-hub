@@ -38,11 +38,7 @@ async function copyTree(directory, files, destination, options) {
     await writeFile(target, bytes, { flag: 'wx', mode: 0o600 });
   }
 }
-export async function derivePackage(source, options) {
-  cancelled(options);
-  agreement(options);
-  const original = await inspectAuthoring(source, options);
-  if (options.expectedRevision !== undefined && options.expectedRevision !== original.revision) throw new Error('Authoring revision conflict: inspect the current package before deriving');
+async function prepareDerivation(original, options) {
   const pack = copy(options.pack ?? original.pack);
   validatePack(pack); pack.components.forEach(c => nonsensitive(c.settings));
   const available = original.review.modules.map(m => ({ manifest: m.manifest, files: m.files, directory: join(original.directory, m.source) }));
@@ -57,7 +53,6 @@ export async function derivePackage(source, options) {
     const manifest = JSON.parse((await readBounded(join(directory, 'module.json'))).toString()); validateModule(manifest);
     const files = await collectFiles(directory);
     if (!files.some(f => f.path === manifest.runtime.entry)) throw new Error('Replacement entry is absent');
-    if (!manifest.platforms.includes(`${process.platform}-${process.arch}`)) throw new Error('Replacement platform is unsupported');
     // One module ID has one content tree. Replacing a shared module changes every
     // reference to that ID; choosing a new ID affects only this component.
     const previous = available.findIndex(m => m.manifest.id === manifest.id);
@@ -68,18 +63,52 @@ export async function derivePackage(source, options) {
   const used = [...new Set(pack.components.map(c => c.module))].map(id => {
     const m = available.find(v => v.manifest.id === id); if (!m) throw new Error(`Missing module source: ${id}`); return m;
   });
-  // Validate connections before writing any output, using the same contracts as Runtime.
+  const diagnostics = [];
+  for (const m of used) if (!m.manifest.platforms.includes(`${process.platform}-${process.arch}`)) diagnostics.push({ code: 'PLATFORM_UNSUPPORTED', message: `Replacement platform is unsupported: ${m.manifest.id}`, moduleId: m.manifest.id });
+  // The preview and the actual derivation use identical declaration checks.
   for (const c of pack.components) {
     const m = used.find(v => v.manifest.id === c.module).manifest;
-    if (m.bridges.length !== Object.keys(c.bridges).length || m.bridges.some(slot => !Object.hasOwn(c.bridges, slot))) throw new Error(`Replacement bridge slots do not match: ${c.id}`);
-    for (const required of m.requires) if (!pack.bindings.some(b => b.to === c.id && b.contract.id === required.id && b.contract.version === required.version)) throw new Error(`Unbound required contract: ${c.id}/${required.id}`);
+    if (m.bridges.length !== Object.keys(c.bridges).length || m.bridges.some(slot => !Object.hasOwn(c.bridges, slot))) diagnostics.push({ code: 'BRIDGE_SLOTS_MISMATCH', message: `Replacement bridge slots do not match: ${c.id}`, componentId: c.id });
+    for (const required of m.requires) if (!pack.bindings.some(b => b.to === c.id && b.contract.id === required.id && b.contract.version === required.version)) diagnostics.push({ code: 'CONTRACT_UNBOUND', message: `Unbound required contract: ${c.id}/${required.id}`, componentId: c.id });
   }
   for (const b of pack.bindings) {
     const from = used.find(m => m.manifest.id === pack.components.find(c => c.id === b.from).module).manifest;
     const to = used.find(m => m.manifest.id === pack.components.find(c => c.id === b.to).module).manifest;
     const matches = c => c.id === b.contract.id && c.version === b.contract.version;
-    if (!from.provides.some(matches) || !to.requires.some(matches)) throw new Error('Incompatible declared capability contract binding');
+    if (!from.provides.some(matches) || !to.requires.some(matches)) diagnostics.push({ code: 'CONTRACT_INCOMPATIBLE', message: 'Incompatible declared capability contract binding', binding: copy(b) });
   }
+  return { pack, used, diagnostics };
+}
+// Read-only creator preflight. Compatibility here is a declaration check, not
+// evidence that third-party code implements the business contract correctly.
+export async function previewReplacement(source, options) {
+  cancelled(options);
+  const original = await inspectAuthoring(source, options);
+  const component = original.pack.components.find(c => c.id === options.componentId);
+  if (!component) throw new Error('Replacement refers to an absent component');
+  const before = original.review.modules.find(m => m.manifest.id === component.module).manifest;
+  const prepared = await prepareDerivation(original, { ...options, replacements: [{ componentId: options.componentId, moduleDirectory: options.moduleDirectory }] });
+  const nextComponent = prepared.pack.components.find(c => c.id === options.componentId);
+  const candidate = prepared.used.find(m => m.manifest.id === nextComponent.module);
+  const after = candidate.manifest;
+  const differences = Object.fromEntries([
+    ['identity', { id: before.id, version: before.version }, { id: after.id, version: after.version }],
+    ['contracts', { provides: before.provides, requires: before.requires }, { provides: after.provides, requires: after.requires }],
+    ...['bridges', 'permissions', 'platforms', 'runtime', 'license'].map(key => [key, before[key], after[key]])
+  ].map(([key, previous, next]) => [key, { before: copy(previous), after: copy(next), changed: JSON.stringify(previous) !== JSON.stringify(next) }]));
+  return { sourceRevision: original.revision, candidate: { manifest: copy(after), directory: candidate.directory },
+    candidateDigest: hash(JSON.stringify(candidate.files)), compatible: prepared.diagnostics.length === 0,
+    differences, affectedComponents: prepared.pack.components.filter(c => c.id === options.componentId || c.module === after.id).map(c => c.id),
+    diagnostics: prepared.diagnostics, businessValidated: false, stateCompatibility: 'unknown',
+    requiresNewExecutionReview: true, startsModules: false, writesFiles: false };
+}
+export async function derivePackage(source, options) {
+  cancelled(options);
+  agreement(options);
+  const original = await inspectAuthoring(source, options);
+  if (options.expectedRevision !== undefined && options.expectedRevision !== original.revision) throw new Error('Authoring revision conflict: inspect the current package before deriving');
+  const { pack, used, diagnostics } = await prepareDerivation(original, options);
+  if (diagnostics.length) throw new Error(diagnostics[0].message);
   const destination = await ordinaryPath(options.destination, { allowMissing: true });
   cancelled(options);
   await mkdir(destination, { mode: 0o700 }); // Never overwrite a source or existing package.

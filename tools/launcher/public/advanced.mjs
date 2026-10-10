@@ -123,7 +123,18 @@ export function createAdvancedUi(ctx) {
     restoreDialog.replaceChildren(el('div', { class: 'dialog-heading' }, [title, button('×', () => restoreDialog.close(), 'icon-button')]), restoreForm); restoreDialog.showModal();
   }
 
-  function saveSources() { try { localStorage.setItem('world-hub.launcher.sources', JSON.stringify(extra.sources)); } catch {} }
+  let sourceLoading = false;
+  async function loadSources() {
+    if (sourceLoading) return; sourceLoading = true;
+    try { const data = await api('/api/sources'); if (!Array.isArray(data.sources)) return; extra.sources = [...data.sources, ...extra.sources.filter(row => !row.id && !data.sources.some(source => source.source === row.source))]; extra.catalog = data; if (state.view === 'sources') renderSources(); }
+    catch (failure) { toast(failure.message); } finally { sourceLoading = false; }
+  }
+  async function changeSource(source, changes) {
+    const input = Object.fromEntries(['id', 'name', 'source', 'enabled', 'priority', 'expectedSha256', 'allowPrivateNetwork', 'revision'].filter(key => source[key] !== undefined).map(key => [key, source[key]]));
+    await api('/api/sources/save', { ...input, ...changes });
+    if (extra.source === source.source) { extra.index = null; delete extra.indexes[source.source]; }
+    await loadSources();
+  }
   function rememberIndex(source, data) { extra.indexes[source] = data; try { localStorage.setItem('world-hub.launcher.source-indexes', JSON.stringify(extra.indexes)); } catch {} }
   function renderSources() {
     const root = $('#sources-content');
@@ -135,16 +146,17 @@ export function createAdvancedUi(ctx) {
       try { localStorage.setItem('world-hub.launcher.community', url.href); } catch {}
       window.open(url.href, '_blank', 'noopener,noreferrer');
     }, say('社区提供账号、发布、评论与提案交换，在独立页面运行。复制其 index.json 地址到下面的软件源；社区登录不授予本机管理或程序执行权限。', 'The community provides accounts, publishing, comments and proposal exchange in a separate page. Copy its index.json URL into a source below. Community login does not grant local management or execution permissions.'));
-    const sourceSelect = el('select', { name: 'source', 'aria-label': label('sources') }, [el('option', { value: '' }, say('选择软件源', 'Select a source')), ...extra.sources.map(source => el('option', { value: source.source }, source.name))]);
+    const sourceSelect = el('select', { name: 'source', 'aria-label': label('sources') }, [el('option', { value: '' }, say('选择软件源', 'Select a source')), ...extra.sources.filter(source => source.enabled !== false).map(source => el('option', { value: source.source }, source.name))]);
     sourceSelect.value = extra.source;
     const result = el('div', { id: 'source-results' });
     const browse = form([sourceSelect], say('读取来源索引', 'Read source index'), async f => {
       const selected = value(f, 'source'); if (!selected) throw new Error(say('请先添加或选择软件源。', 'Add or select a source first.'));
       const configured = extra.sources.find(item => item.source === selected);
+      if (configured?.enabled === false) throw new Error(say('软件源已禁用。', 'This source is disabled.'));
       try {
-        const data = await api('/api/sources/inspect', { source: selected, ...(configured?.expectedSha256 ? { expectedSha256: configured.expectedSha256 } : {}), ...(configured?.allowPrivateNetwork === true ? { allowPrivateNetwork: true } : {}) }); extra.index = data; rememberIndex(selected, data);
+        const data = await api('/api/sources/inspect', configured?.id ? { sourceId: configured.id } : { source: selected, ...(configured?.expectedSha256 ? { expectedSha256: configured.expectedSha256 } : {}), ...(configured?.allowPrivateNetwork === true ? { allowPrivateNetwork: true } : {}) }); extra.index = data; rememberIndex(selected, data); void loadSources();
       } catch (failure) {
-        if (!extra.indexes[selected]) throw failure;
+        if (['SOURCE_DISABLED', 'SOURCE_CHANGED', 'SOURCE_POLICY_CHANGED'].includes(failure.code) || !extra.indexes[selected]) throw failure;
         extra.index = extra.indexes[selected]; extra.index.cachedObservation = true; toast(say('来源当前不可用，显示上次索引观察。只能获取后台已验证的制品缓存；不会沿用执行授权。', 'Source unavailable: showing the last index observation. Fetching still requires the backend’s verified artifact cache. Execution authorization is not reused.'));
       }
       extra.source = selected; renderSources();
@@ -152,10 +164,14 @@ export function createAdvancedUi(ctx) {
     const privateNetwork = el('label', { class: 'consent' }, [el('input', { type: 'checkbox', name: 'allowPrivateNetwork' }), el('span', {}, say('使用我信任的私网或 DNS 代理来源；允许获取到本机缓存，运行仍须重新审阅授权。', 'Use a trusted private network or DNS proxy source. Fetching is allowed into the local cache; execution still needs fresh review and authorization.'))]);
     const add = form([field('name', say('显示名称', 'Display name')), field('source', say('本机索引文件或 HTTPS 索引地址', 'Local index file or HTTPS index URL')), field('expectedSha256', say('索引 SHA-256（可选）', 'Index SHA-256 (optional)'), '', { required: false }), privateNetwork], say('添加软件源', 'Add source'), async f => {
       const source = { name: value(f, 'name'), source: value(f, 'source'), expectedSha256: value(f, 'expectedSha256'), allowPrivateNetwork: f.elements.allowPrivateNetwork.checked === true };
-      const data = await api('/api/sources/inspect', { source: source.source, ...(source.expectedSha256 ? { expectedSha256: source.expectedSha256 } : {}), ...(source.allowPrivateNetwork ? { allowPrivateNetwork: true } : {}) });
-      extra.sources = [...extra.sources.filter(item => item.source !== source.source), source]; saveSources(); rememberIndex(source.source, data); extra.source = source.source; extra.index = data; renderSources();
+      const saved = await api('/api/sources/save', { ...source, enabled: true, priority: 0 });
+      extra.source = saved.source.source; extra.index = null; await loadSources(); renderSources();
     });
-    const sourcesList = el('div', { class: 'stack' }, extra.sources.map(source => el('div', { class: 'runtime-row' }, [el('div', {}, [el('h3', {}, source.name), el('p', {}, source.source), el('p', { class: 'field-help' }, source.allowPrivateNetwork === true ? say('明确允许可信私网／DNS 代理', 'Trusted private network / DNS proxy explicitly allowed') : say('公共网络策略（默认）', 'Public network policy (default)'))]), button(say('移除配置', 'Remove configuration'), () => { extra.sources = extra.sources.filter(item => item.source !== source.source); if (extra.source === source.source) { extra.source = ''; extra.index = null; } saveSources(); renderSources(); }, 'button button-small button-quiet')])));
+    const sourcesList = el('div', { class: 'stack' }, extra.sources.map(source => el('div', { class: 'runtime-row' }, [el('div', {}, [el('h3', {}, source.name), el('p', {}, source.source), pill(source.enabled === false ? say('已禁用', 'Disabled') : say('已启用', 'Enabled')), el('p', { class: 'field-help' }, `${say('优先级仅排序', 'Priority only orders choices')}: ${source.priority ?? 0}`), source.observation ? jsonView(say('上次观察', 'Last observation'), source.observation) : null]),
+      source.id ? button(source.enabled === false ? say('启用', 'Enable') : say('禁用', 'Disable'), () => changeSource(source, { enabled: source.enabled === false }), 'button button-small button-quiet') : button(say('迁移此浏览器来源配置', 'Migrate this browser source configuration'), async () => { await api('/api/sources/save', { name: source.name, source: source.source, enabled: true, priority: 0, ...(source.expectedSha256 ? { expectedSha256: source.expectedSha256 } : {}), allowPrivateNetwork: source.allowPrivateNetwork === true }); await loadSources(); }, 'button button-small button-quiet'),
+      source.id ? form([field('priority', say('优先级', 'Priority'), source.priority ?? 0, { type: 'number' })], say('保存排序', 'Save ordering'), f => changeSource(source, { priority: Number(value(f, 'priority')) })) : null,
+      source.id ? button(say('移除配置', 'Remove configuration'), async () => { await api(`/api/sources/${encodeURIComponent(source.id)}/delete`, {}); if (extra.source === source.source) { extra.source = ''; extra.index = null; } await loadSources(); }, 'button button-small button-quiet') : null ])));
+    if (extra.catalog?.conflicts?.length) sourcesList.prepend(note(say('相同对象身份存在不同摘要，请明确选择来源与内容。优先级不会自动解决冲突。', 'The same artifact identity has different digests. Select its source and contents explicitly; priority does not resolve conflicts.'), true), jsonView(say('内容冲突', 'Content conflicts'), extra.catalog.conflicts, true));
     root.replaceChildren(heading(label('sources'), say('按合同、平台和许可查找模块与整合包，验证内容后缓存到本机。', 'Find modules and packs by contract, platform, and license, then verify and cache them locally.'), 'OPTIONAL DISTRIBUTION'), note(say('软件源是可选的。浏览和获取不会执行模块，不替代代码审阅或授权。摘要核对证明内容一致性，不证明代码安全；本地实例无需社区在线。', 'Sources are optional. Browsing and fetching do not execute modules or replace code review and authorization. Hashes establish content integrity, not code safety. Local instances work without community services.')), panel(say('托管社区（可选）', 'Hosted community (optional)'), [community]), panel(say('我的软件源', 'My sources'), [sourcesList, el('details', { class: 'json-details' }, [el('summary', {}, say('添加来源', 'Add a source')), add])]), panel(say('发现模块与整合包', 'Discover modules & packs'), [browse, result]));
     if (extra.index) renderSourceEntries(result);
   }
@@ -170,7 +186,8 @@ export function createAdvancedUi(ctx) {
       const query = search.value.toLowerCase(), os = platform.value.toLowerCase(), permission = license.value.toLowerCase();
       const matches = entries.filter(entry => entry && (!kind.value || entry.kind === kind.value) && (!os || entry.platforms?.some(item => String(item).toLowerCase().includes(os))) && (!permission || String(entry.license).toLowerCase().includes(permission)) && JSON.stringify([entry.id, entry.title, entry.provides, entry.requires]).toLowerCase().includes(query));
       cards.replaceChildren(...matches.map(entry => el('article', { class: 'panel source-card' }, [el('div', { class: 'panel-heading' }, [el('h3', {}, entry.title ?? entry.id), pill(entry.kind)]), el('p', { class: 'mono subtle' }, `${entry.id} · ${entry.version}`), el('p', { class: 'field-help' }, `${entry.license ?? '—'} · ${(entry.platforms ?? []).join(', ')}`), jsonView(say('来源、摘要与合同', 'Source, digest & contracts'), { source: entry.source, sha256: entry.sha256, provides: entry.provides, requires: entry.requires }), button(say('验证并获取到缓存', 'Verify and fetch to cache'), () => reviewAction(say('获取软件制品', 'Fetch software artifact'), [note(say('内容会验证摘要后保存到新的本机缓存目录，不安装依赖、不导入实例、不启动程序。', 'Contents are hash-verified into a new local cache directory. This does not install dependencies, import an instance, or execute programs.')), definition([[say('来源索引', 'Source index'), extra.source], ['ID', entry.id], [say('许可', 'License'), entry.license], ['SHA-256', entry.sha256], [say('网络策略', 'Network policy'), allowPrivateNetwork ? say('可信私网／DNS 代理', 'Trusted private network / DNS proxy') : say('公共网络', 'Public network')]])], say('我已检查来源、网络策略和摘要，允许下载或复制该制品到本机缓存。', 'I reviewed the source, network policy, and digest and authorize downloading or copying this artifact to the local cache.'), async () => {
-        const fetched = await operation(await api('/api/sources/fetch', { source: extra.source, indexDigest: data.digest, entryId: entry.entryId, ...(allowPrivateNetwork ? { allowPrivateNetwork: true } : {}) }), 'fetch');
+        const fetched = await operation(await api('/api/sources/fetch', { ...(data.sourceId && data.receiptId ? { sourceId: data.sourceId, receiptId: data.receiptId } : { source: extra.source, indexDigest: data.digest, ...(allowPrivateNetwork ? { allowPrivateNetwork: true } : {}) }), entryId: entry.entryId }), 'fetch');
+        if (fetched.sourceReceipt) target.append(jsonView(say('后台核对的来源收据（不证明代码安全）', 'Backend-verified source receipt (does not establish code safety)'), fetched.sourceReceipt, true));
         const fetchedView = el('div', { class: 'notice' }, [el('p', {}, `${say('已获取', 'Fetched')}: ${fetched.directory}`), fetched.kind === 'pack' ? button(t('importPack'), () => { openImport(); $('#import-form').elements.directory.value = fetched.directory; }, 'button button-small button-primary') : button(say('在创作工作台使用', 'Use in creator workspace'), () => { extra.moduleCandidate = fetched.directory; navigate('creator'); }, 'button button-small button-quiet')]); target.append(fetchedView);
       }), 'button button-small button-primary')])));
       if (!matches.length) cards.append(el('p', { class: 'field-help' }, say('没有匹配的制品。', 'No matching artifacts.')));
@@ -179,14 +196,17 @@ export function createAdvancedUi(ctx) {
     target.replaceChildren(...[data.cachedObservation ? note(say('这是本机保存的过时索引观察。后台只允许摘要一致的已验证缓存，不能据此直接运行软件。', 'This is a saved stale index observation. The backend only permits a hash-matching verified cache; this cannot authorize execution.'), true) : null, el('div', { class: 'source-filters' }, [search, kind, platform, license]), el('p', { class: 'review-digest' }, `${say('索引摘要', 'Index digest')}: ${data.digest}`), cards].filter(Boolean)); filter();
   }
 
-  function currentModule(component) { return extra.authoring?.modules?.find(module => module.id === component.module); }
+  function currentModule(component) { const replaced = extra.replacements.get(component.id)?.preview?.candidate?.manifest;
+    if (replaced) return replaced;
+    const shared = [...extra.replacements.values()].find(row => row.preview?.candidate?.manifest?.id === component.module)?.preview?.candidate?.manifest;
+    return shared ?? extra.authoring?.modules?.find(module => module.id === component.module); }
   const contracts = module => module?.provides ?? [];
   function graph() {
     const pack = extra.edited, graph = el('div', { class: 'composition-graph', role: 'group', 'aria-label': say('当前组件与能力绑定图', 'Current components and capability bindings') });
     const nodes = el('div', { class: 'composition-nodes' });
     for (const component of pack.components) {
       const manifest = currentModule(component);
-      nodes.append(el('article', { class: 'composition-node' }, [el('div', { class: 'composition-node-heading' }, [el('strong', {}, component.id), pill(manifest?.runtime?.kind ?? component.module)]), el('p', { class: 'mono' }, component.module), el('div', { class: 'module-permissions' }, (manifest?.provides ?? []).map(contract => el('span', { class: 'permission' }, `↑ ${contract.id}@${contract.version}`))), el('div', { class: 'module-permissions' }, (manifest?.requires ?? []).map(contract => el('span', { class: 'permission' }, `↓ ${contract.id}@${contract.version}`))), button(say('修改配置与模块', 'Edit settings & module'), () => editComponent(component.id), 'button button-small button-quiet')]));
+      nodes.append(el('article', { class: 'composition-node' }, [el('div', { class: 'composition-node-heading' }, [el('strong', {}, component.id), pill(manifest?.runtime?.kind ?? component.module)]), el('p', { class: 'mono' }, manifest?.id ?? component.module), el('div', { class: 'module-permissions' }, (manifest?.provides ?? []).map(contract => el('span', { class: 'permission' }, `↑ ${contract.id}@${contract.version}`))), el('div', { class: 'module-permissions' }, (manifest?.requires ?? []).map(contract => el('span', { class: 'permission' }, `↓ ${contract.id}@${contract.version}`))), button(say('修改配置与模块', 'Edit settings & module'), () => editComponent(component.id), 'button button-small button-quiet')]));
     }
     graph.append(nodes, el('div', { class: 'composition-bindings' }, pack.bindings.map((binding, index) => el('div', { class: 'binding-row' }, [el('strong', {}, binding.from), el('span', { class: 'binding-arrow', 'aria-hidden': 'true' }, '→'), el('strong', {}, binding.to), el('span', { class: 'mono subtle' }, `${binding.contract.id}@${binding.contract.version}`), button(say('移除绑定', 'Remove binding'), () => { extra.edited.bindings.splice(index, 1); renderCreator(); }, 'button button-small button-quiet')]))));
     if (!pack.bindings.length) graph.append(el('p', { class: 'field-help' }, say('当前没有能力绑定。', 'No capability bindings in the current composition.')));
@@ -211,20 +231,33 @@ export function createAdvancedUi(ctx) {
   const componentDialog = el('dialog', { class: 'dialog' }); document.body.append(componentDialog);
   function editComponent(id) {
     const component = extra.edited.components.find(c => c.id === id), replacement = extra.replacements.get(id);
+    let checkedPreview = null;
+    const previewView = el('div', { class: 'stack' });
     const editor = form([field('settings', say('公开配置 JSON', 'Public settings JSON'), JSON.stringify(component.settings ?? {}, null, 2), { multiline: true }), field('after', say('启动依赖组件（逗号分隔）', 'Startup dependencies (comma-separated)'), (component.after ?? []).join(', '), { required: false }), field('moduleDirectory', say('替代模块目录（可选）', 'Replacement module directory (optional)'), replacement?.moduleDirectory ?? extra.moduleCandidate ?? '', { required: false })], say('保存草稿配置', 'Save draft settings'), async f => {
       const settings = JSON.parse(value(f, 'settings')); if (!settings || Array.isArray(settings) || typeof settings !== 'object') throw new Error(say('配置须为 JSON 对象。', 'Settings must be a JSON object.'));
+      const moduleDirectory = value(f, 'moduleDirectory');
+      if (moduleDirectory) {
+        const data = await api('/api/authoring/preview', { directory: extra.directory, componentId: id, moduleDirectory, ...env() });
+        const preview = data.preview;
+        previewView.replaceChildren(note(say('这是声明兼容预检，未执行候选代码。业务正确性和状态兼容性仍需验证；生成派生包会再次检查。', 'This is a declaration preflight. Candidate code was not run. Business correctness and state compatibility still need verification; derivation checks again.'), true), jsonView(say('实际候选、差异与影响组件', 'Actual candidate, differences and affected components'), preview, true));
+        if (!preview.compatible) throw new Error(say('声明不兼容，请查看预检结果。', 'Declarations are incompatible. See the preflight results.'));
+        if (checkedPreview?.candidateDigest !== preview.candidateDigest || checkedPreview?.candidate?.directory !== preview.candidate?.directory || checkedPreview?.sourceRevision !== preview.sourceRevision) {
+          checkedPreview = preview;
+          toast(say('预检通过，请检查差异后再次点击保存。', 'Preflight passed. Review the differences, then save again.')); return;
+        }
+        extra.replacements.set(id, { componentId: id, moduleDirectory, preview });
+      } else extra.replacements.delete(id);
       component.settings = settings; component.after = value(f, 'after').split(',').map(item => item.trim()).filter(Boolean);
-      const moduleDirectory = value(f, 'moduleDirectory'); if (moduleDirectory) extra.replacements.set(id, { componentId: id, moduleDirectory }); else extra.replacements.delete(id);
       componentDialog.close(); renderCreator();
     }, say('公开配置会随包分享，不应包含密码或个人秘密。替代模块的桥槽和能力合同必须兼容；同一 Module ID 替换会影响所有引用，新 ID 只替换此组件。后台生成新锁并验证。', 'Public settings are shared with the pack; omit secrets. Replacement slots and contracts must be compatible. Replacing a shared Module ID affects every reference; a new ID affects this component. The backend generates and checks a new lock.'));
-    componentDialog.replaceChildren(el('div', { class: 'dialog-heading' }, [el('h2', {}, id), button('×', () => componentDialog.close(), 'icon-button')]), editor); componentDialog.showModal();
+    componentDialog.replaceChildren(el('div', { class: 'dialog-heading' }, [el('h2', {}, id), button('×', () => componentDialog.close(), 'icon-button')]), editor, previewView); componentDialog.showModal();
   }
   function editedBody(form) {
     const pack = structuredClone(extra.edited);
     if (form.elements.packId) pack.id = value(form, 'packId');
     if (form.elements.packTitle) pack.title = value(form, 'packTitle');
     if (form.elements.packVersion) pack.version = value(form, 'packVersion');
-    return { directory: extra.directory, destination: value(form, 'destination'), expectedRevision: extra.authoring.revision, pack, replacements: [...extra.replacements.values()], redistributionAcknowledged: true, ...env() };
+    return { directory: extra.directory, destination: value(form, 'destination'), expectedRevision: extra.authoring.revision, pack, replacements: [...extra.replacements.values()].map(({ componentId, moduleDirectory }) => ({ componentId, moduleDirectory })), redistributionAcknowledged: true, ...env() };
   }
   function renderCreator() {
     const root = $('#creator-content');
@@ -328,7 +361,7 @@ export function createAdvancedUi(ctx) {
   try { const saved = JSON.parse(localStorage.getItem('world-hub.launcher.source-indexes') ?? '{}'); if (saved && typeof saved === 'object' && !Array.isArray(saved)) extra.indexes = Object.fromEntries(Object.entries(saved).slice(0, 32).filter(([, entry]) => /^[a-f0-9]{64}$/.test(entry?.digest) && Array.isArray(entry?.index?.entries) && entry.index.entries.length <= 4096)); } catch {}
   function sessionReady() {
     const restore = button(say('从私有备份恢复', 'Restore a private backup'), openRestore, 'button button-quiet'); restore.id = 'restore-entry'; $('#view-packs .page-heading').append(restore);
-    renderEnvironmentTools();
+    renderEnvironmentTools(); void loadSources();
   }
-  return { label, languageChanged, sessionReady, renderStorage, loadStorage, navigate(view) { if (view === 'sources') renderSources(); if (view === 'creator') renderCreator(); if (view === 'environment') renderEnvironmentTools(); } };
+  return { label, languageChanged, sessionReady, renderStorage, loadStorage, openCreator(directory) { extra.directory = directory; extra.authoring = null; extra.edited = null; extra.replacements.clear(); navigate('creator'); }, navigate(view) { if (view === 'sources') { renderSources(); void loadSources(); } if (view === 'creator') renderCreator(); if (view === 'environment') renderEnvironmentTools(); } };
 }

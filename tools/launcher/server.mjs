@@ -14,7 +14,9 @@ function fields(body, allowed, required = []) {
   if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(k => !allowed.includes(k))
     || required.some(k => !Object.hasOwn(body, k))) throw launcherError('INVALID_INPUT', 'Missing or unsupported request fields.', 400);
   for (const [key, value] of Object.entries(body)) {
-    if (['accepted', 'redistributionAcknowledged', 'allowPrivateNetwork'].includes(key)) { if (typeof value !== 'boolean') throw launcherError('INVALID_INPUT', `Invalid ${key}`, 400); }
+    if (['accepted', 'redistributionAcknowledged', 'allowPrivateNetwork', 'enabled'].includes(key)) { if (typeof value !== 'boolean') throw launcherError('INVALID_INPUT', `Invalid ${key}`, 400); }
+    else if (['priority', 'revision'].includes(key)) { if (!Number.isSafeInteger(value)) throw launcherError('INVALID_INPUT', `Invalid ${key}`, 400); }
+    else if (key === 'expectedSha256' && value === '') { /* Explicitly clear an optional source pin. */ }
     else if (key === 'pack') { if (!value || typeof value !== 'object' || Array.isArray(value)) throw launcherError('INVALID_INPUT', 'Invalid pack object', 400); }
     else if (key === 'replacements') {
       if (!Array.isArray(value) || value.length > 32) throw launcherError('INVALID_INPUT', 'Invalid replacements', 400);
@@ -99,6 +101,7 @@ export async function createLauncherServer(options = {}) {
       else if (target.pathname === '/api/backups/inspect' && request.method === 'POST') { fields(body, ['backup'], ['backup']); result = { inspection: await manager.inspectBackup(body.backup) }; }
       else if (target.pathname === '/api/backups/restore' && request.method === 'POST') { fields(body, ['backup', 'sha256', 'instanceId', 'nodePath', 'pythonPath', 'accepted'], ['backup', 'sha256', 'instanceId', 'accepted']); result = await manager.restore(body); status = 202; }
       else if (target.pathname === '/api/authoring/inspect' && request.method === 'POST') { fields(body, ['directory', 'nodePath', 'pythonPath'], ['directory']); directory = body.directory; result = { authoring: await manager.authoring(body) }; }
+      else if (target.pathname === '/api/authoring/preview' && request.method === 'POST') { fields(body, ['directory', 'componentId', 'moduleDirectory', 'nodePath', 'pythonPath'], ['directory', 'componentId', 'moduleDirectory']); result = { preview: await manager.previewReplacement(body) }; }
       else if (target.pathname === '/api/authoring/read-comments' && request.method === 'POST') { fields(body, ['directory'], ['directory']); result = { comments: await manager.comments(body) }; }
       else if (/^\/api\/authoring\/(derive|rebuild|proposal|apply-proposal|comments|export-comments|import-comments)$/.test(target.pathname) && request.method === 'POST') {
         const kind = target.pathname.split('/').at(-1);
@@ -111,8 +114,11 @@ export async function createLauncherServer(options = {}) {
         if (kind === 'import-comments') { allowed.splice(0, allowed.length, 'directory', 'source', 'expectedRevision'); required.splice(0, required.length, 'directory', 'source', 'expectedRevision'); }
         fields(body, allowed, required); result = manager.creator(kind === 'comments' ? 'comment' : kind, body); status = 202;
       }
-      else if (target.pathname === '/api/sources/inspect' && request.method === 'POST') { fields(body, ['source', 'expectedSha256', 'allowPrivateNetwork'], ['source']); result = await manager.source(body); }
-      else if (target.pathname === '/api/sources/fetch' && request.method === 'POST') { fields(body, ['source', 'indexDigest', 'entryId', 'allowPrivateNetwork'], ['source', 'indexDigest', 'entryId']); result = manager.fetchSource(body); status = 202; }
+      else if (target.pathname === '/api/sources' && request.method === 'GET') result = await manager.sources();
+      else if (['/api/sources', '/api/sources/save'].includes(target.pathname) && request.method === 'POST') { fields(body, ['id', 'name', 'source', 'enabled', 'priority', 'expectedSha256', 'allowPrivateNetwork', 'revision'], ['name', 'source']); result = await manager.saveSource(body); }
+      else if (/^\/api\/sources\/[a-z0-9._-]+\/delete$/.test(target.pathname) && request.method === 'POST') { fields(body, []); result = await manager.deleteSource(target.pathname.split('/').at(-2)); }
+      else if (target.pathname === '/api/sources/inspect' && request.method === 'POST') { fields(body, ['source', 'sourceId', 'expectedSha256', 'allowPrivateNetwork']); if (!body.source && !body.sourceId) throw launcherError('SOURCE_INPUT', 'Select a source.', 400); result = await manager.source(body); }
+      else if (target.pathname === '/api/sources/fetch' && request.method === 'POST') { fields(body, ['source', 'sourceId', 'receiptId', 'indexDigest', 'entryId', 'allowPrivateNetwork'], ['entryId']); if (!body.source && !body.sourceId) throw launcherError('SOURCE_INPUT', 'Select a source.', 400); result = manager.fetchSource(body); status = 202; }
       else if (target.pathname === '/api/sources/publish' && request.method === 'POST') { fields(body, ['directory', 'destination', 'kind', 'nodePath', 'pythonPath', 'redistributionAcknowledged'], ['directory', 'destination', 'kind', 'redistributionAcknowledged']); result = manager.creator('publish', body); status = 202; }
       else if (target.pathname === '/api/review' && request.method === 'POST') { fields(body, ['directory', 'nodePath', 'pythonPath'], ['directory']); directory = body.directory; result = await manager.review(directory, body); }
       else if (target.pathname === '/api/instances' && request.method === 'GET') result = { instances: await manager.instances() };

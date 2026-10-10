@@ -57,7 +57,7 @@ export async function startInstance(options) {
   const statusFile = join(stateDir, 'status.json');
   const snapshot = () => JSON.parse(JSON.stringify(state));
   const persist = () => { const value = snapshot(); persistQueue = persistQueue.catch(() => {}).then(() => privateJson(statusFile, value)); return persistQueue; };
-  const logs = () => ({ format: 'world-hub.runtime-logs/v1', instanceId: options.instanceId,
+  const logs = () => ({ format: 'world-hub.runtime-logs/v1', instanceId: options.instanceId, runId: nonce, observedAt: new Date().toISOString(),
     logs: Object.fromEntries(children.map(h => [h.id, { pid: h.pid, stdout: h.stdout, stderr: h.stderr, truncated: h.truncated }])) });
   const close = () => closing ??= (async () => {
     options.signal?.removeEventListener('abort', abort);
@@ -250,7 +250,10 @@ export async function logsInstance(options) {
   catch (error) {
     const directory = instancePath(options.root, options.instanceId), state = await json(join(directory, 'status.json'));
     if (!['stopped', 'failed'].includes(state.state)) throw error;
-    return json(join(directory, 'runs', state.runId, 'logs.json'));
+    const saved = await json(join(directory, 'runs', state.runId, 'logs.json'));
+    // Older saved logs did not include their run identity. The historical path
+    // supplies that exact identity, never the identity of a newer live run.
+    return { ...saved, runId: saved.runId ?? state.runId, observedAt: saved.observedAt ?? state.stoppedAt ?? null };
   }
 }
 export async function stopInstance(options) {

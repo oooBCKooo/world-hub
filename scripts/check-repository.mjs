@@ -141,7 +141,14 @@ for (const path of paths) {
   if (/(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|AKIA[A-Z0-9]{16}|sk-[A-Za-z0-9]{32,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]{80,}?-----END)/.test(content)) reject(path, 'Possible real credential; review privately');
   if (/[A-Za-z]:[\\/](?:Users[\\/]|PerosProject[\\/]|AntigravityProject[\\/])/i.test(content)) reject(path, 'Personal machine path');
   if (extname(path) === '.mjs' || extname(path) === '.js') {
-    for (const match of content.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)['"]([^'"]+)['"]/g)) await checkReference(path, match[1], 'Relative import');
+    for (const match of content.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)['"]([^'"]+)['"]/g)) {
+      // initModule copies this public SDK next to the generated author program.
+      // Resolve only that exact materialized import; other template imports
+      // must still refer to a real published source file.
+      if (path === 'scripts/runtime/templates/node/program.mjs' && match[1] === './bridge-kit.mjs') {
+        await checkReference(path, '../../../../sdk/javascript/bridge-kit.mjs', 'Generated SDK source');
+      } else await checkReference(path, match[1], 'Relative import');
+    }
     for (const match of content.matchAll(/new URL\(\s*['"]([^'"]+)['"]\s*,\s*import\.meta\.url\s*\)/g)) await checkReference(path, match[1], 'Module URL');
   }
   if (extname(path) === '.md') {
