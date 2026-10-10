@@ -44,7 +44,7 @@ world-hub-interop verify --config private-wiring.json --report new-report.json
 | `protocol` | 真实 Hub 接纳序号、requestSeq、目标 principal／可选 session、回应关联 | 业务成功、事务提交或权限由广告自动授予 |
 | `business` | 成功／失败闭合格式、invocationId、provider、UUID 和准确 Unicode／UTF-8 结果 | 其他合同、长期负载或外部副作用可撤销 |
 
-12 个正常／失败案例包括空文本、emoji、组合字符、CRLF／空白保真、ASCII／emoji 16384 字节边界、超限字节、孤立代理项、额外字段、错误合同版本、非法 invocationId、256 码点 ID 边界及提供者权限拒绝。成功结果准确核对码点、LF 行数、原始 UTF-8 字节数及 SHA-256；每次执行 UUID 不复用。协议可以通过而业务失败，报告保留这种区别。
+13 个正常／失败案例包括空文本、emoji、组合字符、CRLF／空白保真、ASCII／emoji 16384 字节边界、超限字节、孤立代理项、数字文本、额外字段、错误合同版本、非法 invocationId、256 码点 ID 边界及提供者权限拒绝。数字文本使用超过 JavaScript 安全整数范围的 JSON 数字，确认 Python SDK 的诊断字符串化不会改变业务类型。成功结果准确核对码点、LF 行数、原始 UTF-8 字节数及 SHA-256；每次执行 UUID 不复用。协议可以通过而业务失败，报告保留这种区别。
 
 ## 从公开仓库重跑受控基准 / Reproduce the controlled suite
 
@@ -59,6 +59,6 @@ npm run test:interop
 
 第二组受控场景主动让外部提供者暂不回应，再通过普通 response 订阅抽取迟到结果；验证超时不是取消、旧精确 session 不交给新连接，以及 Hub ACL 拒绝与错误业务结果分别识别。它不强迫第三方模块加入测试控制接口，也不把超时后的结果未知写成已失败或可安全重发。两组测试都不 release 信息。
 
-JavaScript 参考 artifact 沿用此前独立 AI 的文档隔离实验，原实现摘要不变。Python 是集成 AI 从公共协议和 Python SDK 分别实现的参考，但该作者读过 JavaScript fixture，**不声称第二位独立作者**。作者来源见各自 `authorship.json`；资料限制为实验指令，并非操作系统隔离。真实第三方独立作者与新用户验收仍是明确待办，自动测试不能替代它们。
+JavaScript 参考 artifact 沿用此前独立 AI 的文档隔离实验，原实现摘要不变。Python 参考由另一位没有项目对话历史的 AI 作者，只读公开契约、被引用的协议规范及 Python SDK 独立实现；该作者未读 JavaScript 或其他提供者实现。两者通过同一 CLI 和不变消费者，并在短租约续期后完成实际业务调用。作者来源、当时公开文档的摘要与最终实现摘要见各自 `authorship.json`；资料限制为实验指令，并非操作系统隔离。**这是两位 AI 作者的公开文档接入实验，真人第三方独立作者与新用户验收仍是明确待办**，自动测试不能替代它们。
 
 英文命令帮助、字段和分层报告可直接使用。The benchmark verifies one optional application profile through public bridge traffic. It does not establish independent human authorship, general contract compatibility, or automatic cancellation after timeout. See [the public provider contract](../modules/provider-contract.md), [Python SDK](../../sdk/python/README.md), and [wire protocol](../specs/protocol.md).

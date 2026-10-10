@@ -1,37 +1,161 @@
 {
-  "method": "integration-ai-separately-implemented-reference",
-  "accessBoundary": "Author reviewed public documentation and the existing JavaScript fixture; no independent docs-only authorship claim.",
+  "schemaVersion": 1,
+  "artifact": "independent-docs-only-python-provider",
+  "author": {
+    "kind": "AI",
+    "name": "Codex independent Python author",
+    "human": false
+  },
+  "implementationLanguage": "Python",
+  "independentOfExistingProviders": true,
+  "docsOnly": true,
+  "processBoundary": {
+    "kind": "instruction-constrained-material-access",
+    "operatingSystemEnforced": false,
+    "doesNotEstablishHumanAuthorshipOrHumanAcceptance": true,
+    "summary": "A new AI author read only the explicitly allowed public materials, including three linked public wire specifications subsequently authorized by the coordinator. No existing provider, example, test, Git history/diff, memory, other author's implementation or run review was read."
+  },
+  "materialsCommit": "74bfdfebb06ca4d7207cf95675416b8ca30f5949",
+  "materialsCommitProvenance": "Supplied by the coordinator as the materials snapshot marker; author did not inspect Git.",
   "materials": [
     {
-      "publicPath": "docs/modules/provider-contract.md",
-      "sha256": "4ad33a7cd9e5e0607ae9c76a36c3ff7214f5fef63635ab422d50de490d6bee3d"
+      "path": "docs/modules/provider-contract.md",
+      "sha256": "4ad33a7cd9e5e0607ae9c76a36c3ff7214f5fef63635ab422d50de490d6bee3d",
+      "frozenSha256": "4ad33a7cd9e5e0607ae9c76a36c3ff7214f5fef63635ab422d50de490d6bee3d"
     },
     {
-      "publicPath": "docs/modules/text-statistics.contract.json",
-      "sha256": "726a0a38d5cf1c7f4802d5f004e557ac81795f5b27a89163d8afd476bf9b90a1"
+      "path": "docs/modules/text-statistics.contract.json",
+      "sha256": "726a0a38d5cf1c7f4802d5f004e557ac81795f5b27a89163d8afd476bf9b90a1",
+      "frozenSha256": "726a0a38d5cf1c7f4802d5f004e557ac81795f5b27a89163d8afd476bf9b90a1"
     },
     {
-      "publicPath": "sdk/python/README.md",
-      "sha256": "e799e79d9b109d11e1e99a90dcadd8ea5a2ab9c5151523f3e679978d5e1d1902"
+      "path": "sdk/python/README.md",
+      "sha256": "e799e79d9b109d11e1e99a90dcadd8ea5a2ab9c5151523f3e679978d5e1d1902",
+      "frozenSha256": "e799e79d9b109d11e1e99a90dcadd8ea5a2ab9c5151523f3e679978d5e1d1902"
     },
     {
-      "publicPath": "sdk/python/hub_bridge.py",
-      "sha256": "ae5d4ef57e4e20f739bc32fadfb6a9c8ce079462eca203f6958a9e5d6ee7f3ce"
+      "path": "sdk/python/hub_bridge.py",
+      "sha256": "ae5d4ef57e4e20f739bc32fadfb6a9c8ce079462eca203f6958a9e5d6ee7f3ce",
+      "frozenSha256": "ae5d4ef57e4e20f739bc32fadfb6a9c8ce079462eca203f6958a9e5d6ee7f3ce"
     },
     {
-      "publicPath": "docs/specs/bridge-interoperability.md",
-      "sha256": "40992be549b98ca73f3a41e78106b380b43f7f6440e88c3d4b0895269fbec3df"
+      "path": "sdk/python/requirements.txt",
+      "sha256": "9ec828179a682425537349fb41440b48a47b1ef006b7b3e1d1542566d3ec6943",
+      "frozenSha256": "9ec828179a682425537349fb41440b48a47b1ef006b7b3e1d1542566d3ec6943"
     },
     {
-      "publicPath": "docs/specs/protocol.md",
-      "sha256": "9063f136e9dc76b3bd9203a8fae2532382308fa98321b834d079365d9c946fa6"
+      "path": "docs/ecosystem/interop.md",
+      "sha256": "ff7cdd8d941400721e3d6d385f2313665936d97e9dc335b6b53a74104f5bc6c2",
+      "frozenSha256": "ff7cdd8d941400721e3d6d385f2313665936d97e9dc335b6b53a74104f5bc6c2"
     },
     {
-      "publicPath": "docs/specs/directed-and-bulk.md",
-      "sha256": "0504667001a1d133b357e4ea90c8870c89ad07d7b035d0eabf54e70aec27ef48"
+      "path": "docs/specs/protocol.md",
+      "sha256": "9063f136e9dc76b3bd9203a8fae2532382308fa98321b834d079365d9c946fa6",
+      "frozenSha256": "9063f136e9dc76b3bd9203a8fae2532382308fa98321b834d079365d9c946fa6"
+    },
+    {
+      "path": "docs/specs/directed-and-bulk.md",
+      "sha256": "0504667001a1d133b357e4ea90c8870c89ad07d7b035d0eabf54e70aec27ef48",
+      "frozenSha256": "0504667001a1d133b357e4ea90c8870c89ad07d7b035d0eabf54e70aec27ef48"
+    },
+    {
+      "path": "docs/specs/bridge-interoperability.md",
+      "sha256": "40992be549b98ca73f3a41e78106b380b43f7f6440e88c3d4b0895269fbec3df",
+      "frozenSha256": "40992be549b98ca73f3a41e78106b380b43f7f6440e88c3d4b0895269fbec3df"
     }
   ],
-  "implementationSha256": "a702bfe50879a35eae8e322d9b135b127927291df09d58ee2d36d6c4214176bc",
+  "attemptedMissingMaterials": [
+    {
+      "path": "docs/modules/README.md",
+      "status": "not-found",
+      "sha256": null
+    },
+    {
+      "path": "docs/capabilities.md",
+      "status": "not-found",
+      "sha256": null
+    },
+    {
+      "path": "docs/bridge-spec.md",
+      "status": "not-found",
+      "sha256": null
+    }
+  ],
+  "additionalPublicMaterialsAuthorization": {
+    "suppliedBy": "coordinator",
+    "reason": "The initial missing paths omitted the complete Python wire definitions. provider-contract.md explicitly references the public wire specifications.",
+    "paths": [
+      "docs/specs/protocol.md",
+      "docs/specs/directed-and-bulk.md",
+      "docs/specs/bridge-interoperability.md"
+    ]
+  },
+  "implementation": {
+    "path": "provider.py",
+    "sha256": "0a303e8503e4de41c5a23ffe91e5e6983ccbffc412cdc8f6fe9d634ede75c3b1",
+    "frozenSha256": "0a303e8503e4de41c5a23ffe91e5e6983ccbffc412cdc8f6fe9d634ede75c3b1"
+  },
+  "supportingFiles": [
+    {
+      "path": "README.md",
+      "sha256": "26ecf022e0353462cc7467c3b011b4732b162094cbf5f55cb3e6a363d5995513",
+      "adaptedBy": "integration coordinator for repository-relative usage"
+    }
+  ],
+  "frozenAt": "2026-10-10T13:47:12.6323039Z",
+  "localValidation": {
+    "pythonVersion": "3.14.0",
+    "syntax": "passed (compile builtin; no bytecode artifacts)",
+    "businessAndDirectoryLogic": {
+      "passed": true,
+      "count": 35,
+      "source": "Own checks derived from the public machine contract and public provider/directory prose."
+    },
+    "wireAcceptance": "Not claimed by this author; coordinator performs separate public CLI and unchanged-consumer acceptance."
+  },
+  "gaps": [
+    {
+      "id": "missing-initial-public-paths",
+      "description": "Three initially named public paths do not exist.",
+      "resolution": "Recorded as missing; explicitly authorized public references supplied the complete wire framing."
+    },
+    {
+      "id": "python-sdk-is-raw-only",
+      "description": "The public Python SDK has only connect/send/receive/close, without registerChannels/call/respond/ACK helpers.",
+      "resolution": "The application independently implements those wire operations and finite receipt correlation from the authorized public wire specifications."
+    },
+    {
+      "id": "welcome-features-serialization-schema",
+      "description": "The read public documents specify welcome.features negotiation but do not include a complete serialization Schema for that field.",
+      "resolution": "Accept a list containing directed-v1 or an object whose directed-v1 value is exactly true; fail closed for other shapes or absent support."
+    }
+  ],
+  "restrictionsVerifiedByAuthor": {
+    "readExistingProviders": false,
+    "readExamples": false,
+    "readTests": false,
+    "readGitDiffOrHistory": false,
+    "readMemory": false,
+    "readOtherAgentImplementation": false,
+    "readRunReview": false,
+    "runExistingBusinessImplementations": false,
+    "modifiedPublicRepository": false
+  },
+  "limitations": [
+    "This is AI authorship under instruction-based document access, not independently verified human authorship or human acceptance.",
+    "Local schema checking supports only the keywords present in this public machine contract.",
+    "No persistent cursor, automatic transport reconnection or cross-restart exactly-once execution is claimed.",
+    "ACK and stop do not release records; local timeouts do not cancel business requests."
+  ],
+  "originalAuthorReadmeSha256": "35027662fad58bbd925e35c7898871c2b81c994af2cb22e7fa5779cf2d00f9ac",
+  "implementationSha256": "0a303e8503e4de41c5a23ffe91e5e6983ccbffc412cdc8f6fe9d634ede75c3b1",
   "humanThirdPartyAcceptance": false,
-  "secondIndependentAuthor": false
+  "acceptance": {
+    "command": "npm run test:interop",
+    "implementationUnchanged": true,
+    "consumerSourceUnchanged": true,
+    "businessCasesPerProvider": 13,
+    "leaseRenewalBeforeApplicationInvocation": true,
+    "acceptedBy": "integration coordinator, separate from author"
+  }
 }

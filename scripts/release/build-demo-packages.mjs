@@ -30,7 +30,7 @@ const documentationFiles = [
   'docs/deployment.md', 'docs/verification.md', 'docs/repository.md', 'docs/releases.md', 'docs/npm.md',
   'docs/examples/distributed-context.md', 'docs/examples/workflows.md', 'docs/examples/purpose-demos.md',
   'docs/examples/capability-directory.md',
-  'docs/modules/provider-contract.md',
+  'docs/modules/provider-contract.md', 'docs/ecosystem/interop.md',
   ...['index', 'boundaries', 'protocol', 'reliability-access', 'directed-and-bulk', 'management',
     'bridge-interoperability', 'manual-workbench', 'operations'].map(name => `docs/specs/${name}.md`),
 ];

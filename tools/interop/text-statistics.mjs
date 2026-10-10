@@ -75,6 +75,7 @@ export async function verifyTextStatistics(config) {
       ['empty', ''], ['unicode-crlf-whitespace', ' 世界 🌍\r\n e\u0301 \n'], ['unicode-distinction', 'é\ne\u0301'],
       ['ascii-byte-boundary', 'a'.repeat(16384)], ['emoji-byte-boundary', '🌍'.repeat(4096)],
       ['over-byte-boundary', 'a'.repeat(16385), 'INPUT_INVALID'], ['unpaired-surrogate', '\ud800', 'INPUT_INVALID'],
+      ['numeric-text-not-string', Number.MAX_SAFE_INTEGER + 1, 'INPUT_INVALID'],
       ['extra-input-field', 'text', 'INPUT_INVALID', { extra: true }], ['wrong-contract-version', 'text', 'CONTRACT_MISMATCH', { contract: { ...contract, version: '2.0.0' } }],
       ['invalid-invocation', 'text', 'INPUT_INVALID', { invocationId: 1 }], ['invocation-codepoint-boundary', '', null, { invocationId: '🌍'.repeat(256) }]
     ];

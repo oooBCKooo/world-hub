@@ -5,7 +5,7 @@
 | 交付 | 公开入口与验证 |
 | --- | --- |
 | 公开契约验证 CLI 和分层报告 | [互操作基准](interop.md)，`world-hub-interop verify`；`npm run test:interop` |
-| 同一消费者的 JS／Python 配置替换 | 真实进程、精确业务输出、失败格式、源码摘要不变；作者来源分别标注 |
+| 同一消费者的 JS／Python 配置替换 | 两位 AI 作者的公开文档接入实验；真实进程、精确业务输出、失败格式、消费者源码摘要不变 |
 | 无需编辑 JSON 的组件替换 | [Creator](authoring.md)：选择组件／候选、查看兼容与差异、复检、派生新目录、导入并重新审阅 |
 | 声明与环境分层预检 | 合同、桥槽、启动依赖、平台、解释器及受支持 SDK 依赖；不执行候选代码、不自动安装 |
 | 社区→本地→创作迭代 | [跨角色 E2E](phase18-workshop.md)，实际 Workshop／Launcher HTTP、不可覆盖版本、评论提案、离线缓存运行 |
@@ -16,4 +16,4 @@
 
 套件入口：`test:interop`、`test:ecosystem`、`test:launcher`、`test:workshop`、`test:npm`；完整发行另检查真实 ZIP／tarball 和当前提交 CI。静态声明、真实桥行为、业务输出、GUI 操作和生产 HTTPS 源按各自实际执行范围报告，不相互冒充。
 
-真人独立作者和新用户验收经维护者决定暂缓；Python 参考作者有既有 JS 资料暴露，不构成第二位独立作者实验。OS 强制隔离继续限定现有可选 Linux Docker Node headless profile。大型社区、任意合同／语言／平台及长期高负载不是本期已验收能力。
+真人独立作者和新用户验收经维护者决定暂缓；两位独立 AI 作者的公开文档实验不替代真人验收。OS 强制隔离继续限定现有可选 Linux Docker Node headless profile。大型社区、任意合同／语言／平台及长期高负载不是本期已验收能力。

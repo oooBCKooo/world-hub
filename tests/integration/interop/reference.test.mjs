@@ -70,7 +70,7 @@ test('INTEROP-01 one unchanged public consumer verifies JS and direct Python pro
     await save(join(moduleDirectory, 'module.json'), { format: 'world-hub.module/v1', id: p.id, version: '1.0.0', license: 'MIT', platforms: [`${process.platform}-${process.arch}`], runtime: { kind: p.kind, entry: p.entry }, bridges: ['main'], provides: [{ id: 'text.statistics', version: '1.0.0' }], requires: [], permissions: { filesystem: 'instance-state', network: ['hub-loopback'], processes: 'none' } });
     const config = join(directory, `${p.language}.json`), topic = `vendor/${p.language}/statistics`;
     await save(config, { endpoint: hub.ready.endpoint, principal: p.id, credential: p.id, token: providerToken, moduleId: p.id, moduleVersion: '1.0.0', bridgeId: `${p.id}.bridge`, businessTopic: topic,
-      directory: { principal: principalFor(profile, 'directory'), registerTopic: `${prefix}/catalog/register`, queryTopic: `${prefix}/catalog/query` }, allowedCallers: [principalFor(profile, 'composer')], leaseMs: 10000, renewEveryMs: 1000,
+      directory: { principal: principalFor(profile, 'directory'), registerTopic: `${prefix}/catalog/register`, queryTopic: `${prefix}/catalog/query` }, allowedCallers: [principalFor(profile, 'composer')], leaseMs: 1000, renewEveryMs: 250,
       contractPath: join(ROOT, 'docs/modules/text-statistics.contract.json'), sdkDirectory: join(ROOT, 'sdk/python'), cursorFile: join(directory, p.language + '-cursor.json') });
     const program = p.kind === 'node' ? await startOwnedProgram(script, { args: ['--config', config] }) : await pythonProgram(script, config); owned.push(program);
     const consumerConfig = { endpoint: hub.ready.endpoint, target: { principal: p.id, session: program.ready.session }, topic, moduleId: p.id, moduleDirectory,
@@ -82,14 +82,17 @@ test('INTEROP-01 one unchanged public consumer verifies JS and direct Python pro
     let cliError = ''; cli.stderr.on('data', b => { cliError = (cliError + b).slice(-1024); }); cli.stdout.resume();
     const cliExit = await new Promise((resolve, reject) => { cli.once('error', reject); cli.once('exit', code => resolve(code)); });
     const report = JSON.parse(await readFile(reportPath, 'utf8')); assert.equal(cliExit, 0, cliError || JSON.stringify(report));
-    assert.equal(report.passed, true, JSON.stringify(report)); assert.equal(report.layers.protocol.cases.length, 12);
+    assert.equal(report.passed, true, JSON.stringify(report)); assert.equal(report.layers.protocol.cases.length, 13);
+    // Invoke after the initial lease would expire; directory renewals must keep
+    // the same public consumer able to select the live provider.
+    await new Promise(resolve => setTimeout(resolve, 1300));
     assert.equal((await compose({ command: 'configure', provider: p.id })).ok, true);
     const result = await compose({ command: 'run', invocationId: 'swap-' + p.language }); assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(result.selection.module.id, p.id); reports.push({ language: p.language, verificationPassed: report.passed, processor: result.selection, output: result.output });
   }
   assert.deepEqual(await Promise.all(protectedFiles.map(f => digest(join(ROOT, f)))), before);
   await save(join(evidence, 'report.json'), { format: 'world-hub.interop-reference/v1', passed: true, providers: reports,
-    consumerChanged: false, sourceAndSinkChanged: false, authorship: { javascript: 'previous-separate-ai-docs-only', python: 'integration-ai-reference-with-prior-javascript-exposure', humanThirdPartyAcceptance: false },
+    consumerChanged: false, sourceAndSinkChanged: false, authorship: { javascript: 'previous-separate-ai-docs-only', python: 'separate-ai-public-docs-only-without-reference-access', humanThirdPartyAcceptance: false },
     layers: ['static-module-declaration', 'real-bridge-request-correlation', 'exact-business-output'], consumerHashes: before });
   t.diagnostic('INTEROP_EVIDENCE ' + JSON.stringify({ directory: evidence, passed: true, unchangedConsumer: true }));
 });
