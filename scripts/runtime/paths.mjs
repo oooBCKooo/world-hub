@@ -83,12 +83,15 @@ export async function privateJson(file, value, { exclusive = false } = {}) {
     await writeFile(temporary, bytes, { flag: 'wx', mode: 0o600 });
     // Windows readers and antivirus can briefly deny replacement of the old
     // journal. Retry the same atomic rename; never remove the destination or
-    // turn a persistent permission failure into an in-place write.
+    // turn a persistent permission failure into an in-place write. A bounded
+    // four-second window also covers slower Windows runners and scanners.
+    const replacementDeadline = performance.now() + 4000;
     for (let attempt = 0; ; attempt++) {
       try { await rename(temporary, file); break; }
       catch (error) {
-        if (process.platform !== 'win32' || !['EPERM', 'EACCES'].includes(error.code) || attempt >= 9) throw error;
-        await new Promise(resolveWait => setTimeout(resolveWait, Math.min((attempt + 1) * 25, 100)));
+        const remaining = replacementDeadline - performance.now();
+        if (process.platform !== 'win32' || !['EPERM', 'EACCES'].includes(error.code) || remaining <= 0) throw error;
+        await new Promise(resolveWait => setTimeout(resolveWait, Math.min((attempt + 1) * 25, 100, remaining)));
       }
     }
   } catch (error) { try { await unlink(temporary); } catch {} throw error; }

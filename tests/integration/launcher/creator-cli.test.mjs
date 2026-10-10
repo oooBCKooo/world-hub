@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { readFile, writeFile, rename, rm, lstat, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, rename, rm, lstat, mkdir, realpath } from 'node:fs/promises';
 import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { createHash } from 'node:crypto';
 import { workspace, fixturePackage, filesBelow, json, save, ROOT } from './helpers.mjs';
@@ -95,7 +95,7 @@ test('CREATOR-CLI-03 source publication, pinned retrieval and archive-only offli
   await refuses(['source', published.indexPath, '--sha256', '0'.repeat(64)], /hash mismatch/);
   await rename(output, output + '-offline');
   // Remove only this known extraction inside the test workspace, preserving its verified archive.
-  const extraction = resolve(fetched.directory), cache = resolve(cacheRoot), tail = relative(cache, extraction);
+  const extraction = await realpath(fetched.directory), cache = await realpath(cacheRoot), tail = relative(cache, extraction);
   assert.equal(dirname(extraction), cache); assert.equal(isAbsolute(tail), false); assert.match(tail, /^[a-f0-9]{64}$/);
   await rm(extraction, { recursive: true, force: false });
   const recovered = await cli(argumentsForFetch);

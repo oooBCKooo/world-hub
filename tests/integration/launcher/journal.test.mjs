@@ -35,27 +35,34 @@ test('LAUNCHER-JOURNAL-01 concurrent status polling observes only complete atomi
   assert.deepEqual(await readdir(directory), ['status.json']);
 });
 
-if (process.platform === 'win32') test('LAUNCHER-JOURNAL-02 a transient Windows read handle permits atomic replacement after its release',
+if (process.platform === 'win32') for (const { id, holdMs, persistent } of [
+  { id: '02', holdMs: 300, persistent: false },
+  { id: '03', holdMs: 1500, persistent: false },
+  { id: '04', holdMs: 5500, persistent: true },
+]) test(`LAUNCHER-JOURNAL-${id} ${persistent ? 'persistent Windows denial preserves the previous generation and removes only its temporary write' : 'a transient Windows read handle permits atomic replacement after its release'}`,
   { timeout: 30000 }, async t => {
     const { directory, file } = await journal(t); await privateJson(file, { generation: 0 });
     // FileShare.ReadWrite deliberately omits Delete, reproducing a Windows
     // reader that temporarily prevents an otherwise valid atomic replacement.
-    const script = "$stream = [System.IO.File]::Open($env:WORLD_HUB_TEST_ATOMIC_FILE, 'Open', 'Read', 'ReadWrite'); try { [Console]::Out.WriteLine('locked'); Start-Sleep -Milliseconds 300 } finally { $stream.Dispose() }";
+    const script = `$stream = [System.IO.File]::Open($env:WORLD_HUB_TEST_ATOMIC_FILE, 'Open', 'Read', 'ReadWrite'); try { [Console]::Out.WriteLine('locked'); Start-Sleep -Milliseconds ${holdMs} } finally { $stream.Dispose() }`;
     const reader = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script],
       { shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, WORLD_HUB_TEST_ATOMIC_FILE: file } });
     let exited = false, stderr = '';
     const exit = new Promise((yes, no) => { reader.once('error', no); reader.once('close', (code, signal) => { exited = true; yes({ code, signal }); }); });
     t.after(async () => { if (!exited) reader.kill(); await exit; });
     reader.stderr.on('data', bytes => { stderr += bytes; });
+    for (const stream of [reader.stdout, reader.stderr]) stream.on('error', error => { stderr += error.message; });
     await new Promise((yes, no) => {
       let output = '';
       reader.once('error', no);
       reader.stdout.on('data', bytes => { output += bytes; if (output.includes('locked')) yes(); });
       reader.once('close', code => { if (!output.includes('locked')) no(new Error(`Windows lock fixture failed (${code}): ${stderr}`)); });
     });
-    const started = Date.now(); await privateJson(file, { generation: 1 });
-    assert.ok(Date.now() - started >= 200, 'Replacement should wait for the reader to release its Windows handle');
+    const started = Date.now();
+    if (persistent) await assert.rejects(privateJson(file, { generation: 1 }), error => ['EPERM', 'EACCES'].includes(error.code));
+    else await privateJson(file, { generation: 1 });
+    assert.ok(Date.now() - started >= (persistent ? 3800 : holdMs - 100), 'Replacement must wait for release or the bounded retry deadline');
     assert.deepEqual(await exit, { code: 0, signal: null }, stderr);
-    assert.deepEqual(JSON.parse((await readBounded(file)).toString('utf8')), { generation: 1 });
+    assert.deepEqual(JSON.parse((await readBounded(file)).toString('utf8')), { generation: persistent ? 0 : 1 });
     assert.deepEqual(await readdir(directory), ['status.json']);
   });

@@ -15,6 +15,20 @@ export function ownProcess(executable, argv, { cwd, temporary, secrets, onFailur
     if (Buffer.byteLength(text) > 65536) handle.truncated = true;
     handle[stream] = tail(text);
   };
+  // Output pipes are independent EventEmitters: ChildProcess 'error' does not
+  // catch read failures from these sockets. Retain ownership until real close.
+  const pipeFailure = (stream, error) => {
+    let diagnostic = tail(redact(`Owned program ${handle.pid ?? executable} ${stream} pipe failed: ${error.message ?? error}`), 2048);
+    // A partial leading UTF-8 character can decode to a wider replacement.
+    while (Buffer.byteLength(diagnostic) > 2048) diagnostic = diagnostic.slice(1);
+    record('stderr', diagnostic + '\n');
+    if (!handle.stopping && !handle.exit) {
+      handle.error = diagnostic;
+      onFailure?.(Object.assign(new Error(diagnostic), { code: 'OWNED_PIPE_FAILED', stream }));
+    }
+  };
+  child.stdout.on('error', error => pipeFailure('stdout', error));
+  child.stderr.on('error', error => pipeFailure('stderr', error));
   let pending = ''; const decoder = new StringDecoder('utf8');
   child.stdout.on('data', bytes => {
     const value = decoder.write(bytes); record('stdout', value); pending += value;

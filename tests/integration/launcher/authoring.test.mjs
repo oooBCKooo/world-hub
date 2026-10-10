@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cp, mkdir, mkdtemp, readFile, writeFile, rm, lstat, unlink, readdir } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, writeFile, rm, lstat, unlink, readdir, realpath } from 'node:fs/promises';
 import { join, dirname, basename, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -235,7 +235,7 @@ test('SOURCES-06 concurrent exact-artifact retrieval is bounded and archive-only
   for (const result of results) if (result.status === 'rejected') assert.equal(result.reason.code, 'SOURCE_CACHE_BUSY');
   const cached = await fetchSourceArtifact(publication.indexPath, source.digest, entry.entryId, { cacheRoot });
   assert.equal(cached.cached, true);
-  assert.equal(dirname(resolve(cached.directory)), resolve(cacheRoot));
+  assert.equal(dirname(resolve(cached.directory)), await realpath(cacheRoot));
   await rm(cached.directory, { recursive: true }); // Simulates an archive published before directory commit.
   await unlink(publication.indexPath);
   const recovered = await fetchSourceArtifact(publication.indexPath, source.digest, entry.entryId, { cacheRoot });

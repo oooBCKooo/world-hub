@@ -68,6 +68,10 @@ async function run(executable, args, { signal, cwd, timeout = 120000 }) {
       output = Buffer.concat([Buffer.from(output), bytes]).subarray(-65536).toString('utf8');
       if (outputBytes > 65536) stop(fail('PREPARATION_OUTPUT_LIMIT', 'Environment tool exceeded its output bound.')); };
     child.stdout.on('data', collect); child.stderr.on('data', collect);
+    for (const stream of ['stdout', 'stderr']) child[stream].on('error', () => {
+      if (exited || settled) return;
+      stop(fail('PREPARATION_PIPE_FAILED', `Environment tool ${stream} pipe failed. Wait for confirmed cleanup before retrying.`));
+    });
     child.once('error', error => { reason ??= error; });
     child.once('close', code => { exited = true; exitResolve(); clearTimeout(timer); clearTimeout(forceTimer); clearTimeout(endTimer); signal?.removeEventListener('abort', cancel);
       if (settled) return; settled = true;
