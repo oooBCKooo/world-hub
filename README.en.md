@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | **English**
 
-**Connect everything. Compose freely. Decouple systems. Make hardcoded connections adaptable. Plug and unplug everything. Route information freely. Extend with open-ended mods.**
+**Connect everything. Compose freely. Decouple systems. Make hardcoded connections adaptable. Plug and unplug everything. Route information freely. Extend with open-ended modules.**
 
 For example, an editor provides the current file, a chat program provides the conversation, a knowledge program provides reference material, an executor calls models and tools, and another program supplies the interface. Each program communicates with the Hub through its own bidirectional mod bridge. A composition program chooses sources, makes calls, and combines results according to its own rules.
 
@@ -111,7 +111,7 @@ You can also build standalone source bundles or Windows portable bundles. See th
 | Adaptability | Fixed wiring and communication arrangements between programs become configurable, replaceable, and extensible bridges and contracts. |
 | Pluggability | Programs and mod bridges can be connected, disconnected, and replaced according to communication contracts; the composer decides their wiring and uses. |
 | Freedom | Programs choose information sources, topics, and routes, combining bidirectional, many-to-many, and multi-round information flows. |
-| Open-ended extension | Business mods, information types, and uses are not exhaustively listed in advance, leaving room for new integrations. |
+| Open-ended extension | Business modules, information types, and uses are not exhaustively listed in advance, leaving room for new integrations. |
 
 ## Why these compositions can keep growing
 
@@ -121,7 +121,7 @@ You can also build standalone source bundles or Windows portable bundles. See th
 - **Information can wait for later consumers:** programs can publish without a current consumer. Other programs can later retrieve information by topic and cursor. The provider decides when to permit reclamation.
 - **External programs arrange multiple rounds:** A can call B through the Hub, and B can call C in turn. A workflow program can also request several programs per round and combine their results.
 
-“Making hardcoded connections adaptable” concerns connections and communication composition between programs; each program still implements its business code and rules. “Open-ended mods” means that business mods and uses are not enumerated in advance. Every deployment is still subject to identity permissions, communication contracts, connection limits, storage capacity, and throughput. Reading, ACKs, replies, and disconnections do not release information on the provider's behalf.
+“Making hardcoded connections adaptable” concerns connections and communication composition between programs; each program still implements its business code and rules. “Open-ended modules” means that business modules and uses are not enumerated in advance. Every deployment is still subject to identity permissions, communication contracts, connection limits, storage capacity, and throughput. Reading, ACKs, replies, and disconnections do not release information on the provider's behalf.
 
 ## Hub management interface
 
