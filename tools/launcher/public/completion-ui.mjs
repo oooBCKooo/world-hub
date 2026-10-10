@@ -20,9 +20,25 @@ export function createCompletionUi(ctx) {
       el('details', { class: 'json-details' }, [el('summary', {}, say('从基包创建模板', 'Create template from a base pack')), create])]);
   }
   function instantiateForm(directory, inspection) {
-    const defaults = Object.fromEntries((inspection.manifest.parameters ?? []).filter(parameter => Object.hasOwn(parameter, 'default')).map(parameter => [parameter.name, parameter.default]));
-    return form([field('values', say('参数 JSON', 'Parameter values JSON'), JSON.stringify(defaults, null, 2), { multiline: true }), field('identity', say('新包身份 JSON（可选）', 'New pack identity JSON (optional)'), '', { multiline: true, required: false }), field('destination', say('新包目录', 'New pack directory'))], say('预览并生成新包', 'Preview and create pack'), async f => {
-      const identity = value(f, 'identity'), input = { directory, values: inputJson(f, 'values'), ...(identity ? { identity: JSON.parse(identity) } : {}) };
+    const parameters = inspection.manifest.parameters ?? [];
+    const controls = parameters.map((parameter, index) => {
+      const name = 'parameter_' + index, title = parameter.title ?? parameter.name;
+      const choices = parameter.constraints?.enum ?? (parameter.type === 'boolean' ? [false, true] : null);
+      if (choices) {
+        const select = el('select', { name }, choices.map((choice, i) => el('option', { value: i }, String(choice))));
+        select.value = String(Math.max(0, choices.findIndex(choice => choice === parameter.default)));
+        return el('label', {}, [el('span', {}, title), select]);
+      }
+      const control = field(name, title, parameter.default ?? '', { type: ['integer', 'number'].includes(parameter.type) ? 'number' : 'text', multiline: parameter.type === 'string' && (parameter.constraints?.maxLength ?? 4096) > 256 });
+      if (parameter.type === 'number') control.querySelector('input').setAttribute('step', 'any');
+      return control;
+    });
+    return form([...controls, field('identity', say('新包身份 JSON（可选）', 'New pack identity JSON (optional)'), '', { multiline: true, required: false }), field('destination', say('新包目录', 'New pack directory'))], say('预览并生成新包', 'Preview and create pack'), async f => {
+      const values = Object.fromEntries(parameters.map((parameter, index) => {
+        const chosen = value(f, 'parameter_' + index), choices = parameter.constraints?.enum ?? (parameter.type === 'boolean' ? [false, true] : null);
+        return [parameter.name, choices ? choices[Number(chosen)] : ['number', 'integer'].includes(parameter.type) ? Number(chosen) : chosen];
+      }));
+      const identity = value(f, 'identity'), input = { directory, values, ...(identity ? { identity: JSON.parse(identity) } : {}) };
       const review = await api('/api/templates/preview', input), destination = value(f, 'destination');
       reviewAction(say('生成新的锁定包', 'Create a new locked pack'), [jsonView(say('完整参数与锁预览', 'Complete parameters and lock preview'), review.preview, true)], say('我已审阅参数、来源、公开内容与再分发许可。', 'I reviewed parameters, sources, public contents, and redistribution licenses.'), async () => {
         await operation(await api('/api/templates/instantiate', { previewId: review.previewId, destination, redistributionAcknowledged: true }), 'instantiate-template', result => {
