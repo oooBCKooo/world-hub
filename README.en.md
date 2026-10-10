@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | **English**
 
-**Connect everything. Decouple systems. Make hardcoded connections adaptable. Plug and unplug everything. Route information freely. Extend with open-ended mods.**
+**Connect everything. Compose freely. Decouple systems. Make hardcoded connections adaptable. Plug and unplug everything. Route information freely. Extend with open-ended mods.**
 
 For example, an editor provides the current file, a chat program provides the conversation, a knowledge program provides reference material, an executor calls models and tools, and another program supplies the interface. Each program communicates with the Hub through its own bidirectional mod bridge. A composition program chooses sources, makes calls, and combines results according to its own rules.
 
@@ -101,11 +101,12 @@ You can also build standalone source bundles or Windows portable bundles. See th
 
 ## Design principles
 
-**Interconnection, Decoupling, Adaptability, Pluggability, Freedom, and Open-ended extension.**
+**Interconnection, Free composition, Decoupling, Adaptability, Pluggability, Freedom, and Open-ended extension.**
 
 | Principle | What it means in World Hub |
 | --- | --- |
 | Interconnection | Programs exchange information and access each other's capabilities through bidirectional mod bridges. |
+| Free composition | Users and external programs combine modules and capabilities according to communication contracts, choosing their relationships and uses. |
 | Decoupling | Programs own their business logic, state, and implementation, and can be composed and replaced according to communication contracts. |
 | Adaptability | Fixed wiring and communication arrangements between programs become configurable, replaceable, and extensible bridges and contracts. |
 | Pluggability | Programs and mod bridges can be connected, disconnected, and replaced according to communication contracts; the composer decides their wiring and uses. |
