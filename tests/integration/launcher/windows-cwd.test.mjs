@@ -6,10 +6,10 @@ import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, realpath, stat, writeFile, lstat, unlink } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep, toNamespacedPath } from 'node:path';
 import { ownProcess } from '../../../scripts/runtime/process.mjs';
-import { createLock, importPackage, startInstance, statusInstance } from '../../../scripts/runtime/index.mjs';
+import { createLock, inspectPackage, importPackage, startInstance, statusInstance } from '../../../scripts/runtime/index.mjs';
 import { planPythonEnvironment } from '../../../tools/launcher/environment-prepare.mjs';
 import { probe } from '../../../tools/launcher/environment.mjs';
-import { workspace, samplePackage, environment, analyze, expectedText, alive, json } from './helpers.mjs';
+import { workspace, fixturePackage, samplePackage, environment, analyze, expectedText, alive, json } from './helpers.mjs';
 
 const options = { timeout: 120000, concurrency: false, skip: process.platform !== 'win32' };
 const text = '独立程序的相对路径读写 🌍\nUnicode and spaces remain intact';
@@ -276,4 +276,32 @@ if __name__ == '__main__':
     persistentMainContract: observed.contract, sourceLoaderPreserved: true, argvAndCwdPreserved: true,
     stateOnlyHelperRejected: true, stateTokenizeShadowRejected: true, output: result.output,
     allOwnedChildrenExited: true, gracefulStops: true });
+});
+
+test('WIN-CWD-node-package a normally reviewed package-imports module is refused at a long destination before creating an instance or starting programs', options, async t => {
+  const app = await workspace(t), directory = await fixturePackage(app), root = await deepDirectory(app, 'node package root');
+  const packageJson = join(directory, 'modules/fixture/package.json'), sourcePackageBytes = await readFile(packageJson);
+  assert.equal(JSON.parse(sourcePackageBytes.toString('utf8')).imports['#bridge'], './sdk/bridge-kit.mjs');
+  const sourcePackagePath = await realpath(packageJson); assert.ok(sourcePackagePath.length < 248);
+  const sourceLockSha256 = sha256(await readFile(join(directory, 'pack.lock'))), captured = captureSpawns(app);
+  const plan = await inspectPackage(directory, environment);
+  assert.equal(plan.startsModules, false); assert.equal(plan.modules.length, 1);
+  assert.equal(plan.modules[0].manifest.runtime.kind, 'node');
+  assert.ok(plan.modules[0].files.some(file => file.path === 'package.json'));
+  const instanceId = 'refused-node-package', stateDir = join(root, 'instances', instanceId);
+  const destinationPackagePath = join(await realpath(root), 'instances', instanceId, 'package/modules/fixture/package.json');
+  assert.ok(destinationPackagePath.length >= 248);
+  await assert.rejects(importPackage(directory, { root, instanceId, ...environment }), { code: 'NODE_PACKAGE_PATH_TOO_LONG' });
+  assert.equal(captured.length, 0, 'Read-only review and import refusal must start no owned Hub or module');
+  assert.equal(app.trackedPids.size, 0);
+  await assert.rejects(lstat(stateDir), { code: 'ENOENT' });
+  await assert.rejects(lstat(join(root, 'instances')), { code: 'ENOENT' });
+  assert.equal(sha256(await readFile(join(directory, 'pack.lock'))), sourceLockSha256);
+  assert.deepEqual(await readFile(packageJson), sourcePackageBytes);
+  await assert.rejects(lstat(join(directory, 'modules/fixture/runtime-observed.json')), { code: 'ENOENT' });
+  app.record('real-node-package-scope-profile-refusal-before-import', { sourcePackagePathLength: sourcePackagePath.length,
+    destinationPackagePathLength: destinationPackagePath.length, sourceReviewDigest: plan.digest,
+    sourceAcceptedForReadOnlyReview: true, errorCode: 'NODE_PACKAGE_PATH_TOO_LONG', ownedProcessCount: captured.length,
+    instanceDirectoryCreated: false, sourcePackageAndLockUnchanged: true,
+    limitation: 'Windows Node module package.json paths must be shorter than 248 characters; no code or cwd rewrite' });
 });

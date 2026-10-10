@@ -146,6 +146,15 @@ export function validateLock(lock) {
   for (const a of lock.modules) for (const b of lock.modules) if (a !== b && b.source.toLowerCase().startsWith(a.source.toLowerCase() + '/')) throw new Error('Overlapping module source trees');
 }
 async function loadJson(file) { const raw = await readBounded(file); let value; try { value = JSON.parse(raw.toString('utf8')); } catch { throw new Error(`Invalid JSON: ${file}`); } return { value, raw }; }
+function checkNodePackagePaths(modules, directory) {
+  if (process.platform !== 'win32') return;
+  for (const module of modules.filter(m => m.manifest.runtime.kind === 'node')) {
+    for (const file of module.files.filter(f => f.path.split('/').at(-1).toLowerCase() === 'package.json')) {
+      if (join(directory, module.source, file.path).length >= 248)
+        throw Object.assign(new Error('Windows Node package.json path must be shorter than 248 characters to preserve native package scope and imports. Use a shorter package or instance root; program working directories are unchanged.'), { code: 'NODE_PACKAGE_PATH_TOO_LONG' });
+    }
+  }
+}
 export async function inspectPackage(packDirectory, options = {}) {
   const directory = await ordinaryPath(packDirectory);
   const { value: pack, raw: packBytes } = await loadJson(join(directory, 'pack.json'));
@@ -168,6 +177,7 @@ export async function inspectPackage(packDirectory, options = {}) {
     if (!lock.runtimes[manifest.runtime.kind]) throw new Error('Module runtime not locked');
     modules.push({ manifest, source: locked.source, files: actual });
   }
+  checkNodePackagePaths(modules, directory);
   for (const c of pack.components) {
     const module = modules.find(m => m.manifest.id === c.module)?.manifest;
     if (!module) throw new Error(`Missing module dependency: ${c.module}`);
@@ -218,7 +228,8 @@ export async function createLock(packDirectory, options = {}) {
 }
 export function instancePath(root, instanceId) { safeId(instanceId, 'instance ID'); relativePath(instanceId); return join(resolve(root), 'instances', instanceId); }
 export async function copyPackage(plan, destination) {
-  await ordinaryPath(destination, { allowMissing: true });
+  const canonicalDestination = await ordinaryPath(destination, { allowMissing: true });
+  checkNodePackagePaths(plan.modules, canonicalDestination);
   await mkdir(destination, { mode: 0o700 });
   const files = ['pack.json', 'pack.lock', ...plan.modules.flatMap(m => m.files.map(f => `${m.source}/${f.path}`))];
   for (const file of files) {
@@ -229,7 +240,9 @@ export async function copyPackage(plan, destination) {
 export async function importPackage(packDirectory, options) {
   const plan = await inspectPackage(packDirectory, options);
   const stateDir = instancePath(options.root, options.instanceId);
-  await ordinaryPath(stateDir, { allowMissing: true }); await mkdir(dirname(stateDir), { recursive: true, mode: 0o700 });
+  const canonicalState = await ordinaryPath(stateDir, { allowMissing: true });
+  checkNodePackagePaths(plan.modules, join(canonicalState, 'package'));
+  await mkdir(dirname(stateDir), { recursive: true, mode: 0o700 });
   await mkdir(stateDir, { mode: 0o700 });
   await copyPackage(plan, join(stateDir, 'package'));
   const copied = await inspectPackage(join(stateDir, 'package'), options);
