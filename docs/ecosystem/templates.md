@@ -63,7 +63,7 @@ await instantiateTemplate(inspected.directory, {
 
 `inspectTemplate`、`previewTemplate`、`createTemplate` 和 `instantiateTemplate` 只检查、复制和生成数据，不执行模块，也不探测解释器。生成过程保留原来锁定的 Hub 版本、平台、运行时版本、依赖和 Module 文件摘要，根据最终 `pack.json` 的身份和配置重新生成锁的 Pack 摘要。它不偷偷更新基础包环境；需要新平台或新锁定版本时，先显式制作和检查新的基础包，再制作新版本 Template。
 
-每次预览返回 `templateRevision`、`parameterDigest`、`previewDigest` 和将要生成的 `pack` / `lock`。`previewDigest` 绑定完整 Template 文件、有效参数以及目标 Pack 身份；源文件、参数或身份变化后必须重新预览。生成接口接收这些预览摘要并在创建目录前拒绝旧结果。目标必须是尚不存在的新目录；任何失败产生的 `incompleteDestination` 都需要检查，不能当成完整 Pack 导入。生成的来源记录保存在 `authoring.json`，不包含通信或执行凭据。
+每次预览返回 `templateRevision`、`parameterDigest`、`previewDigest` 和将要生成的 `pack` / `lock`。`previewDigest` 绑定完整 Template 文件、有效参数以及目标 Pack 身份；源文件、参数或身份变化后必须重新预览。CLI 与 Launcher 生成操作要求当前预览；公开 API 调用者应按上例传入 `expectedRevision` 和 `expectedPreviewDigest`，在创建目录前拒绝旧结果。API 中这些预期摘要是可选参数；省略时会检查当前输入，但不保证它仍对应以前展示的预览。目标必须是尚不存在的新目录；任何失败产生的 `incompleteDestination` 都需要检查，不能当成完整 Pack 导入。生成的来源记录保存在 `authoring.json`，不包含通信或执行凭据。
 
 可以使用同一开放软件源协议分发 Template：
 

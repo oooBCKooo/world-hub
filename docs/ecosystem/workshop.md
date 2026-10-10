@@ -1,6 +1,6 @@
 # Optional hosted Workshop / 可选托管社区
 
-Workshop is an independent artifact discovery and sharing service. It provides an invite-only account system, immutable module and pack publications, an open software-source index, plain-text comments, and proposals tied to an exact artifact digest. It never starts uploaded programs or controls local Hub/Launcher instances. Local tools continue to work without Workshop.
+Workshop is an independent artifact discovery and sharing service. It provides an invite-only account system, immutable Module, Pack and Template publications, an open software-source index, plain-text comments, and proposals tied to an exact artifact digest. It never starts uploaded programs or controls local Hub/Launcher instances. Local tools continue to work without Workshop.
 
 Workshop 是独立的作品发现与分享服务，提供邀请制账号、不可覆盖的模块／整合包版本、开放软件源索引、纯文本评论，以及绑定精确制品摘要的改进提案。它不启动上传程序，不控制本地 Hub 或 Launcher。社区不可用时，本地工具仍能独立工作。
 
@@ -8,7 +8,7 @@ Workshop 是独立的作品发现与分享服务，提供邀请制账号、不�
 
 1. Open the Workshop page. Guests can search by name, ID, publisher, kind, or exact capability contract ID, inspect license/platform metadata, and download published JSON artifacts.
 2. An administrator creates a one-time invitation; the developer registers with a username and password. The invitation is shared through a channel chosen by the administrator; the service does not automatically message anyone.
-3. In the local Launcher creator workbench, publish a prepared module or pack into a new directory. Upload the resulting `artifact.json` (`world-hub.source-artifact/v1`), inspect its preview, and explicitly acknowledge redistribution rights and licenses.
+3. In the local Launcher creator workbench, publish a prepared Module, Pack or Template into a new directory. Upload the resulting `artifact.json` (`world-hub.source-artifact/v1`), inspect its preview, and explicitly acknowledge redistribution rights and licenses. A Template must contain its complete locked base Pack; fetching it only permits static inspection and generation of a new Pack before separate import and execution review.
 4. Copy the Workshop `index.json` URL into the local Launcher software-source view. Inspect the index, select an entry, retrieve and verify it, then separately import/review/start it in the normal local flow. Downloading or publishing never starts an instance.
 5. Post a plain-text comment or upload a complete improved artifact as a proposal against the current publication's SHA-256. A proposal preserves the base kind and ID, stays separate from the publication, and never applies itself. The publisher downloads and reviews it locally before deciding to publish another version.
 
@@ -62,7 +62,7 @@ All paths below are relative to `/workshop`. JSON errors have the form `{ "error
 | `POST /api/login` | `{ username, password }` → user metadata, CSRF token and HttpOnly cookie |
 | `POST /api/register` | `{ username, password, invitation }` → a member session; one-time invitation consumed |
 | `POST /api/logout` | `{}` → revoke the current session and clear its cookie |
-| `GET /api/catalog` | Optional `search`, `kind=module\|pack`, `contract`, `offset`, `limit`; returns publications and total |
+| `GET /api/catalog` | Optional `search`, `kind=module\|pack\|template`, `contract`, `offset`, `limit`; returns publications and total |
 | `GET /api/publications/:entryId` | Publication, source entry, comments and proposal metadata |
 | `POST /api/publications` | `{ artifact, redistributionAcknowledged: true, title? }`; exact same version/digest is idempotent; another digest cannot overwrite it |
 | `GET /index.json` | Open `world-hub.source-index/v1`; visible publications with HTTPS artifact URLs and SHA-256 |
@@ -88,7 +88,7 @@ The initial service deliberately uses finite capacity: a default 512 MiB artifac
 
 A digest proves content identity relative to an index, not author identity or code safety. License fields are publisher declarations. Hosted moderation affects hosted visibility, not already downloaded copies. The trusted-local Runtime does not provide an OS sandbox; independently review code and permissions before running it. Workshop intentionally does not load a local management token, embed the privileged Launcher UI, evaluate uploaded source, or decide application business behavior.
 
-摘要证明相对索引的内容身份，不证明作者身份或代码安全。许可证是发布者声明。社区管理只影响托管展示，无法撤回已经下载的副本。本地 Runtime 不提供 OS 沙箱；执行前需独立审阅代码与权限。Workshop 不读取本地管理令牌、不嵌入特权 Launcher 界面、不执行上传源码、不决定程序业务行为。
+摘要证明相对索引的内容身份，不证明作者身份或代码安全。许可证是发布者声明。社区管理只影响托管展示，无法撤回已经下载的副本。默认 trusted-local 执行不提供 OS 沙箱；可选 Node 无界面容器 profile 的限制与审阅独立于 Workshop。执行前需独立审阅代码与权限。Workshop 不读取本地管理令牌、不嵌入特权 Launcher 界面、不执行上传源码、不决定程序业务行为。
 
 ## Moving to a larger server / 迁移到更大服务器
 

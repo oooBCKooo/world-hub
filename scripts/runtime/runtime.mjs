@@ -59,7 +59,7 @@ export async function startInstance(options) {
   const cancelStartup = () => { startupCancelled = true; startupController.abort(); };
   let resolveClosed; const closed = new Promise(resolve => { resolveClosed = resolve; });
   const state = { format: 'world-hub.runtime-status/v1', instanceId: options.instanceId, state: 'starting', runId: nonce,
-    pack: { id: plan.pack.id, version: plan.pack.version }, reviewDigest: plan.digest, components, hub: null, sandbox: Boolean(isolation),
+    pack: { id: plan.pack.id, version: plan.pack.version }, reviewDigest: plan.digest, components, hub: null, sandbox: false,
     executionProfile: isolation?.profile ?? 'trusted-local', ...(isolation ? { isolation: { profile: isolation.profile, image: isolation.image, limits: isolation.limits, reviewDigest: isolation.digest, appliesTo: 'components', hubOnHost: true } } : {}), startedAt: new Date().toISOString() };
   const statusFile = join(stateDir, 'status.json');
   const snapshot = () => JSON.parse(JSON.stringify(state));
@@ -221,7 +221,7 @@ export async function startInstance(options) {
     const entryUrl = components.find(c => c.id === plan.pack.entry.component)?.entryUrl ?? null;
     checkCancelled();
     if (state.failure || children.some(h => h.exit)) throw new Error(state.failure?.message ?? 'Program exited during startup');
-    state.state = 'running'; state.entryUrl = entryUrl; state.controlUrl = controlUrl; startupDone = true; await persist();
+    state.state = 'running'; state.sandbox = Boolean(isolation); state.entryUrl = entryUrl; state.controlUrl = controlUrl; startupDone = true; await persist();
     let checking = false;
     monitoring = setInterval(async () => {
       if (checking || closing) return; checking = true;

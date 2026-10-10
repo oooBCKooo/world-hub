@@ -7,7 +7,7 @@ import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startOwnedProgram } from '../../tests/helpers/owned-program.mjs';
-import { LAUNCHER_FILES, WORKSHOP_FILES, ECOSYSTEM_RUNTIME_FILES } from './build-package.mjs';
+import { LAUNCHER_FILES, WORKSHOP_FILES, ECOSYSTEM_RUNTIME_FILES, ECOSYSTEM_SCHEMA_FILES } from './build-package.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -15,7 +15,7 @@ const nonce = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID()}
 const safe = value => value.replaceAll('\\', '/');
 const ecosystemFiles = [...ECOSYSTEM_RUNTIME_FILES,
   'docs/ecosystem/pack-spec.md', 'docs/ecosystem/runtime.md',
-  ...['module', 'pack', 'pack-lock'].map(name => `docs/ecosystem/${name}.schema.json`)];
+  ...ECOSYSTEM_SCHEMA_FILES];
 const developerMaterial = ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md', 'docs/ecosystem/launcher.md', ...ecosystemFiles, ...LAUNCHER_FILES, ...WORKSHOP_FILES];
 
 async function findNpmCli() {

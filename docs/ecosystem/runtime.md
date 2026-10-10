@@ -169,7 +169,7 @@ console.log(await session.closed);
 | `inspectPackage(packDirectory, {nodePath?,pythonPath?})` | plan：`format:"world-hub.review/v1"`、`digest`、`directory`、`pack`、`lock`、`modules`、`order`、`environment`、`startsModules:false`、`sandbox:false`、`permissions` |
 | `createLock(packDirectory, {nodePath?,pythonPath?,moduleSources?,pythonPackages?,write?})` | 默认扫描 `modules` 直接子目录并写锁；`write:false` 仅返回 lock；`pythonPackages` 指定待核对的预安装包版本，默认 `websockets:15.0.1` |
 | `importPackage(packDirectory, {root,instanceId,nodePath?,pythonPath?})` | 新实例 `{instanceId,stateDir,digest,plan}`；不覆盖已有实例 |
-| `startInstance({root,instanceId,trust,nodePath?,pythonPath?,signal?})` | session：`ready`、`status()`、`close()`、`closed` Promise；`signal` 是可选 AbortSignal，可停止启动等待；重复 close 复用当前停止过程，清理未确认可再次请求；closed 返回停止尝试的状态，仍须核对 stoppedAt／cleanupIncomplete |
+| `startInstance({root,instanceId,trust,nodePath?,pythonPath?,signal?,isolation?,isolationTrust?})` | session：`ready`、`status()`、`close()`、`closed` Promise；`signal` 是可选 AbortSignal，可停止启动等待；可选容器执行须同时提供策略及单独审阅摘要，见[隔离 profile](isolation.md)；重复 close 复用当前停止过程，清理未确认可再次请求；closed 返回停止尝试的状态，仍须核对 stoppedAt／cleanupIncomplete |
 | `statusInstance({root,instanceId})` | runtime-status；监督者不可联系时返回 `observation:"stale"`、`supervisorUnavailable:true`、`controlError`，不是在线证明 |
 | `logsInstance({root,instanceId})` | runtime-logs：`format:"world-hub.runtime-logs/v1"`、`instanceId`、`logs`；每个组件及 `$hub` 含 `pid`、`stdout`、`stderr`、`truncated` |
 | `stopInstance({root,instanceId})` | 请求停止并返回确认过的终态；完成 deadline 有限 |
@@ -203,7 +203,7 @@ console.log(await session.closed);
 
 `permissions` 是声明，目录与 ACL 是逻辑隔离。默认 trusted-local 没有 OS 沙箱，不强制阻断外部文件、网络、后代进程、CPU 或内存访问。不要把不受信任代码直接放入可信实例；需要这种隔离时应使用容器、独立账户或其他受控执行环境，并在其自身权限模型中验收。
 
-工具创建文件／目录时请求 `0600`／`0700` 权限；这是适用于支持该权限模型的平台的管理措施，Windows 的 mode 参数不能保证等价的访问控制列表隔离。Windows 使用者须通过自己的账户和目录 ACL 保护实例 root。相同账户下运行的本地代码可能读取其他实例的私有配置、控制凭据及状态；参考实现不声称阻止这种访问。
+工具创建文件／目录时请求 `0600`／`0700` 权限；这是适用于支持该权限模型的平台的管理措施，Windows 的 mode 参数不能保证等价的访问控制列表隔离。Windows 使用者须通过自己的账户和目录 ACL 保护实例 root。相同账户下以 trusted-local 运行的本地代码可能读取其他实例的私有配置、控制凭据及状态；此默认 profile 不声称阻止这种访问。可选容器 profile 只挂载当前组件需要的路径，实例 Hub 与 Runtime 监督者仍在宿主运行。
 
 Hub ACL 只授予通信范围；能力契约的 permissions 只声明业务要求；Runtime permissions 只声明运行意图。它们均不互相代授权限。解释器／库版本相同也不等于二进制 hash 相同，锁不能证明宿主环境完全可复现。
 

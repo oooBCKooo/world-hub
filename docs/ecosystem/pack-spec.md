@@ -68,7 +68,7 @@ v1 对象采用封闭字段，未知字段拒绝；程序自己的 `settings` �
 
 参考 Runtime 的有限语言枚举是部署适配器的支持范围，不是 Hub 对语言或程序形态的限制。Rust、浏览器、宿主插件或其他形态仍可以直接接入 Hub，或由另一套 Runtime 启动。
 
-权限对象的 v1 支持值为 `filesystem:"instance-state"`、`processes:"none"`、`network` 中 1–2 个唯一的 `hub-loopback`／`loopback-listen`。未知声明明确拒绝，不能悄悄当作获得授权。`loopback-listen` 允许模块声明一个本机服务入口；`instance-state` 表达程序将数据写到指定目录的意图。参考实现没有文件系统、网络或进程沙箱，不能防止受信任运行的代码越过这些意图。详见[执行与隔离边界](runtime.md#执行与隔离边界)。
+权限对象的 v1 支持值为 `filesystem:"instance-state"`、`processes:"none"`、`network` 中 1–2 个唯一的 `hub-loopback`／`loopback-listen`。未知声明明确拒绝，不能悄悄当作获得授权。`loopback-listen` 允许模块声明一个本机服务入口；`instance-state` 表达程序将数据写到指定目录的意图。默认 trusted-local 执行没有文件系统、网络或进程沙箱，不能防止受信任运行的代码越过这些意图。可选 [Node 无界面容器 profile](isolation.md)采用独立审阅与固定限制，并拒绝 Python 或 `loopback-listen` 等不支持的形态；声明本身不会开启它。详见[执行与隔离边界](runtime.md#执行与隔离边界)。
 
 ## pack.json：组合与通信接线
 

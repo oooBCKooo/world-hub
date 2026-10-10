@@ -8,7 +8,7 @@ export function createCompletionUi(ctx) {
     const results = el('div');
     const inspect = form([field('directory', say('模板目录', 'Template directory'), templateDirectory)], say('检查模板', 'Inspect template'), async f => {
       templateDirectory = value(f, 'directory'); const data = await api('/api/templates/inspect', { directory: templateDirectory });
-      results.replaceChildren(jsonView(say('模板与参数', 'Template and parameters'), data.inspection, true), instantiateForm(templateDirectory, data.inspection));
+      results.replaceChildren(note(`${data.inspection.manifest.title} · ${data.inspection.manifest.id}@${data.inspection.manifest.version} · Hub ${data.inspection.lock.hubVersion}`), jsonView(say('模板与参数', 'Template and parameters'), data.inspection), instantiateForm(templateDirectory, data.inspection));
     });
     const create = form([field('directory', say('完整锁定基包目录', 'Complete locked base pack directory')), field('template', say('模板声明 JSON', 'Template declaration JSON'), '', { multiline: true }), field('destination', say('新的模板目录', 'New template directory'))], say('审阅并创建模板', 'Review and create template'), async f => {
       const body = { directory: value(f, 'directory'), template: inputJson(f, 'template'), destination: value(f, 'destination'), redistributionAcknowledged: true };
@@ -35,12 +35,12 @@ export function createCompletionUi(ctx) {
     });
     return form([...controls, field('identity', say('新包身份 JSON（可选）', 'New pack identity JSON (optional)'), '', { multiline: true, required: false }), field('destination', say('新包目录', 'New pack directory'))], say('预览并生成新包', 'Preview and create pack'), async f => {
       const values = Object.fromEntries(parameters.map((parameter, index) => {
-        const chosen = value(f, 'parameter_' + index), choices = parameter.constraints?.enum ?? (parameter.type === 'boolean' ? [false, true] : null);
+        const chosen = f.elements['parameter_' + index].value, choices = parameter.constraints?.enum ?? (parameter.type === 'boolean' ? [false, true] : null);
         return [parameter.name, choices ? choices[Number(chosen)] : ['number', 'integer'].includes(parameter.type) ? Number(chosen) : chosen];
       }));
       const identity = value(f, 'identity'), input = { directory, values, ...(identity ? { identity: JSON.parse(identity) } : {}) };
       const review = await api('/api/templates/preview', input), destination = value(f, 'destination');
-      reviewAction(say('生成新的锁定包', 'Create a new locked pack'), [jsonView(say('完整参数与锁预览', 'Complete parameters and lock preview'), review.preview, true)], say('我已审阅参数、来源、公开内容与再分发许可。', 'I reviewed parameters, sources, public contents, and redistribution licenses.'), async () => {
+      reviewAction(say('生成新的锁定包', 'Create a new locked pack'), [note(`${review.preview.pack.title} · ${review.preview.pack.id}@${review.preview.pack.version} · Hub ${review.preview.lock.hubVersion}`), jsonView(say('将写入的参数', 'Parameters to write'), review.preview.values, true), jsonView(say('完整参数与锁预览', 'Complete parameters and lock preview'), review.preview)], say('我已审阅参数、来源、公开内容与再分发许可。', 'I reviewed parameters, sources, public contents, and redistribution licenses.'), async () => {
         await operation(await api('/api/templates/instantiate', { previewId: review.previewId, destination, redistributionAcknowledged: true }), 'instantiate-template', result => {
           const notice = note(say(`已生成：${result.directory}`, `Created: ${result.directory}`));
           notice.append(button(say('导入生成的包', 'Import generated pack'), () => { openImport(); document.querySelector('#import-form').elements.directory.value = result.directory; }, 'button button-primary'));
@@ -59,7 +59,7 @@ export function createCompletionUi(ctx) {
     const id = instance.instanceId, results = el('div');
     const upgrade = form([field('candidate', say('候选锁定包目录', 'Candidate locked pack directory')), field('statePolicies', say('程序提供者的数据策略 JSON', 'Provider-defined state policies JSON'), '', { multiline: true })], say('预览升级', 'Preview upgrade'), async f => {
       const review = await api(endpoint(id, 'upgrade-plan'), { candidate: value(f, 'candidate'), statePolicies: inputJson(f, 'statePolicies') });
-      reviewAction(say('升级已停止的实例', 'Upgrade the stopped instance'), [note(say('升级会保存私有完整快照。迁移代码由程序作者提供；审阅后执行，成功后仍需重新授权启动。', 'Upgrade saves a complete private snapshot. Program authors provide migration code; review it before execution. Starting afterward requires a fresh review.'), true), jsonView(say('旧包、新包、权限与数据策略', 'Previous and candidate packs, permissions, and state policy'), review.preview, true)], say('我已审阅候选代码和权限，确认提供者声明的数据兼容或迁移策略。', 'I reviewed candidate code and permissions and confirm the provider-defined data compatibility or migration policies.'), async () => {
+      reviewAction(say('升级已停止的实例', 'Upgrade the stopped instance'), [note(say('升级会保存旧软件与持久数据快照，不包括运行日志和模块 tmp。迁移代码由程序作者提供；审阅后执行，成功后仍需重新授权启动。', 'Upgrade snapshots previous software and persistent data, excluding run logs and module tmp. Program authors provide migration code; review it before execution. Starting afterward requires a fresh review.'), true), jsonView(say('旧包、新包、权限与数据策略', 'Previous and candidate packs, permissions, and state policy'), review.preview, true)], say('我已审阅候选代码和权限，确认提供者声明的数据兼容或迁移策略。', 'I reviewed candidate code and permissions and confirm the provider-defined data compatibility or migration policies.'), async () => {
         await operation(await api(endpoint(id, 'upgrade'), { previewId: review.previewId, accepted: true }), 'upgrade', completed);
       });
     });

@@ -161,6 +161,32 @@ for (const path of paths) {
   }
 }
 
+// Locks describe the bytes that a fresh checkout receives. In Git mode, use
+// the staged blobs here so working-tree CRLF conversion cannot produce a
+// locally valid sample that fails after publication.
+try {
+  const publishBytes = async path => indexed
+    ? execFileSync('git', ['show', ':' + path], { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+    : readFile(join(root, path));
+  const lock = JSON.parse((await publishBytes(ecosystemLock)).toString('utf8'));
+  const locked = [
+    { path: 'examples/ecosystem-pack/pack.json', sha256: lock.pack?.sha256 },
+    ...(lock.modules ?? []).flatMap(module => (module.files ?? []).map(file => ({
+      path: 'examples/ecosystem-pack/' + module.source + '/' + file.path,
+      sha256: file.sha256,
+    }))),
+  ];
+  for (const file of locked) {
+    if (!pathSet.has(file.path) || !/^[a-f0-9]{64}$/.test(file.sha256 ?? '')) {
+      reject(ecosystemLock, 'Sample lock refers to an invalid or unpublished source: ' + file.path);
+    } else if (hash(await publishBytes(file.path)) !== file.sha256) {
+      reject(ecosystemLock, 'Sample lock hash differs from the publish bytes: ' + file.path);
+    }
+  }
+} catch {
+  reject(ecosystemLock, 'Sample pack.lock cannot verify the publish bytes');
+}
+
 const report = { mode: indexed ? 'git-index' : 'source-allowlist', passed: failures.length === 0,
   files: entries.length, bytes: entries.reduce((total, entry) => total + entry.bytes, 0),
   manifestSha256: hash(entries.map(entry => entry.path + '\0' + entry.sha256 + '\n').join('')),

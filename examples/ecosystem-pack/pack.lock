@@ -3,7 +3,7 @@
   "pack": {
     "id": "demo.polyglot",
     "version": "1.1.2",
-    "sha256": "d5f3afaf886191909d8614986a797a76ea06a8a1acdec2135ad27160923fe517"
+    "sha256": "bd7738afcf4c24516bb917bd8da25d2bd2ab39c4ed2c16b43ae1b5aa0a481a4d"
   },
   "hubVersion": "0.17.2",
   "platform": {
