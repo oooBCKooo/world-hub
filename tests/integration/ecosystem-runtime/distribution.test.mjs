@@ -8,7 +8,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildEcosystemPackage, ECOSYSTEM_SOURCE_FILES, ECOSYSTEM_PACK_FILES,
   parseEcosystemBuildArguments } from '../../../scripts/release/build-ecosystem-package.mjs';
-import { ECOSYSTEM_RUNTIME_FILES, ECOSYSTEM_SCHEMA_FILES } from '../../../scripts/release/build-package.mjs';
+import { ECOSYSTEM_RUNTIME_FILES, ECOSYSTEM_SCHEMA_FILES, LAUNCHER_FILES } from '../../../scripts/release/build-package.mjs';
 import { verifyPackage } from '../../../scripts/release/verify-package.mjs';
 import { createLock } from '../../../scripts/runtime/package.mjs';
 
@@ -42,7 +42,7 @@ test('ecosystem source distribution carries exact locked programs, Runtime and s
   assert.equal(manifest.externalRuntimes.python.packages.websockets, '15.0.1');
   assert.deepEqual(manifest.mutable, ['data/**']);
   assert.equal((await verifyPackage(bundle)).passed, true);
-  for (const local of [...ECOSYSTEM_PACK_FILES, ...ECOSYSTEM_RUNTIME_FILES, ...ECOSYSTEM_SCHEMA_FILES]) {
+  for (const local of [...ECOSYSTEM_PACK_FILES, ...ECOSYSTEM_RUNTIME_FILES, ...ECOSYSTEM_SCHEMA_FILES, ...LAUNCHER_FILES]) {
     assert.equal(hash(await readFile(join(bundle, local))), hash(await readFile(join(source, local))), local);
   }
   assert.ok(manifest.files.every(item => !/(?:\.local|\.artifacts|node_modules|__pycache__|\/data\/|node\.exe|python\.exe|\/tests\/|\.pyc$)/.test(item.path)));

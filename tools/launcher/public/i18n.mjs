@@ -7,6 +7,9 @@ const messages = {
   }
 };
 
+messages.zh.detached = '软件已隔离';
+messages.en.detached = 'Software detached';
+
 export function initialLanguage() {
   try { const saved = localStorage.getItem('world-hub.launcher.language'); if (saved === 'zh' || saved === 'en') return saved; } catch {}
   return navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en';

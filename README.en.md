@@ -23,9 +23,11 @@ The interface opens **My packs**. Inspect a local pack and its required environm
 
 For a first experiment, clone this repository, install the versions of Node, Python, and websockets specified by the [cross-language text desk](examples/ecosystem-pack/README.md), run `npm run ui -- --open`, and import `examples/ecosystem-pack`. Three real programs perform JavaScript source → Python statistics → JavaScript interface calls. The npm installation does not include example programs; import your own pack or use a [source pack bundle](docs/releases.md).
 
-Launcher is an optional local deployment and navigation tool that calls the external Runtime. Hub Core continues to handle communication. Independent programs, `world-hub --open`, and headless deployment remain available on their own. Install environments beforehand; declared permissions support review, with no operating-system sandbox. See the [unified interface guide](docs/ecosystem/launcher.md), currently in Chinese.
+Instances also provide storage accounting, private backups, restoration into new instances, and data-retaining uninstall and reattachment. The creator workspace displays real components and capability bindings, with public settings edits, compatible module replacements, and derived packs with fresh locks. Old environment locks can be explicitly reviewed and rebuilt in a new directory. Optional software sources filter Packs and Modules by contract, platform, and license before verified caching. Creators can produce shareable indexes and artifacts and exchange plain-text comments and proposals with revision conflict checks. These operations do not automatically execute third-party programs.
 
-![Unified interface: a running cross-language pack and its independent programs](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-launcher-en.jpg?v=0.16.0)
+Launcher is an optional local deployment and navigation tool that calls the external Runtime. Hub Core continues to handle communication. Independent programs, `world-hub --open`, and headless deployment remain available on their own. Discover installed interpreters, then explicitly review a limited recipe to prepare an independent environment for the supported locked Python dependency. Prepare other environments yourself. Permission declarations and Python venvs are not operating-system sandboxes. Local instances work without online sources, and generating a publication directory does not upload to a hosted community. See the [unified interface guide](docs/ecosystem/launcher.md), currently in Chinese.
+
+![Unified interface: a running cross-language pack and its independent programs](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-launcher-en.jpg?v=0.16.1)
 
 ## What can you compose?
 
@@ -51,26 +53,26 @@ All four demos start real, independent programs that exchange information throug
 
 The event desk below is an actual run. Traffic readings appear alongside environment and market data. After the interface sends settings back to the environment program, readings continue with the new parameters.
 
-![English interface: actual three-source event dashboard and control settings returned by the source program](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-event-desk-en.jpg?v=0.13.2)
+![English interface: actual three-source event dashboard and control settings returned by the source program](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-event-desk-en.jpg?v=0.16.1)
 
 <details>
 <summary>See actual results from four context sources and an independent executor</summary>
 
-![English interface: four programs provide context; an independent checklist executor returns its output and actual source receipts](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-modular-assistant-en.jpg?v=0.13.2)
+![English interface: four programs provide context; an independent checklist executor returns its output and actual source receipts](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-modular-assistant-en.jpg?v=0.16.1)
 
 </details>
 
 <details>
 <summary>See three rounds of change in the external digital world</summary>
 
-![English interface: an independent director calls NPC, rules, and state programs, returning the initial state, three rounds of actions, and the final state](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-digital-world-en.jpg?v=0.13.2)
+![English interface: an independent director calls NPC, rules, and state programs, returning the initial state, three rounds of actions, and the final state](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-digital-world-en.jpg?v=0.16.1)
 
 </details>
 
 <details>
 <summary>See the external catalog and actual calls after configuration-only replacement</summary>
 
-![English interface: an independent catalog advertises two statistics implementations; the configured composer selects B and returns statistics and four actual call receipts](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-capability-directory-en.jpg?v=0.14.0)
+![English interface: an independent catalog advertises two statistics implementations; the configured composer selects B and returns statistics and four actual call receipts](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-capability-directory-en.jpg?v=0.16.1)
 
 </details>
 
@@ -119,14 +121,14 @@ Run `world-hub --open` to open the communications management interface. Purpose 
 
 The management canvas, communication workbench, and all four purpose demos offer Simplified Chinese / English switching and remember your choice in the browser. Switching changes interface wording and display formats; user-provided names, annotations, topics, application content, and original communication records retain their original text.
 
-![English interface: Hub management canvas with programs, bidirectional mod bridges, the Hub, and actual information flow](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-topology-en.jpg?v=0.13.2)
+![English interface: Hub management canvas with programs, bidirectional mod bridges, the Hub, and actual information flow](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-topology-en.jpg?v=0.16.1)
 
 The management canvas displays programs, bridges, the Hub, and information flow. It supports enabling and disabling connections and editing association annotations. Program annotations do not represent the actual execution state of external programs.
 
 <details>
 <summary>See the bidirectional mod communication workbench</summary>
 
-![English interface: communication workbench with dynamic topics, original messages, and actual send/receive records](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-workbench-en.jpg?v=0.13.2)
+![English interface: communication workbench with dynamic topics, original messages, and actual send/receive records](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-workbench-en.jpg?v=0.16.1)
 
 The workbench uses its own mod to publish, subscribe, and retrieve information. It also supports requests and replies, injection, channel declarations, and attachment transfer. The screenshot shows an actual publication and the Hub's acceptance receipt.
 
@@ -184,7 +186,7 @@ world-hub-pack start --root ./pack-runtime --instance one --trust $review.digest
 
 Review the contents, dependencies, and declared permissions before starting with the actual digest. Each instance has its own Hub, ports, credentials, and program state. Process status, self-reported health, and real bridge connections are observed separately. The [cross-language text desk pack](examples/ecosystem-pack/README.md) contains three real programs: a JavaScript text source, a Python statistics provider, and a JavaScript browser desk. The desk requests the source and statistics through the Hub and saves its own results, with Chinese and English UI. Its reference lock requires preinstalled Node 22.23.2, Python 3.14.0, and websockets 15.0.1.
 
-Runtime is an external deployment layer; the Hub remains a communication crossroads. This version uses explicit local sources and a separate Hub per instance. Permissions are declarations, with no OS sandbox, automatic dependency installation, online Workshop, or automatic business retry. See the [external Runtime guide](docs/ecosystem/runtime.md) for the CLI, public API, explicit re-locking, and data boundaries.
+Runtime is an external deployment layer; the Hub remains a communication crossroads. Each instance has a separate Hub. Permissions are declarations, with no OS sandbox or automatic business retry. Launcher can prepare the supported fixed Python dependency through an explicitly reviewed recipe, and provides static source distribution and local creator collaboration. It does not host an online community. See the [external Runtime guide](docs/ecosystem/runtime.md) for the CLI, public API, explicit re-locking, and data boundaries.
 
 ## Repository structure
 

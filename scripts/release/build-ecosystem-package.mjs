@@ -28,7 +28,7 @@ const documentation = ['README.en.md', ...SDK_DOCUMENTATION_FILES,
     .map(name => `docs/${name}.md`),
   ...['index', 'boundaries', 'protocol', 'reliability-access', 'directed-and-bulk', 'management',
     'bridge-interoperability', 'manual-workbench', 'operations'].map(name => `docs/specs/${name}.md`),
-  'docs/modules/provider-contract.md', 'docs/ecosystem/pack-spec.md', 'docs/ecosystem/runtime.md', 'docs/ecosystem/launcher.md'];
+  'docs/modules/provider-contract.md', 'docs/ecosystem/pack-spec.md', 'docs/ecosystem/runtime.md', 'docs/ecosystem/launcher.md', 'docs/ecosystem/authoring.md', 'docs/ecosystem/sources.md'];
 export const ECOSYSTEM_SOURCE_FILES = Object.freeze([...new Set([
   ...APPLICATION_FILES, ...SDK_FILES, ...MODULE_CONTRACT_FILES, ...ECOSYSTEM_SCHEMA_FILES,
   ...ECOSYSTEM_RUNTIME_FILES, ...LAUNCHER_FILES, ...ECOSYSTEM_PACK_FILES, ...documentation,
@@ -139,7 +139,7 @@ export async function buildEcosystemPackage({ sourceRoot = repository, output } 
             : local === 'config/hub.json' ? 'configuration' : 'application';
     await add(local, bytes, role);
   }
-  await add('README.md', readme(version, lock) + '\n\n## 可选统一 Launcher\n\n运行 `node bin/world-hub.mjs ui --root ./data/launcher --open`，从一次性授权入口进入“我的整合包”。选择包内 `examples/ecosystem-pack` 本机目录，检查锁定环境和模块来源后创建实例；点击启动，审阅当前权限并明确授权即可运行，无需手工输入审阅摘要。界面提供停止、重启、四种状态、组件日志、Hub 拓扑与工作台双向导航及公开包导出。上述 Runtime CLI 继续可用。Launcher 与 Runtime 都在 Hub 通信内核之外，检查不自动安装依赖，当前没有 OS 沙箱。详情见[统一 Launcher](docs/ecosystem/launcher.md)。\n', 'documentation');
+  await add('README.md', readme(version, lock) + '\n\n## 可选统一 Launcher\n\n运行 `node bin/world-hub.mjs ui --root ./data/launcher --open`，从一次性授权入口进入“我的整合包”。选择包内 `examples/ecosystem-pack` 本机目录，检查锁定环境和模块来源后创建实例；点击启动，审阅当前权限并明确授权即可运行，无需手工输入审阅摘要。界面提供停止、重启、四种状态、组件日志、Hub 拓扑与工作台双向导航及公开包导出，还提供私人备份／新实例恢复、保留数据卸载、可视化组合／派生／重建锁、静态软件源缓存与发布、评论和提案交换。上述 Runtime CLI 继续可用。Launcher 与 Runtime 都在 Hub 通信内核之外；检查不安装依赖，有限依赖准备须另行审阅授权，当前没有 OS 沙箱。详情见[统一 Launcher](docs/ecosystem/launcher.md)。\n', 'documentation');
   await add('package.json', JSON.stringify({ name: 'world-hub-ecosystem-bundle', version, private: true,
     type: 'module', license: 'MIT', engines: { node: '>=22.4.0' },
     scripts: { ui: 'node bin/world-hub.mjs ui --open', check: 'node scripts/launcher.mjs --check', 'verify:package': 'node scripts/release/verify-package.mjs --root .' } }, null, 2) + '\n', 'tooling');

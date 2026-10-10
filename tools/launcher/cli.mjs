@@ -31,7 +31,7 @@ export function parseUiArgs(args) {
 }
 export async function runUiCli(args = process.argv.slice(2)) {
   const options = parseUiArgs(args);
-  if (options.help) { process.stdout.write('World Hub unified local interface\n\nworld-hub ui [--open] [--root directory] [--port number] [--node executable] [--python executable]\n\nManage reviewed local packs and reuse Hub management. No OS sandbox or automatic dependency installation.\n'); return; }
+  if (options.help) { process.stdout.write('World Hub unified local interface\n\nworld-hub ui [--open] [--root directory] [--port number] [--node executable] [--python executable]\n\nManage reviewed packs, private backups, creator tools and optional sources. Explicit finite dependency preparation; no OS sandbox.\n'); return; }
   const version = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')).version;
   const launcher = await createLauncherServer({ ...options, version });
   process.stdout.write(JSON.stringify({ event: 'launcher-ready', version, url: launcher.url, launchUrl: launcher.launchUrl, root: launcher.root }) + '\n');

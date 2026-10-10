@@ -1,9 +1,9 @@
-import { lstat, realpath } from 'node:fs/promises';
+import { lstat, realpath, readdir } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
-import { resolve, join } from 'node:path';
+import { resolve, join, parse } from 'node:path';
 import { filteredEnv } from '../../scripts/runtime/package.mjs';
 
-async function probe(command, kind) {
+export async function probe(command, kind) {
   try {
     let executable = command;
     if (!command.includes('/') && !command.includes('\\')) {
@@ -25,9 +25,37 @@ async function probe(command, kind) {
     const found = JSON.parse(result.stdout.trim());
     if (!/^\d+\.\d+\.\d+$/.test(found.version) || typeof found.executable !== 'string') throw new Error('Invalid interpreter response');
     const actual = await realpath(found.executable);
-    if (actual.toLowerCase() !== executable.toLowerCase()) throw new Error('Interpreter wrappers are unsupported');
+    if ((process.platform === 'win32' ? actual.toLowerCase() !== executable.toLowerCase() : actual !== executable)) throw new Error('Interpreter wrappers are unsupported');
     return { available: true, executable, version: found.version, arch: found.arch, ...(kind === 'python' ? { pointerBits: found.pointerBits } : {}), packages: found.packages };
   } catch (error) { return { available: false, requested: command, error: String(error.message).slice(0, 1024) }; }
+}
+// Discovery lists candidates only. Selecting and checking an interpreter runs
+// the fixed probe; finding a filename does not establish trust in its code.
+export async function discoverEnvironment(options = {}) {
+  const candidates = { node: [], python: [] }, seen = new Set();
+  const add = async (kind, path, source) => {
+    if (candidates.node.length + candidates.python.length >= 64) return;
+    try {
+      const value = resolve(path), key = kind + ':' + (process.platform === 'win32' ? value.toLowerCase() : value);
+      if (seen.has(key) || !(await lstat(value)).isFile()) return;
+      seen.add(key); candidates[kind].push({ path: value, source, probed: false });
+    } catch {}
+  };
+  await add('node', options.nodePath ?? process.execPath, 'selected');
+  if (options.pythonPath?.includes('/') || options.pythonPath?.includes('\\')) await add('python', options.pythonPath, 'selected');
+  for (const directory of (process.env.PATH ?? '').split(process.platform === 'win32' ? ';' : ':').filter(Boolean).slice(0, 128)) {
+    for (const [kind, names] of Object.entries(process.platform === 'win32' ? { node: ['node.exe'], python: ['python.exe', 'python3.exe'] } : { node: ['node'], python: ['python3', 'python'] }))
+      for (const name of names) await add(kind, join(directory, name), 'PATH');
+  }
+  if (process.platform === 'win32') {
+    const drive = parse(process.execPath).root;
+    for (const version of ['39', '310', '311', '312', '313', '314']) await add('python', join(drive, 'Python' + version, 'python.exe'), 'standard-location');
+    if (process.env.LOCALAPPDATA) {
+      const base = join(process.env.LOCALAPPDATA, 'Programs', 'Python');
+      try { for (const item of (await readdir(base, { withFileTypes: true })).slice(0, 32)) if (item.isDirectory() && /^Python[0-9]+$/.test(item.name)) await add('python', join(base, item.name, 'python.exe'), 'standard-location'); } catch {}
+    }
+  }
+  return candidates;
 }
 export async function detectEnvironment({ nodePath = process.execPath, pythonPath = process.platform === 'win32' ? 'python.exe' : 'python3' } = {}) {
   return { platform: process.platform, arch: process.arch, node: await probe(nodePath, 'node'), python: await probe(pythonPath, 'python') };

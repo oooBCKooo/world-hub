@@ -120,7 +120,7 @@ async function interpreter(command, kind, packages = {}) {
   actual.sha256 = hash(await readFile(actual.executable));
   return actual;
 }
-function validateLock(lock) {
+export function validateLock(lock) {
   closed(lock, ['format', 'pack', 'hubVersion', 'platform', 'runtimes', 'modules'], 'lock');
   if (lock.format !== 'world-hub.pack-lock/v1') throw new Error('Unsupported lock format');
   closed(lock.pack, ['id', 'version', 'sha256'], 'locked pack'); safeId(lock.pack.id); version(lock.pack.version);

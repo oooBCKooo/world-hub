@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { LauncherManager, launcherError } from './manager.mjs';
 import { ordinaryPath, readBounded } from '../../scripts/runtime/paths.mjs';
+import { diagnose } from './diagnostics.mjs';
 
 const secret = () => randomBytes(32).toString('base64url');
 const equals = (a, b) => typeof a === 'string' && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -12,8 +13,14 @@ const defaultRoot = () => join(process.env.LOCALAPPDATA ?? join(homedir(), '.loc
 function fields(body, allowed, required = []) {
   if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(k => !allowed.includes(k))
     || required.some(k => !Object.hasOwn(body, k))) throw launcherError('INVALID_INPUT', 'Missing or unsupported request fields.', 400);
-  for (const [key, value] of Object.entries(body)) if (key !== 'accepted' && (typeof value !== 'string' || !value.trim() || value.length > 4096 || value.includes('\0')))
-    throw launcherError('INVALID_INPUT', `Invalid ${key}`, 400);
+  for (const [key, value] of Object.entries(body)) {
+    if (['accepted', 'redistributionAcknowledged', 'allowPrivateNetwork'].includes(key)) { if (typeof value !== 'boolean') throw launcherError('INVALID_INPUT', `Invalid ${key}`, 400); }
+    else if (key === 'pack') { if (!value || typeof value !== 'object' || Array.isArray(value)) throw launcherError('INVALID_INPUT', 'Invalid pack object', 400); }
+    else if (key === 'replacements') {
+      if (!Array.isArray(value) || value.length > 32) throw launcherError('INVALID_INPUT', 'Invalid replacements', 400);
+      for (const replacement of value) fields(replacement, ['componentId', 'moduleDirectory'], ['componentId', 'moduleDirectory']);
+    } else if (typeof value !== 'string' || !value.trim() || value.length > 4096 || value.includes('\0')) throw launcherError('INVALID_INPUT', `Invalid ${key}`, 400);
+  }
 }
 async function bodyOf(request) {
   if (!/^application\/json(?:\s*;|$)/i.test(request.headers['content-type'] ?? '')) throw launcherError('JSON_REQUIRED', 'Use application/json.', 415);
@@ -59,7 +66,7 @@ export async function createLauncherServer(options = {}) {
       if (['cross-site', 'same-site'].includes(request.headers['sec-fetch-site'])
         && !(document && request.headers['sec-fetch-mode'] === 'navigate' && request.headers['sec-fetch-dest'] === 'document'))
         throw launcherError('LOCAL_ORIGIN_REQUIRED', 'Only same-origin API and resource requests are accepted.', 403);
-      if (request.method === 'GET' && ['/', '/index.html', '/app.mjs', '/style.css', '/i18n.mjs'].includes(target.pathname)) {
+      if (request.method === 'GET' && ['/', '/index.html', '/app.mjs', '/advanced.mjs', '/style.css', '/i18n.mjs'].includes(target.pathname)) {
         const navigationKeys = document ? ['instance', 'runId', 'hubOrigin', 'bridgeId', 'session'] : [];
         if ([...target.searchParams.keys()].some(key => !navigationKeys.includes(key) || target.searchParams.getAll(key).length !== 1
           || target.searchParams.get(key).length > 4096)) throw launcherError('INVALID_INPUT', 'Unsupported navigation query.', 400);
@@ -87,14 +94,35 @@ export async function createLauncherServer(options = {}) {
       let result, status = 200;
       if (target.pathname === '/api/session' && request.method === 'GET') result = context();
       else if (target.pathname === '/api/environment' && request.method === 'POST') { fields(body, ['nodePath', 'pythonPath']); result = await manager.detect(body); }
+      else if (target.pathname === '/api/environment/plan' && request.method === 'POST') { fields(body, ['directory', 'nodePath', 'pythonPath'], ['directory']); directory = body.directory; result = await manager.environmentPlan(body); }
+      else if (target.pathname === '/api/environment/prepare' && request.method === 'POST') { fields(body, ['planId', 'accepted'], ['planId', 'accepted']); result = manager.prepareEnvironment(body.planId, body.accepted); status = 202; }
+      else if (target.pathname === '/api/backups/inspect' && request.method === 'POST') { fields(body, ['backup'], ['backup']); result = { inspection: await manager.inspectBackup(body.backup) }; }
+      else if (target.pathname === '/api/backups/restore' && request.method === 'POST') { fields(body, ['backup', 'sha256', 'instanceId', 'nodePath', 'pythonPath', 'accepted'], ['backup', 'sha256', 'instanceId', 'accepted']); result = await manager.restore(body); status = 202; }
+      else if (target.pathname === '/api/authoring/inspect' && request.method === 'POST') { fields(body, ['directory', 'nodePath', 'pythonPath'], ['directory']); directory = body.directory; result = { authoring: await manager.authoring(body) }; }
+      else if (target.pathname === '/api/authoring/read-comments' && request.method === 'POST') { fields(body, ['directory'], ['directory']); result = { comments: await manager.comments(body) }; }
+      else if (/^\/api\/authoring\/(derive|rebuild|proposal|apply-proposal|comments|export-comments|import-comments)$/.test(target.pathname) && request.method === 'POST') {
+        const kind = target.pathname.split('/').at(-1);
+        const allowed = ['directory', 'destination', 'nodePath', 'pythonPath', 'redistributionAcknowledged', 'expectedRevision'];
+        const required = ['directory', 'destination', 'redistributionAcknowledged'];
+        if (['derive', 'proposal'].includes(kind)) { allowed.push('pack', 'replacements'); required.push('expectedRevision'); }
+        if (kind === 'apply-proposal') { allowed.push('proposalDirectory'); required.push('proposalDirectory'); }
+        if (kind === 'comments') { allowed.splice(0, allowed.length, 'directory', 'author', 'text', 'expectedRevision'); required.splice(0, required.length, 'directory', 'author', 'text', 'expectedRevision'); }
+        if (kind === 'export-comments') { allowed.splice(0, allowed.length, 'directory', 'destination'); required.splice(0, required.length, 'directory', 'destination'); }
+        if (kind === 'import-comments') { allowed.splice(0, allowed.length, 'directory', 'source', 'expectedRevision'); required.splice(0, required.length, 'directory', 'source', 'expectedRevision'); }
+        fields(body, allowed, required); result = manager.creator(kind === 'comments' ? 'comment' : kind, body); status = 202;
+      }
+      else if (target.pathname === '/api/sources/inspect' && request.method === 'POST') { fields(body, ['source', 'expectedSha256', 'allowPrivateNetwork'], ['source']); result = await manager.source(body); }
+      else if (target.pathname === '/api/sources/fetch' && request.method === 'POST') { fields(body, ['source', 'indexDigest', 'entryId', 'allowPrivateNetwork'], ['source', 'indexDigest', 'entryId']); result = manager.fetchSource(body); status = 202; }
+      else if (target.pathname === '/api/sources/publish' && request.method === 'POST') { fields(body, ['directory', 'destination', 'kind', 'nodePath', 'pythonPath', 'redistributionAcknowledged'], ['directory', 'destination', 'kind', 'redistributionAcknowledged']); result = manager.creator('publish', body); status = 202; }
       else if (target.pathname === '/api/review' && request.method === 'POST') { fields(body, ['directory', 'nodePath', 'pythonPath'], ['directory']); directory = body.directory; result = await manager.review(directory, body); }
       else if (target.pathname === '/api/instances' && request.method === 'GET') result = { instances: await manager.instances() };
       else if (target.pathname === '/api/instances' && request.method === 'POST') { fields(body, ['reviewId', 'instanceId'], ['reviewId', 'instanceId']); result = { instance: await manager.import(body.reviewId, body.instanceId) }; }
       else if (target.pathname === '/api/hubs' && request.method === 'GET') result = { hubs: await manager.hubs() };
       else if (/^\/api\/hubs\/default\/(?:start|stop)$/.test(target.pathname) && request.method === 'POST') { fields(body, []); result = manager.defaultHub(target.pathname.split('/').at(-1)); status = 202; }
       else if (/^\/api\/operations\/[a-f0-9-]+$/.test(target.pathname) && request.method === 'GET') result = { operation: manager.operation(target.pathname.split('/').at(-1)) };
+      else if (/^\/api\/operations\/[a-f0-9-]+\/cancel$/.test(target.pathname) && request.method === 'POST') { fields(body, []); result = { operation: await manager.cancelOperation(target.pathname.split('/').at(-2)) }; }
       else {
-        const match = /^\/api\/instances\/([a-z0-9][a-z0-9._-]{0,63})(?:\/(review|start|stop|restart|logs|export|topology))?$/.exec(target.pathname);
+        const match = /^\/api\/instances\/([a-z0-9][a-z0-9._-]{0,63})(?:\/(review|start|stop|restart|logs|export|topology|storage|backup|detach|reattach))?$/.exec(target.pathname);
         if (!match) throw launcherError('NOT_FOUND', 'Unknown Launcher operation.', 404);
         const [, id, action] = match;
         if (!action && request.method === 'GET') result = { instance: await manager.instance(id) };
@@ -102,6 +130,10 @@ export async function createLauncherServer(options = {}) {
         else if (['start', 'restart'].includes(action) && request.method === 'POST') { fields(body, ['reviewId', 'accepted'], ['reviewId', 'accepted']); result = await manager.start(id, body.reviewId, body.accepted, action === 'restart'); status = 202; }
         else if (action === 'stop' && request.method === 'POST') { fields(body, []); result = manager.stop(id); status = 202; }
         else if (action === 'export' && request.method === 'POST') { fields(body, ['destination'], ['destination']); result = manager.export(id, body.destination); status = 202; }
+        else if (action === 'storage' && request.method === 'GET') result = { storage: await manager.storage(id) };
+        else if (action === 'backup' && request.method === 'POST') { fields(body, ['destination', 'accepted'], ['destination', 'accepted']); result = manager.backup(id, body.destination, body.accepted); status = 202; }
+        else if (action === 'detach' && request.method === 'POST') { fields(body, ['accepted'], ['accepted']); result = manager.detach(id, body.accepted); status = 202; }
+        else if (action === 'reattach' && request.method === 'POST') { fields(body, ['reviewId', 'accepted'], ['reviewId', 'accepted']); result = await manager.reattach(id, body.reviewId, body.accepted); status = 202; }
         else if (action === 'logs' && request.method === 'GET') result = { logs: await manager.logs(id) };
         else if (action === 'topology' && request.method === 'GET') result = { topology: await manager.topology(id, target.searchParams.get('runId') ?? undefined) };
         else throw launcherError('NOT_FOUND', 'Unknown Launcher operation.', 404);
@@ -109,7 +141,8 @@ export async function createLauncherServer(options = {}) {
       send(response, status, { ok: true, ...result });
     } catch (error) {
       const reqs = directory ? await requirements(directory) : null;
-      send(response, error.status ?? (directory ? 422 : 409), { ok: false, error: { code: error.code ?? (directory ? 'REVIEW_FAILED' : 'LAUNCHER_ERROR'), message: String(error.message).slice(0, 2048) },
+      send(response, error.status ?? (directory ? 422 : 409), { ok: false, error: { code: error.code ?? (directory ? 'REVIEW_FAILED' : 'LAUNCHER_ERROR'), message: String(error.message).slice(0, 2048),
+        ...(error.incompleteDestination ? { incompleteDestination: error.incompleteDestination } : {}) }, diagnostic: diagnose(error),
         ...(reqs ? { requirements: reqs, guidance: ['Choose a matching preinstalled interpreter and dependency version, or explicitly rebuild the package lock as its author; inspect again.'] } : {}) });
     }
   });

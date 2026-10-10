@@ -1,26 +1,39 @@
-import { mkdir, readFile, lstat } from 'node:fs/promises';
+import { mkdir, readFile, lstat, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { inspectPackage, importPackage, instancePath, safeId } from '../../scripts/runtime/package.mjs';
 import { startInstance, statusInstance, stopInstance, logsInstance, exportInstance } from '../../scripts/runtime/runtime.mjs';
 import { ordinaryPath, privateJson, readBounded } from '../../scripts/runtime/paths.mjs';
 import { ownProcess } from '../../scripts/runtime/process.mjs';
-import { detectEnvironment } from './environment.mjs';
+import { detectEnvironment, discoverEnvironment } from './environment.mjs';
+import { planPythonEnvironment, preparePythonEnvironment, cleanupPreparedEnvironment } from './environment-prepare.mjs';
+import { backupInstance, inspectBackup, restoreInstance, storageInstance, detachInstance, reattachInstance } from '../../scripts/runtime/maintenance.mjs';
+import { inspectAuthoring, derivePackage, rebuildPackage, exportProposal, applyProposal, addComment, readComments, exportComments, importComments } from '../../scripts/runtime/authoring.mjs';
+import { readSourceIndex, fetchSourceArtifact, publishArtifact } from '../../scripts/runtime/sources.mjs';
 import { loopbackUrl, mapTopology, managementLink } from './topology.mjs';
+import { diagnose } from './diagnostics.mjs';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
 export function launcherError(code, message, status = 409) { return Object.assign(new Error(message), { code, status }); }
-const errorOf = error => ({ code: error.code ?? 'LAUNCHER_ERROR', message: String(error.message).slice(0, 2048) });
+const errorOf = error => ({ code: error.code ?? 'LAUNCHER_ERROR', message: String(error.message).slice(0, 2048),
+  diagnostic: diagnose(error),
+  ...(error.incompleteDestination ? { incompleteDestination: error.incompleteDestination } : {}),
+  ...(error.cleanupIncomplete ? { cleanupIncomplete: true, retainedDirectory: error.retainedDirectory } : {}) });
 const json = async path => JSON.parse((await readBounded(path)).toString('utf8'));
 const optionsFor = row => ({ root: row.root, instanceId: row.instanceId, ...row.environment });
+async function hasRunArtifacts(directory) {
+  for (const file of ['control.json', 'owner.lock']) try { await ordinaryPath(join(directory, file)); return true; } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  try { await ordinaryPath(join(directory, 'runs')); return (await readdir(join(directory, 'runs'))).length > 0; } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  return false;
+}
 
 export class LauncherManager {
   constructor(options) {
     this.root = resolve(options.root); this.defaults = { nodePath: options.nodePath ?? process.execPath,
       pythonPath: options.pythonPath ?? (process.platform === 'win32' ? 'python.exe' : 'python3') };
     this.records = new Map(); this.reviews = new Map(); this.operations = new Map(); this.sessions = new Map();
-    this.busy = new Map(); this.registryQueue = Promise.resolve(); this.url = ''; this.hub = null; this.hubFailure = null; this.closing = false;
+    this.busy = new Map(); this.registryQueue = Promise.resolve(); this.saveQueue = Promise.resolve(); this.environmentPlans = new Map(); this.preparationOwners = new Map(); this.url = ''; this.hub = null; this.hubFailure = null; this.closing = false;
   }
   async initialize() {
     await ordinaryPath(this.root, { allowMissing: true }); await mkdir(this.root, { recursive: true, mode: 0o700 });
@@ -35,9 +48,41 @@ export class LauncherManager {
     const sample = join(repository, 'examples/ecosystem-pack');
     try { await lstat(join(sample, 'pack.json')); this.defaults.packDirectory = sample; } catch {}
   }
-  async save() { await privateJson(join(this.root, 'launcher-instances.json'), { format: 'world-hub.launcher-instances/v1', instances: [...this.records.values()] }); }
+  async save() {
+    const action = this.saveQueue.then(() => privateJson(join(this.root, 'launcher-instances.json'), { format: 'world-hub.launcher-instances/v1', instances: [...this.records.values()] }));
+    this.saveQueue = action.catch(() => {}); return action;
+  }
   environment(input = {}) { return { nodePath: input.nodePath ?? this.defaults.nodePath, pythonPath: input.pythonPath ?? this.defaults.pythonPath }; }
-  async detect(input) { return { environment: await detectEnvironment(this.environment(input)), guidance: ['Install required dependencies in your selected environment, then check again. No automatic installation.'] }; }
+  async detect(input) { const chosen = this.environment(input); const [environment, candidates] = await Promise.all([detectEnvironment(chosen), discoverEnvironment(chosen)]);
+    return { environment, candidates, guidance: ['Select an installed interpreter and check again. Prepare the supported dependency in a reviewed private venv, or install other dependencies manually in your own private environment.'] }; }
+  async environmentPlan(input) {
+    const plan = await planPythonEnvironment({ root: this.root, ...input, ...this.environment(input) }), planId = randomUUID();
+    this.environmentPlans.set(planId, { plan, createdAt: Date.now() });
+    while (this.environmentPlans.size > 32) this.environmentPlans.delete(this.environmentPlans.keys().next().value);
+    return { planId, plan };
+  }
+  prepareEnvironment(planId, accepted) {
+    if (this.preparationOwners.size) throw launcherError('CLEANUP_INCOMPLETE', 'Previous environment-tool exits remain unconfirmed. Retry cancellation before preparing another environment.');
+    if (accepted !== true) throw launcherError('TRUST_REQUIRED', 'Accept the displayed source, exact wheel digest and private-environment operations.');
+    const record = this.environmentPlans.get(planId);
+    if (!record || Date.now() - record.createdAt > 10 * 60000) throw launcherError('ENVIRONMENT_PLAN_REQUIRED', 'Inspect a current environment preparation plan first.');
+    const operation = this.launch('prepare-environment', '$environment', async (_, signal) => {
+      try { return await preparePythonEnvironment({ root: this.root, plan: record.plan, signal }); }
+      catch (error) { if (error.cleanupHandle) this.preparationOwners.set(operation.operationId, { handle: error.cleanupHandle, directory: record.plan.destination }); throw error; }
+    });
+    this.environmentPlans.delete(planId); return operation;
+  }
+  async clearPreparationOwner(id) {
+    const owner = this.preparationOwners.get(id); if (!owner) return;
+    if (!await owner.handle.stop()) throw launcherError('CLEANUP_INCOMPLETE', 'Environment-tool exit is still unconfirmed. Retain the private environment and retry cancellation.');
+    await cleanupPreparedEnvironment(this.root, owner.directory); this.preparationOwners.delete(id);
+    const operation = this.operations.get(id); if (operation?.error) { operation.error.cleanupIncomplete = false; delete operation.error.retainedDirectory; }
+  }
+  async cancelOperation(id) {
+    const operation = this.operations.get(id); if (!operation) throw launcherError('OPERATION_NOT_FOUND', 'Unknown operation', 404);
+    if (['stop', 'detach', 'reattach'].includes(operation.kind)) throw launcherError('CANCEL_UNAVAILABLE', 'Wait for this short consistency operation to finish.');
+    operation.controller.abort(); await this.clearPreparationOwner(id); return this.publicOperation(operation);
+  }
   async review(directory, environment, instanceId = null) {
     const chosen = this.environment(environment), plan = await inspectPackage(directory, chosen);
     const old = instanceId ? this.records.get(instanceId)?.permissions ?? [] : [];
@@ -61,6 +106,23 @@ export class LauncherManager {
     return actual;
   }
   row(id) { safeId(id); const row = this.records.get(id); if (!row) throw launcherError('INSTANCE_NOT_FOUND', 'Unknown Launcher instance', 404); return row; }
+  async softwareState(row) {
+    const directory = instancePath(this.root, row.instanceId);
+    const found = async name => { try { const path = await ordinaryPath(join(directory, name)); return (await lstat(path)).isDirectory(); } catch (error) { if (error.code === 'ENOENT') return false; throw error; } };
+    const [active, quarantined] = await Promise.all([found('package'), found('detached-package')]);
+    let marker = null;
+    try { marker = await json(join(directory, 'detached.json')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    const validMarker = marker?.format === 'world-hub.detached-instance/v1' && marker.instanceId === row.instanceId;
+    if (active && !quarantined && marker === null) { row.detached = false; delete row.maintenanceUnknown; }
+    else if (!active && quarantined && validMarker) { row.detached = true; delete row.maintenanceUnknown; }
+    else row.maintenanceUnknown = true;
+    return row;
+  }
+  async maintainedRow(id) {
+    const row = await this.softwareState(this.row(id));
+    if (row.maintenanceUnknown) throw launcherError('MAINTENANCE_UNKNOWN', 'Software layout is incomplete or ambiguous. Retain data and inspect package/detached-package and detached metadata before changing lifecycle state.');
+    return row;
+  }
   async import(reviewId, instanceId) {
     if (this.closing) throw launcherError('LAUNCHER_STOPPING', 'Launcher is stopping.');
     const action = this.registryQueue.then(() => this.importNow(reviewId, instanceId));
@@ -77,24 +139,28 @@ export class LauncherManager {
     await this.save(); return this.instance(instanceId);
   }
   async instance(id) {
-    const row = this.row(id), stateDir = instancePath(this.root, id);
+    const row = await this.softwareState(this.row(id)), stateDir = instancePath(this.root, id);
     let status;
     try { status = await statusInstance(optionsFor(row)); }
     catch (error) {
       if (error.code !== 'ENOENT') throw error;
-      status = { state: this.busy.get(id)?.kind === 'start' ? 'starting' : 'imported', instanceId: id, components: [], sandbox: false };
+      const history = await hasRunArtifacts(stateDir);
+      status = { state: this.busy.get(id)?.kind === 'start' ? 'starting' : history ? 'unknown' : 'imported', instanceId: id, components: [], sandbox: false,
+        ...(history ? { observation: 'stale', supervisorUnavailable: true } : {}) };
     }
-    const hub = !status.stoppedAt && status.observation !== 'stale' ? loopbackUrl(status.hub?.url) : null;
+    if (row.maintenanceUnknown) status = { ...status, state: 'maintenance-unknown', maintenanceUnknown: true };
+    else if (row.detached) status = { ...status, state: 'detached', detached: true };
+    const hub = !row.detached && !status.stoppedAt && status.observation !== 'stale' ? loopbackUrl(status.hub?.url) : null;
     const links = { entryUrl: status.state === 'running' ? loopbackUrl(status.entryUrl)?.href ?? null : null,
       managementUrl: hub ? managementLink({ hubUrl: hub.href, launcherUrl: this.url, instanceId: id, runId: status.runId }) : null,
       workbenchUrl: hub ? managementLink({ hubUrl: hub.href, launcherUrl: this.url, instanceId: id, runId: status.runId, workbench: true }) : null };
-    return { id, instanceId: id, directory: stateDir, packageDirectory: join(stateDir, 'package'), ...row, status, links,
+    return { id, instanceId: id, directory: stateDir, packageDirectory: join(stateDir, row.detached ? 'detached-package' : 'package'), ...row, status, links,
       operation: this.busy.get(id) ? this.publicOperation(this.busy.get(id)) : null };
   }
   async instances() { return Promise.all([...this.records.keys()].map(id => this.instance(id))); }
   async reviewInstance(id, environment = {}) {
-    const row = this.row(id);
-    return this.review(join(instancePath(this.root, id), 'package'), { ...row.environment, ...environment }, id);
+    const row = await this.maintainedRow(id);
+    return this.review(join(instancePath(this.root, id), row.detached ? 'detached-package' : 'package'), { ...row.environment, ...environment }, id);
   }
   publicOperation(operation) { const { promise, controller, ...value } = operation; return value; }
   operation(id) { const operation = this.operations.get(id); if (!operation) throw launcherError('OPERATION_NOT_FOUND', 'Unknown operation', 404); return this.publicOperation(operation); }
@@ -111,7 +177,8 @@ export class LauncherManager {
   }
   async start(id, reviewId, accepted, restart = false) {
     if (accepted !== true) throw launcherError('TRUST_REQUIRED', 'Explicitly accept the displayed current local code and permissions.');
-    const row = this.row(id), reviewed = this.reviewed(reviewId, id); await this.verifyReview(reviewed);
+    const row = await this.maintainedRow(id); if (row.detached) throw launcherError('INSTANCE_DETACHED', 'Restore the quarantined software after review before starting.');
+    const reviewed = this.reviewed(reviewId, id); await this.verifyReview(reviewed);
     return this.launch(restart ? 'restart' : 'start', id, async (_, signal) => {
       if (restart) await this.stopNow(id);
       try {
@@ -139,13 +206,80 @@ export class LauncherManager {
       const state = await stopInstance(optionsFor(row));
       if (!state.stoppedAt || state.cleanupIncomplete) throw launcherError('CLEANUP_INCOMPLETE', 'Owned process exits remain unconfirmed; retry stop.');
       return state;
-    } catch (error) { if (error.code === 'ENOENT') return { state: 'imported', components: [] }; throw error; }
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      const directory = instancePath(this.root, id);
+      let state = null;
+      try { state = await json(join(directory, 'status.json')); } catch (readError) { if (readError.code !== 'ENOENT') throw readError; }
+      if (state?.runId || await hasRunArtifacts(directory)) throw launcherError('STOP_UNCONFIRMED', 'A run or owner exists but its control record is unavailable. Owned process exits remain unconfirmed.');
+      return { state: 'imported', components: [] };
+    }
   }
   stop(id) {
     this.row(id); this.busy.get(id)?.controller.abort();
     return this.launch('stop', id, async previous => { if (previous) await previous.promise; return this.stopNow(id); });
   }
   export(id, destination) { const row = this.row(id); return this.launch('export', id, () => exportInstance({ ...optionsFor(row), destination })); }
+  storage(id) { return storageInstance(optionsFor(this.row(id))); }
+  inspectBackup(backup) { return inspectBackup(backup); }
+  backup(id, destination, accepted) {
+    if (accepted !== true) throw launcherError('TRUST_REQUIRED', 'A private backup can contain application data and secrets. Accept the displayed backup destination.');
+    const row = this.row(id); return this.launch('backup', id, (_, signal) => backupInstance({ ...optionsFor(row), destination, signal }));
+  }
+  async restore(input) {
+    if (input.accepted !== true || !/^[a-f0-9]{64}$/.test(input.sha256 ?? '')) throw launcherError('BACKUP_REVIEW_REQUIRED', 'Inspect the private backup and explicitly confirm its current digest before restoring.');
+    const env = this.environment(input); safeId(input.instanceId);
+    const inspection = await inspectBackup(input.backup);
+    if (inspection.sha256 !== input.sha256) throw launcherError('BACKUP_CHANGED', 'Backup changed after inspection. Inspect it again.');
+    if (!inspection.compatible) throw launcherError('BACKUP_INCOMPATIBLE', 'Backup requires a compatible Hub version, OS and architecture: ' + inspection.incompatibilities.join('; '));
+    return this.launch('restore', input.instanceId, (_, signal) => {
+      const action = this.registryQueue.then(async () => {
+        if (this.records.has(input.instanceId) || this.records.size >= 128) throw launcherError('INSTANCE_EXISTS', 'Choose a new instance ID. Existing instances are retained.');
+        const restored = await restoreInstance({ root: this.root, instanceId: input.instanceId, backup: input.backup, expectedSha256: input.sha256, ...env, signal });
+        this.records.set(input.instanceId, { root: this.root, instanceId: input.instanceId, pack: { id: restored.plan.pack.id, version: restored.plan.pack.version, title: restored.plan.pack.title },
+          importedAt: new Date().toISOString(), restoredFrom: restored.restoredFrom, environment: env, permissions: restored.plan.permissions });
+        await this.save(); return { instance: await this.instance(input.instanceId) };
+      }); this.registryQueue = action.catch(() => {}); return action;
+    });
+  }
+  detach(id, accepted) {
+    if (accepted !== true) throw launcherError('TRUST_REQUIRED', 'Confirm that software will be detached while its private data is retained.');
+    const row = this.row(id); return this.launch('detach', id, async () => { const result = await detachInstance(optionsFor(row)); row.detached = true; await this.save(); return result; });
+  }
+  async reattach(id, reviewId, accepted) {
+    if (accepted !== true) throw launcherError('TRUST_REQUIRED', 'Accept the current software and environment review before reattaching.');
+    const row = await this.maintainedRow(id), review = this.reviewed(reviewId, id); await this.verifyReview(review);
+    if (!row.detached) throw launcherError('INSTANCE_ATTACHED', 'This instance software is already attached.');
+    return this.launch('reattach', id, async () => { const result = await reattachInstance({ ...optionsFor(row), ...review.environment, trust: review.plan.digest });
+      row.detached = false; row.environment = review.environment; row.permissions = result.plan.permissions; await this.save(); return result; });
+  }
+  authoring(input) { return inspectAuthoring(input.directory, this.environment(input)); }
+  async commentDirectory(directory) {
+    const source = await ordinaryPath(directory), key = createHash('sha256').update(process.platform === 'win32' ? source.toLowerCase() : source).digest('hex');
+    const journal = join(this.root, 'creator-comments', key); await ordinaryPath(journal, { allowMissing: true }); await mkdir(journal, { recursive: true, mode: 0o700 });
+    return journal;
+  }
+  async comments(input) { return readComments(await this.commentDirectory(input.directory)); }
+  source(input) { return readSourceIndex(input.source, { expectedSha256: input.expectedSha256, allowPrivateNetwork: input.allowPrivateNetwork }); }
+  creator(kind, input) {
+    const key = '$creator-' + createHash('sha256').update(resolve(input.directory ?? this.root)).digest('hex');
+    return this.launch(kind, key, async (_, signal) => {
+      const options = { ...input, ...this.environment(input), signal };
+      if (kind === 'derive') return derivePackage(input.directory, options);
+      if (kind === 'rebuild') return rebuildPackage(input.directory, options);
+      if (kind === 'proposal') return exportProposal(input.directory, options);
+      if (kind === 'apply-proposal') return applyProposal(input.directory, input.proposalDirectory, options);
+      if (kind === 'comment') return addComment(await this.commentDirectory(input.directory), options);
+      if (kind === 'export-comments') return exportComments(await this.commentDirectory(input.directory), options);
+      if (kind === 'import-comments') return importComments(await this.commentDirectory(input.directory), input.source, options);
+      if (kind === 'publish') return publishArtifact(input.directory, options);
+      throw launcherError('NOT_FOUND', 'Unknown creator operation', 404);
+    });
+  }
+  fetchSource(input) {
+    const key = '$source-cache';
+    return this.launch('fetch-source', key, (_, signal) => fetchSourceArtifact(input.source, input.indexDigest, input.entryId, { cacheRoot: join(this.root, 'source-cache'), allowPrivateNetwork: input.allowPrivateNetwork, signal }));
+  }
   async logs(id) {
     const row = this.row(id);
     try { return await logsInstance(optionsFor(row)); } catch (error) { if (error.code === 'ENOENT') return { format: 'world-hub.runtime-logs/v1', instanceId: id, logs: {} }; throw error; }
@@ -204,7 +338,9 @@ export class LauncherManager {
     for (const op of this.operations.values()) if (op.state === 'running') op.controller.abort();
     await this.registryQueue;
     await Promise.all([...this.operations.values()].filter(op => op.state === 'running').map(op => op.promise));
+    await this.saveQueue;
     const errors = [];
+    for (const [id] of this.preparationOwners) try { await this.clearPreparationOwner(id); } catch (error) { errors.push(error); }
     for (const [id] of this.sessions) try { await this.stopNow(id); } catch (error) { errors.push(error); }
     if (this.hub) try { await this.hub.stop(5000); if (!this.hub.exit) throw new Error('Default Hub exit unconfirmed'); } catch (error) { errors.push(error); }
     if (errors.length) { this.closing = false; throw launcherError('CLEANUP_INCOMPLETE', errors.map(e => e.message).join('; ')); }

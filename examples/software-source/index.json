@@ -1,0 +1,31 @@
+{
+  "format": "world-hub.source-index/v1",
+  "id": "world-hub.examples",
+  "title": "World Hub example modules",
+  "entries": [
+    {
+      "entryId": "module.demo.stats.1.0.0",
+      "kind": "module",
+      "id": "demo.stats",
+      "version": "1.0.0",
+      "title": "demo.stats",
+      "license": "MIT",
+      "platforms": [
+        "win32-x64",
+        "linux-x64",
+        "darwin-arm64"
+      ],
+      "provides": [
+        {
+          "id": "text.statistics",
+          "version": "1.0.0"
+        }
+      ],
+      "requires": [],
+      "source": {
+        "url": "https://raw.githubusercontent.com/oooBCKooo/world-hub/main/examples/software-source/text-statistics.module.json"
+      },
+      "sha256": "added256c8ead91a2aac558fb67e37f72d797e2700c5b9a1e07302f21d78b0b5"
+    }
+  ]
+}

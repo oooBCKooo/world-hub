@@ -14,7 +14,7 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const nonce = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID()}`;
 const safe = value => value.replaceAll('\\', '/');
 const ecosystemFiles = ['bin/world-hub-pack.mjs',
-  ...['index', 'package', 'paths', 'process', 'runtime', 'hub-process'].map(name => `scripts/runtime/${name}.mjs`),
+  ...['index', 'package', 'paths', 'process', 'runtime', 'hub-process', 'maintenance', 'authoring', 'sources'].map(name => `scripts/runtime/${name}.mjs`),
   'docs/ecosystem/pack-spec.md', 'docs/ecosystem/runtime.md',
   ...['module', 'pack', 'pack-lock'].map(name => `docs/ecosystem/${name}.schema.json`)];
 const developerMaterial = ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md', 'docs/ecosystem/launcher.md', ...ecosystemFiles, ...LAUNCHER_FILES];

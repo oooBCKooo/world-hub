@@ -85,6 +85,7 @@ try {
       'tests/integration/ecosystem-runtime/runtime.test.mjs',
       'tests/integration/ecosystem-runtime/distribution.test.mjs',
       'tests/integration/ecosystem-runtime/paths.test.mjs',
+      'tests/integration/ecosystem-runtime/maintenance.test.mjs',
     ]), { test: true });
   } else if (suite === 'launcher') {
     const cases = (await readdir(join(root, 'tests/integration/launcher'))).filter(name => name.endsWith('.test.mjs')).sort().map(name => `tests/integration/launcher/${name}`);

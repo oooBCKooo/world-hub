@@ -14,9 +14,9 @@
 | `tests/bridge-acceptance/` | 通过 manifest 选择候选桥的开放验收装置 |
 | `scripts/` | 启动、检查、验证与可重跑构建工具 |
 | `bin/world-hub-pack.mjs`、`scripts/runtime/` | 可选的外部本地整合包 Runtime；导入、审阅、实例与程序生命周期 |
-| `tools/launcher/` | 可选统一 Launcher 的本机受控 API、实例管理与中英文浏览器界面；复用外部 Runtime |
+| `tools/launcher/` | 可选统一 Launcher 的本机受控 API、环境探测与有限准备、实例维护、创作／软件源和中英文浏览器界面；复用外部 Runtime |
 | `src/management/launcher-link.mjs` | 已有 Hub 管理界面中按实例、运行和实际桥会话定位的可选导航 |
-| `tests/integration/launcher/` | Launcher 本地认证、审阅授权、生命周期、真实跨语言交互与精确归属验收 |
+| `tests/integration/launcher/` | Launcher 认证、审阅授权、生命周期、真实跨语言交互、归属、维护／创作／软件源与 UI 事件验收 |
 | `docs/ecosystem/` | 外部 module／pack／lock 部署声明、JSON Schema 与 Runtime 接口 |
 | `examples/ecosystem-pack/` | 三个独立 JS／Python 程序、随带桥源码和完整参考包锁 |
 | `docs/` | 当前规范、使用、接入、开发及分发说明 |

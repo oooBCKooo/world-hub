@@ -23,9 +23,11 @@ world-hub ui --open
 
 首次体验可克隆仓库，安装[跨语言文字台](examples/ecosystem-pack/README.md)指定的 Node、Python 和 websockets，执行 `npm run ui -- --open`，然后导入 `examples/ecosystem-pack`。三个真实程序完成“JavaScript 来源 → Python 统计 → JavaScript 界面”的调用；npm 安装不附带演示程序，可导入自己的包或下载[源码整合包](docs/releases.md)。
 
-Launcher 是可选的本机部署与导航工具，调用外部 Runtime。Hub Core 继续只负责通讯；独立程序、原有 `world-hub --open` 和无界面部署仍可单独使用。环境由用户预先安装，声明权限供审阅，当前没有操作系统沙箱。详见[统一入口指南](docs/ecosystem/launcher.md)。
+实例还可查看分组存储、创建私有备份、恢复到新实例，以及保留数据卸载／重新关联软件。创作工作台显示真实组件和能力连线，支持公开配置修改、兼容模块替换、生成新锁与派生包；旧环境锁可经审阅复制到新目录重建。可选软件源按合同、平台和许可筛选 Pack／Module，校验后获取到本机缓存；创作者可生成可分享的索引与制品，交换纯文本评论及带版本冲突检查的协作提案。这些动作都不自动启动第三方程序。
 
-![统一入口：实际运行的跨语言整合包及其独立程序](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-launcher.jpg?v=0.16.0)
+Launcher 是可选的本机部署与导航工具，调用外部 Runtime。Hub Core 继续只负责通讯；独立程序、原有 `world-hub --open` 和无界面部署仍可单独使用。界面可发现已安装解释器；经用户审阅后，有限方案可为锁定的 Python 依赖准备独立环境，其余环境由用户准备。声明权限和 Python venv 都不是操作系统沙箱。软件源无需在线才可运行本地实例，生成发布目录也不代表已上传社区。详见[统一入口指南](docs/ecosystem/launcher.md)。
+
+![统一入口：实际运行的跨语言整合包及其独立程序](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-launcher.jpg?v=0.16.1)
 
 ## 可以组合出什么
 
@@ -51,26 +53,26 @@ Launcher 是可选的本机部署与导航工具，调用外部 Runtime。Hub Co
 
 多源事件台的实际运行：新增交通读数与环境、行情并列；界面向环境程序回传参数后，读数按新参数继续产生。
 
-![中文界面：实际三源事件面板与来源程序返回的控制参数](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-event-desk.jpg?v=0.13.2)
+![中文界面：实际三源事件面板与来源程序返回的控制参数](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-event-desk.jpg?v=0.16.1)
 
 <details>
 <summary>查看四源上下文与独立执行器的实际成果</summary>
 
-![中文界面：四个程序提供上下文，独立清单执行器返回成果和真实来源回执](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-modular-assistant.jpg?v=0.13.2)
+![中文界面：四个程序提供上下文，独立清单执行器返回成果和真实来源回执](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-modular-assistant.jpg?v=0.16.1)
 
 </details>
 
 <details>
 <summary>查看外部数字世界的三轮变化</summary>
 
-![中文界面：独立导演调用 NPC、规则和状态程序，返回起始状态、三轮行动和最终状态](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-digital-world.jpg?v=0.13.2)
+![中文界面：独立导演调用 NPC、规则和状态程序，返回起始状态、三轮行动和最终状态](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-digital-world.jpg?v=0.16.1)
 
 </details>
 
 <details>
 <summary>查看外部能力目录与配置替换后的真实链路</summary>
 
-![中文界面：独立目录公布两套统计能力，组装程序改配置选用 B，返回相同合同的统计成果和四步真实回执](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-capability-directory.jpg?v=0.14.0)
+![中文界面：独立目录公布两套统计能力，组装程序改配置选用 B，返回相同合同的统计成果和四步真实回执](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/demo-capability-directory.jpg?v=0.16.1)
 
 </details>
 
@@ -119,14 +121,14 @@ npm run demo:events-explorer
 
 管理画布、通讯工作台和四套用途演示均支持简体中文／English 切换，并在浏览器中记住选择。切换仅改变界面文案与显示格式，用户提供的名称、注记、主题、业务内容和原始通讯记录保留原文。
 
-![中文界面：枢纽管理画布中的程序、双向 mod 桥、枢纽与真实信息流](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-topology.jpg?v=0.13.2)
+![中文界面：枢纽管理画布中的程序、双向 mod 桥、枢纽与真实信息流](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-topology.jpg?v=0.16.1)
 
 管理画布显示程序、桥、枢纽和信息流，支持接入通断与关联注记。程序注记不代表外部程序的真实执行状态。
 
 <details>
 <summary>查看双向 mod 通讯工作台</summary>
 
-![中文界面：通讯工作台的动态主题、原文信息与真实收发记录](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-workbench.jpg?v=0.13.2)
+![中文界面：通讯工作台的动态主题、原文信息与真实收发记录](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-workbench.jpg?v=0.16.1)
 
 工作台通过自己的 mod 发布、订阅与抽取信息，也可请求／回应、注入、声明通道和传输附件。图中是一次实际发布及枢纽接纳回执。
 
@@ -184,7 +186,7 @@ world-hub-pack start --root ./pack-runtime --instance one --trust $review.digest
 
 先检查 `plan` 的内容、依赖和权限声明，再使用实际摘要启动。每实例有自己的 Hub、端口、凭据和程序状态；进程、自报健康与真实桥连接分别显示。[跨语言文本台包](examples/ecosystem-pack/README.md)提供三个真实程序：JavaScript 原文来源、Python 统计、JavaScript 浏览器界面；界面经 Hub 请求来源和统计并自己保存成果，支持中文与 English。样例锁要求预安装 Node 22.23.2、Python 3.14.0 与 websockets 15.0.1。
 
-Runtime 是独立部署层，Hub 继续只做通讯十字路口。此版使用显式本地来源与每实例独立 Hub，权限是声明，未提供 OS 沙箱、自动依赖安装、在线 Workshop 或自动业务重试。完整 CLI／公开 API、锁更新及数据边界见[外部 Runtime](docs/ecosystem/runtime.md)。
+Runtime 是独立部署层，Hub 继续只做通讯十字路口。每个实例有独立 Hub，权限是声明，未提供 OS 沙箱或自动业务重试。Launcher 可经用户明确审阅，按有限固定方案准备支持的 Python 依赖，并提供静态软件源与本地创作协作；它不托管在线社区。完整 CLI／公开 API、锁更新及数据边界见[外部 Runtime](docs/ecosystem/runtime.md)。
 
 ## 仓库结构
 

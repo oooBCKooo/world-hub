@@ -1,4 +1,5 @@
 import { initialLanguage, translate, applyLanguage } from './i18n.mjs';
+import { createAdvancedUi } from './advanced.mjs';
 
 const $ = selector => document.querySelector(selector);
 const sessionKey = 'world-hub.launcher.session';
@@ -15,11 +16,12 @@ const idOf = instance => instance?.instanceId ?? instance?.id;
 const current = () => state.instances.find(instance => idOf(instance) === state.selected);
 const endpoint = (id, action = '') => `/api/instances/${encodeURIComponent(id)}${action ? `/${action}` : ''}`;
 const running = instance => ['running', 'starting', 'stopping'].includes(instance?.status?.state) && !instance?.status?.stoppedAt;
-const exitUnconfirmed = instance => Boolean(instance?.status?.runId) && !instance?.status?.stoppedAt;
+const exitUnconfirmed = instance => Boolean(instance?.status?.runId) && (!instance?.status?.stoppedAt || instance?.status?.cleanupIncomplete === true);
 const isStale = status => status?.observation === 'stale' || status?.supervisorUnavailable === true;
 const operationFor = instance => state.operations.get(idOf(instance)) ?? (instance?.operation?.state === 'running' ? instance.operation : null);
 const stopBlocked = instance => { const operation = operationFor(instance); return operation && !['start', 'restart'].includes(operation.kind); };
 const preparing = instance => ['start', 'restart'].includes(operationFor(instance)?.kind);
+let advanced;
 
 // Every remote string is inserted through textContent/text nodes. Pack content never becomes markup.
 function el(tag, attributes = {}, children = []) {
@@ -66,7 +68,7 @@ let toastTimer;
 function toast(message) { clearTimeout(toastTimer); $('#toast').textContent = message; $('#toast').hidden = false; toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 6500); }
 
 class ApiError extends Error {
-  constructor(data, status) { super(data?.error?.message ?? `HTTP ${status}`); this.code = data?.error?.code; this.status = status; this.guidance = data?.guidance; this.requirements = data?.requirements; }
+  constructor(data, status) { super(data?.error?.message ?? `HTTP ${status}`); this.code = data?.error?.code; this.status = status; this.guidance = data?.guidance; this.requirements = data?.requirements; this.diagnostic = data?.diagnostic ?? data?.error?.diagnostic; this.incompleteDestination = data?.incompleteDestination ?? data?.error?.incompleteDestination; }
 }
 async function api(path, body) {
   const headers = { Accept: 'application/json' };
@@ -84,12 +86,19 @@ async function api(path, body) {
 }
 
 function errorContents(error) {
-  const nodes = [el('p', {}, error.message)];
+  const nodes = [error.diagnostic?.[state.language] ? el('p', {}, error.diagnostic[state.language]) : null, el('p', {}, error.message)].filter(Boolean);
+  if (error.incompleteDestination) nodes.push(el('p', {}, `${t('destination')}: ${error.incompleteDestination}`));
   if (error.requirements) nodes.push(el('pre', { class: 'review-digest' }, JSON.stringify(error.requirements, null, 2)));
   if (error.guidance?.length) nodes.push(guidance(error.guidance));
   return nodes;
 }
 function renderError(target, error) { const node = $(target); node.className = 'notice notice-error'; node.replaceChildren(...errorContents(error)); node.hidden = false; }
+function operationError(error) {
+  let dialog = $('#operation-error-dialog');
+  if (!dialog) { dialog = el('dialog', { id: 'operation-error-dialog', class: 'dialog' }); document.body.append(dialog); }
+  dialog.replaceChildren(el('div', { class: 'dialog-heading' }, [el('h2', {}, t('operationFailed')), button('×', () => dialog.close(), 'icon-button')]), ...errorContents(error));
+  if (!dialog.open) dialog.showModal();
+}
 function guidance(items) {
   const section = el('div', { class: 'review-section' }, el('h3', {}, t('repairSteps')));
   for (const item of items ?? []) {
@@ -126,7 +135,8 @@ function packCard(instance) {
   const reviewCount = state.reviews.get(id)?.review?.pack?.components?.length;
   const [label, tone] = statusLabel(instance);
   const facts = definition([[t('modules'), `${modules.length || reviewCount || '—'}`], [t('communication'), isStale(status) ? t('unknown') : modules.length ? `${modules.filter(c => c.communication === 'connected').length} / ${modules.length}` : '—']], 'pack-facts');
-  const primary = running(instance) || exitUnconfirmed(instance) || preparing(instance) ? button(t('stop'), () => stopInstance(id), 'button button-small button-quiet', stopBlocked(instance) || status.state === 'stopping') : button(t('start'), () => reviewInstance(id, 'start'), 'button button-small button-primary', busy);
+  const detached = instance.detached === true || status.state === 'detached';
+  const primary = detached ? button(advanced.label('storage'), () => selectInstance(id, 'storage'), 'button button-small button-quiet') : running(instance) || exitUnconfirmed(instance) || preparing(instance) ? button(t('stop'), () => stopInstance(id), 'button button-small button-quiet', stopBlocked(instance) || status.state === 'stopping') : button(t('start'), () => reviewInstance(id, 'start'), 'button button-small button-primary', busy);
   return el('article', { class: 'pack-card' }, [el('div', { class: 'pack-card-top' }, [el('div', { class: 'pack-title-row' }, [el('div', { class: 'pack-symbol', 'aria-hidden': 'true' }, '◇'), el('div', {}, [el('h3', {}, instance.pack?.title ?? instance.pack?.id ?? id), el('div', { class: 'pack-version' }, `v${instance.pack?.version ?? '—'}`)]), pill(label, tone)]), el('div', { class: 'pack-id' }, id), facts]), el('div', { class: 'pack-card-footer' }, [button(`${t('viewDetails')} →`, () => selectInstance(id), 'text-link'), primary])]);
 }
 function empty(title, description, action) { return el('div', { class: 'empty-state' }, [el('div', { class: 'empty-icon', 'aria-hidden': 'true' }, '◇'), el('h3', {}, title), description ? el('p', {}, description) : null, action]); }
@@ -200,10 +210,10 @@ function renderDetailHeading(instance) {
   if (running(instance) || exitUnconfirmed(instance) || preparing(instance)) {
     actions.push(button(t('stop'), () => stopInstance(id), 'button button-danger', stopBlocked(instance) || status.state === 'stopping'));
     if (status.state === 'running' && !isStale(status)) actions.push(button(t('restart'), () => reviewInstance(id, 'restart'), 'button', busy));
-  } else actions.push(button(t('start'), () => reviewInstance(id, 'start'), 'button button-primary', busy));
+  } else if (!instance.detached && status.state !== 'detached') actions.push(button(t('start'), () => reviewInstance(id, 'start'), 'button button-primary', busy));
   if (status.state === 'running' && !isStale(status)) { const entry = localLink(t('openApp'), instance.links?.entryUrl, 'button button-primary', true); if (entry) actions.push(entry); }
   const topology = localLink(t('topology'), instance.links?.managementUrl); if (topology) actions.push(topology);
-  actions.push(button(t('review'), () => reviewInstance(id, 'review'), 'button button-quiet', busy), button(t('exportPackage'), () => { $('#export-error').hidden = true; $('#export-dialog').showModal(); }, 'button button-quiet', busy));
+  actions.push(button(t('review'), () => reviewInstance(id, 'review'), 'button button-quiet', busy), button(t('exportPackage'), () => { $('#export-error').hidden = true; $('#export-dialog').showModal(); }, 'button button-quiet', busy || instance.detached || status.state === 'detached'));
   $('#detail-actions').replaceChildren(...actions);
   const notices = [];
   if (isStale(status)) notices.push(el('div', { class: 'notice notice-warning' }, t('staleMeaning')));
@@ -260,7 +270,7 @@ function renderDetail(force = false) {
   const stamp = JSON.stringify([state.selected, content, state.tab, state.language]);
   if (!force && stamp === state.detailStamp) return;
   state.detailStamp = stamp;
-  const children = state.tab === 'status' ? renderStatus(instance) : state.tab === 'modules' ? renderModules(instance) : state.tab === 'logs' ? renderLogs(instance) : renderDetails(instance);
+  const children = state.tab === 'status' ? renderStatus(instance) : state.tab === 'modules' ? renderModules(instance) : state.tab === 'logs' ? renderLogs(instance) : state.tab === 'storage' ? advanced.renderStorage(instance) : renderDetails(instance);
   $('#detail-content').replaceChildren(...children);
 }
 function renderAll(force = false) {
@@ -273,9 +283,10 @@ function navigate(view, updateHash = true) {
   state.view = view;
   for (const section of document.querySelectorAll('.view')) section.hidden = section.id !== `view-${view}`;
   for (const item of document.querySelectorAll('[data-view]')) { const selected = item.dataset.view === (view === 'detail' ? 'packs' : view); item.classList.toggle('active', selected); if (selected) item.setAttribute('aria-current', 'page'); else item.removeAttribute('aria-current'); }
-  $('#breadcrumb').textContent = view === 'detail' ? currentTitle(state.selected) : t({ packs: 'myPacks', overview: 'overview', hubs: 'hubs', workbench: 'workbench', environment: 'environment' }[view]);
+  $('#breadcrumb').textContent = view === 'detail' ? currentTitle(state.selected) : ['sources', 'creator'].includes(view) ? advanced.label(view) : t({ packs: 'myPacks', overview: 'overview', hubs: 'hubs', workbench: 'workbench', environment: 'environment' }[view]);
   if (updateHash) history.replaceState(null, '', `${location.pathname}${view === 'detail' ? `?instance=${encodeURIComponent(state.selected)}` : ''}#${view === 'detail' ? state.tab : view}`);
   if (view === 'environment') renderEnvironment();
+  advanced?.navigate(view);
   renderAll(true);
 }
 async function selectInstance(id, tab = 'status', componentId = null) {
@@ -291,6 +302,7 @@ function changeTab(tab, updateHash = true) {
   for (const button of document.querySelectorAll('[data-tab]')) { const selected = button.dataset.tab === tab; button.setAttribute('aria-selected', String(selected)); button.tabIndex = selected ? 0 : -1; }
   renderDetail(true);
   if (updateHash) { history.replaceState(null, '', `${location.pathname}?instance=${encodeURIComponent(state.selected)}#${tab}`); if (tab === 'logs') void loadLogs(state.selected, true); if (tab === 'status') void loadTopology(state.selected, true); }
+  if (tab === 'storage') advanced?.loadStorage(state.selected);
 }
 function replaceInstance(instance) { const id = idOf(instance), index = state.instances.findIndex(i => idOf(i) === id); if (index === -1) state.instances.push(instance); else state.instances[index] = instance; }
 
@@ -393,7 +405,7 @@ async function stopInstance(id) {
 async function hubOperation(kind) {
   if (state.operations.has('hub:default')) return;
   try { const data = await api(`/api/hubs/default/${kind}`, {}); await followOperation(data.operationId, 'hub:default', kind); }
-  catch (error) { toast(error.message); }
+  catch (error) { operationError(error); }
 }
 async function followOperation(operationId, instanceId, kind) {
   if (!operationId) { await refresh({ explicit: true }); return; }
@@ -405,12 +417,12 @@ async function followOperation(operationId, instanceId, kind) {
       const data = await api(`/api/operations/${encodeURIComponent(operationId)}`), operation = data.operation;
       if (operation.state === 'running') { await refresh(); setTimeout(poll, 1000); return; }
       if (state.operations.get(instanceId)?.operationId === operationId) state.operations.delete(instanceId);
-      if (operation.state === 'failed') toast(`${t('operationFailed')}: ${operation.error?.message ?? display(operation.error)}`);
+      if (operation.state === 'failed') operationError(Object.assign(new Error(operation.error?.message ?? t('operationFailed')), operation.error ?? {}));
       else if (kind === 'export') toast(t('exportedSuccess', { destination: operation.result?.destination ?? state.exportDestination ?? '—' }));
       else if (instanceId === 'hub:default') toast(t(kind === 'start' ? 'defaultHubStarted' : 'defaultHubStopped'));
       await refresh({ explicit: true });
       if (state.selected === instanceId) { if (state.tab === 'logs') await loadLogs(instanceId); if (state.tab === 'status') await loadTopology(instanceId); }
-    } catch (error) { if (state.operations.get(instanceId)?.operationId === operationId) state.operations.delete(instanceId); renderAll(true); toast(error.message); }
+    } catch (error) { if (state.operations.get(instanceId)?.operationId === operationId) state.operations.delete(instanceId); renderAll(true); operationError(error); }
   };
   void poll();
 }
@@ -439,7 +451,8 @@ function languageChanged() {
   renderAll(true); renderEnvironment();
   if (state.importReview) { $('#import-review').replaceChildren(...reviewView(state.importReview, 'import')); $('#import-submit').textContent = t('confirmImport'); }
   if (state.trustReview) { $('#trust-review').replaceChildren(...reviewView(state.trustReview)); $('#trust-submit').textContent = t(state.trustKind === 'restart' ? 'trustAndRestart' : 'trustAndStart'); }
-  $('#breadcrumb').textContent = state.view === 'detail' ? currentTitle(state.selected) : t({ packs: 'myPacks', overview: 'overview', hubs: 'hubs', workbench: 'workbench', environment: 'environment' }[state.view]);
+  advanced?.languageChanged();
+  $('#breadcrumb').textContent = state.view === 'detail' ? currentTitle(state.selected) : ['sources', 'creator'].includes(state.view) ? advanced.label(state.view) : t({ packs: 'myPacks', overview: 'overview', hubs: 'hubs', workbench: 'workbench', environment: 'environment' }[state.view]);
 }
 function initializeEvents() {
   for (const item of document.querySelectorAll('[data-view]')) item.addEventListener('click', () => navigate(item.dataset.view));
@@ -480,10 +493,11 @@ async function resolveReturnHint(hints) {
 async function boot() {
   const hash = new URLSearchParams(location.hash.slice(1)), launchCode = hash.get('launch');
   const queries = new URLSearchParams(location.search), hints = Object.fromEntries(queries); hints.tab = location.hash.slice(1);
-  const initialView = ['packs', 'overview', 'hubs', 'workbench', 'environment'].includes(hints.tab) ? hints.tab : 'packs';
+  const initialView = ['packs', 'overview', 'hubs', 'workbench', 'environment', 'sources', 'creator'].includes(hints.tab) ? hints.tab : 'packs';
   // Consume the launch capability immediately; it is never stored or left in browser history.
   if (launchCode) history.replaceState(null, '', `${location.pathname}${location.search}`);
   try { const theme = localStorage.getItem('world-hub.launcher.theme'); if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme; } catch {}
+  advanced = createAdvancedUi({ state, api, el, button, pill, t, toast, definition, display, date, guidance, errorContents, current, idOf, endpoint, operationFor, exitUnconfirmed, refresh, renderDetail, navigate, changeTab, selectInstance, openImport, replaceInstance, reviewView });
   initializeEvents(); languageChanged(); navigate(initialView, false);
   try {
     if (launchCode) {
@@ -497,6 +511,7 @@ async function boot() {
     try { sessionStorage.setItem(sessionKey, JSON.stringify(state.auth)); } catch {}
     $('#version').textContent = state.session.softwareVersion ? `v${state.session.softwareVersion}` : 'LOCAL';
     for (const kind of ['nodePath', 'pythonPath']) $('#environment-form').elements[kind].value = state.session.defaults?.[kind] ?? '';
+    advanced.sessionReady();
     await refresh({ explicit: true });
     if (!await resolveReturnHint(hints)) navigate(initialView);
     setInterval(() => { if (!document.hidden && state.auth?.token) void refresh(); }, 1000);

@@ -89,7 +89,7 @@ Hub 源码／便携包还提供可选 `ui.cmd`，源码或生态包可用 `node 
 
 npm 发布前运行 `npm run test:npm`，以实际 tarball 在中文空格路径中进行独立本地与全局前缀安装，检查命令入口、数据目录、管理界面、JavaScript 导出和真实桥通讯。也可用 `node scripts/release/npm-package-acceptance.mjs` 单独生成并验收 tarball；输出包与报告留在忽略的 `.artifacts/npm/`，该工具不执行发布。
 
-`npm run test:launcher` 另行检查本地管理认证、审阅变化后的授权拒绝、实例启停与异常、精确桥归属和通过 Launcher 管理的跨语言实际应用调用。源码／便携 ZIP 的 manifest 和 npm tarball 必须携带 Launcher 全部后端及四个静态文件；清单核对不能替代从实际安装包／解压包运行 Launcher 的验收，也不等同于人工浏览器体验验收。
+`npm run test:launcher` 另行检查本地管理认证、审阅变化后的授权拒绝、实例启停与异常、精确桥归属、真实跨语言应用调用，以及备份恢复、创作／软件源、有限环境准备与界面实际事件授权。源码／便携 ZIP 的 manifest 和 npm tarball 必须携带 Launcher 全部后端及五个静态文件（包括 `advanced.mjs`），同时完整携带 Runtime 的维护、创作与软件源依赖。清单核对不能替代从实际安装包／解压包运行 Launcher 的验收，也不等同于人工浏览器体验验收。
 
 `scripts/release/` 提供可重跑的包级工具，输入实际解压目录和新的包外证据目录。例如：
 
