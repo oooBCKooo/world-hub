@@ -4,7 +4,7 @@ import { mkdir, writeFile, rename, unlink, rm } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { join, dirname, resolve, relative, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { ordinaryPath, readBounded, hash } from '../../scripts/runtime/paths.mjs';
+import { ordinaryPath, readBounded, hash, processCwd, processPath } from '../../scripts/runtime/paths.mjs';
 import { filteredEnv } from '../../scripts/runtime/package.mjs';
 import { probe } from './environment.mjs';
 
@@ -18,6 +18,12 @@ const abort = signal => { if (signal?.aborted) throw fail('PREPARATION_CANCELLED
 const inside = (root, value) => { const tail = relative(root, value); return tail !== '' && !isAbsolute(tail) && !tail.startsWith('..'); };
 
 export async function planPythonEnvironment({ root, directory, nodePath = process.execPath, pythonPath = process.platform === 'win32' ? 'python.exe' : 'python3', destination }) {
+  const environments = await ordinaryPath(resolve(root, 'environments'), { allowMissing: true });
+  const target = destination ?? join(environments, 'python-' + randomUUID());
+  if (!inside(environments, resolve(target))) throw fail('UNSAFE_ENVIRONMENT_PATH', 'Prepared environments must be inside the Launcher environment directory.');
+  const canonicalTarget = await ordinaryPath(target, { allowMissing: true });
+  if (process.platform === 'win32' && join(canonicalTarget, 'Scripts', 'python.exe').length >= 248)
+    throw fail('ENVIRONMENT_PATH_TOO_LONG', 'Windows private-environment interpreter path must be shorter than 248 characters. Choose a shorter Launcher root or select an interpreter prepared in a shorter directory. Instance and module directories may still be long.');
   const lockBytes = await readBounded(join(await ordinaryPath(directory), 'pack.lock'));
   const lock = JSON.parse(lockBytes.toString('utf8'));
   if (lock.format !== 'world-hub.pack-lock/v1' || lock.platform?.os !== process.platform || lock.platform?.arch !== process.arch)
@@ -29,10 +35,6 @@ export async function planPythonEnvironment({ root, directory, nodePath = proces
   if (!base.available || !node.available) throw fail('INTERPRETER_MISSING', 'Choose installed native Node and Python interpreters before preparing dependencies.');
   if (base.version !== lock.runtimes.python.version || node.version !== lock.runtimes.node.version || base.arch !== process.arch || node.arch !== process.arch)
     throw fail('INTERPRETER_VERSION_MISMATCH', 'The selected interpreters must match the locked versions and architecture. Preparation does not rewrite the lock.');
-  const environments = resolve(root, 'environments');
-  const target = destination ?? join(environments, 'python-' + randomUUID());
-  if (!inside(environments, resolve(target))) throw fail('UNSAFE_ENVIRONMENT_PATH', 'Prepared environments must be inside the Launcher environment directory.');
-  await ordinaryPath(target, { allowMissing: true });
   base.sha256 = hash(await readBounded(base.executable, 256 * 1024 * 1024));
   node.sha256 = hash(await readBounded(node.executable, 256 * 1024 * 1024));
   const value = { format: 'world-hub.environment-plan/v1', directory: resolve(directory), lockSha256: hash(lockBytes),
@@ -46,7 +48,7 @@ export async function planPythonEnvironment({ root, directory, nodePath = proces
 async function run(executable, args, { signal, cwd, timeout = 120000 }) {
   abort(signal);
   return new Promise((yes, no) => {
-    const child = spawn(executable, args, { cwd, env: filteredEnv(executable, cwd), shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(processPath(executable), args, { cwd: processCwd(cwd), env: filteredEnv(executable, cwd), shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '', reason, timer, forceTimer, endTimer, settled = false, exited = false, exitResolve;
     const closed = new Promise(resolveExit => { exitResolve = resolveExit; });
     const cleanupHandle = { closed, stop: async () => {
@@ -116,8 +118,9 @@ export async function preparePythonEnvironment({ root, plan, signal }) {
     await run(plan.base.executable, ['-I', '-m', 'venv', '--copies', '--without-pip', plan.destination], { signal, cwd: plan.destination });
     const pythonPath = join(plan.destination, process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
     // This exact wheel has no scripts, data relocation or native extensions.
-    // venv without ensurepip and the fixed stdlib copier have no installer
-    // descendants that could continue writing after cancellation.
+    // No installer or module subprocess is invoked. Windows' native venv
+    // redirector may relaunch its base interpreter in its own lifetime job;
+    // unsupported long venv paths are refused by the preparation plan.
     const installer = `import sys,sysconfig,pathlib,zipfile,io,hashlib,stat\nwheel=pathlib.Path(sys.argv[1]).read_bytes()\nassert len(wheel)==${PYTHON_RECIPE.size} and hashlib.sha256(wheel).hexdigest()=='${PYTHON_RECIPE.sha256}'\nbase=pathlib.Path(sys.prefix).resolve(); target=pathlib.Path(sysconfig.get_path('purelib')).resolve()\nassert target.is_relative_to(base)\narchive=zipfile.ZipFile(io.BytesIO(wheel)); entries=archive.infolist(); assert len(entries)<=1024\ntotal=0; seen=set()\nfor entry in entries:\n name=entry.filename; parts=name.rstrip('/').split('/'); assert all(p and p not in ('.','..') and ':' not in p and chr(92) not in p for p in parts)\n assert parts[0] in ('websockets','websockets-15.0.1.dist-info') and not stat.S_ISLNK(entry.external_attr>>16)\n key=name.lower(); assert key not in seen; seen.add(key)\n total+=entry.file_size; assert entry.file_size<=8388608 and total<=67108864\n file=target.joinpath(*parts); assert file.resolve().is_relative_to(target)\n if entry.is_dir(): file.mkdir(parents=True,exist_ok=True)\n else:\n  file.parent.mkdir(parents=True,exist_ok=True)\n  with file.open('xb') as output: output.write(archive.read(entry))\n`;
     await run(pythonPath, ['-I', '-c', installer, wheel.file], { signal, cwd: plan.destination });
     const environment = await probe(pythonPath, 'python'); abort(signal);

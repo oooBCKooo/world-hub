@@ -2,6 +2,7 @@ import { lstat, realpath, readdir } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { resolve, join, parse } from 'node:path';
 import { filteredEnv } from '../../scripts/runtime/package.mjs';
+import { processCwd, processPath, checkPythonExecutablePath } from '../../scripts/runtime/paths.mjs';
 
 export async function probe(command, kind) {
   try {
@@ -16,11 +17,12 @@ export async function probe(command, kind) {
       if (!executable) throw new Error(`Interpreter not found: ${command}`);
     }
     executable = await realpath(resolve(executable));
+    if (kind === 'python') await checkPythonExecutablePath(executable);
     const code = kind === 'node'
       ? 'console.log(JSON.stringify({executable:process.execPath,version:process.versions.node,arch:process.arch,packages:{}}))'
       : 'import sys,json,struct,platform,importlib.metadata; p={};\ntry: p["websockets"]=importlib.metadata.version("websockets")\nexcept importlib.metadata.PackageNotFoundError: pass\nm=platform.machine().lower(); a={"amd64":"x64","x86_64":"x64","arm64":"arm64","aarch64":"arm64","x86":"ia32","i386":"ia32","i686":"ia32"}.get(m,"unknown");\nprint(json.dumps({"executable":sys.executable,"version":".".join(map(str,sys.version_info[:3])),"arch":a,"pointerBits":struct.calcsize("P")*8,"packages":p}))';
-    const result = spawnSync(executable, kind === 'node' ? ['-e', code] : ['-I', '-c', code],
-      { shell: false, windowsHide: true, timeout: 10000, maxBuffer: 65536, encoding: 'utf8', env: filteredEnv(executable) });
+    const result = spawnSync(processPath(executable), kind === 'node' ? ['-e', code] : ['-I', '-c', code],
+      { cwd: processCwd(), shell: false, windowsHide: true, timeout: 10000, maxBuffer: 65536, encoding: 'utf8', env: filteredEnv(executable) });
     if (result.error || result.status !== 0) throw new Error(result.error?.message ?? result.stderr.slice(0, 1024));
     const found = JSON.parse(result.stdout.trim());
     if (!/^\d+\.\d+\.\d+$/.test(found.version) || typeof found.executable !== 'string') throw new Error('Invalid interpreter response');

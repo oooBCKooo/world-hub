@@ -11,6 +11,24 @@ export { inspectPackage, importPackage, createLock } from './package.mjs';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const identity = value => value.length <= 64 ? value : value.slice(0, 47) + '.' + hash(value).slice(0, 16);
 const json = async file => JSON.parse((await readBounded(file)).toString('utf8'));
+// Preserve the normal persistent main module and encoded-source semantics when
+// Python's Windows initialization cannot derive a long script import directory.
+const longPythonEntry = `import sys
+sys.path.pop(0)
+import os,importlib.machinery
+def _launch():
+ entry=sys.argv[1]
+ sys.argv=sys.argv[1:]
+ sys.path.insert(0,os.path.dirname(entry))
+ with open(entry,'rb') as source:
+  code=compile(source.read(),entry,'exec')
+ namespace=sys.modules['__main__'].__dict__
+ initial={'__name__':'__main__','__file__':entry,'__spec__':None,'__package__':None,'__cached__':None,'__doc__':None,'__loader__':importlib.machinery.SourceFileLoader('__main__',entry),'__builtins__':__builtins__}
+ namespace.clear()
+ namespace.update(initial)
+ exec(code,namespace)
+_launch()
+`;
 const publicError = error => ({ code: 'RUNTIME_ERROR', message: String(error.message ?? error).slice(0, 2048) });
 function bearerEquals(actual, wanted) { if (typeof actual !== 'string') return false; const a = Buffer.from(actual), b = Buffer.from(wanted); return a.length === b.length && timingSafeEqual(a, b); }
 export async function startInstance(options) {
@@ -159,7 +177,12 @@ export async function startInstance(options) {
       components.push(row);
       const executable = plan.environment[m.manifest.runtime.kind].executable;
       const entry = join(stateDir, 'package', m.source, m.manifest.runtime.entry);
-      const h = ownProcess(executable, [...(m.manifest.runtime.kind === 'python' ? ['-B', '-s'] : []), entry, '--runtime-config', config], { cwd: componentState, temporary: join(componentState, 'tmp'), secrets, onFailure: fail, signal: startupController.signal });
+      // Restore normal local imports without adding state cwd as an import
+      // source or shortening the lifetime of the program's main module.
+      const pythonArgs = m.manifest.runtime.kind === 'python'
+        ? ['-B', '-s', ...(process.platform === 'win32' && entry.length >= 248
+          ? ['-c', longPythonEntry] : [])] : [];
+      const h = ownProcess(executable, [...pythonArgs, entry, '--runtime-config', config], { cwd: componentState, temporary: join(componentState, 'tmp'), secrets, onFailure: fail, signal: startupController.signal });
       h.id = c.id; children.push(h); row.pid = h.pid; row.process = 'running';
       const application = await h.waitFor(e => e.event === 'module-ready', plan.pack.startupTimeoutMs); row.readiness = 'ready';
       if (application.entryUrl !== undefined) {

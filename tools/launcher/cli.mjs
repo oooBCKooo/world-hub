@@ -3,6 +3,7 @@ import { resolve, join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { createLauncherServer } from './server.mjs';
+import { processCwd } from '../../scripts/runtime/paths.mjs';
 
 async function openLauncherPage(url) {
   const target = new URL(url);
@@ -14,7 +15,7 @@ async function openLauncherPage(url) {
   const [command, argv] = process.platform === 'win32'
     ? [join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'rundll32.exe'), ['url.dll,FileProtocolHandler', target.href]]
     : process.platform === 'darwin' ? ['open', [target.href]] : ['xdg-open', [target.href]];
-  await new Promise((yes, no) => { const child = spawn(command, argv, { shell: false, windowsHide: true, detached: true, stdio: 'ignore' });
+  await new Promise((yes, no) => { const child = spawn(command, argv, { cwd: processCwd(), shell: false, windowsHide: true, detached: true, stdio: 'ignore' });
     child.once('error', no); child.once('spawn', () => { child.unref(); yes(); }); });
 }
 

@@ -1,9 +1,28 @@
 // Optional deployment-tool filesystem rules; no Hub protocol dependency.
 import { lstat, realpath, readdir, readFile, mkdir, writeFile, rename, unlink } from 'node:fs/promises';
-import { resolve, dirname, parse, join } from 'node:path';
+import { resolve, dirname, parse, join, toNamespacedPath, isAbsolute } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 
 export const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+export function processPath(value) {
+  return process.platform === 'win32' && isAbsolute(value) && value.length >= 248 ? toNamespacedPath(value) : value;
+}
+// CreateProcess can reject an existing long cwd with ENOENT. Use the native
+// Windows spelling of the same directory, without relocating program state.
+// Keep ordinary short cwd spelling; reserve room at the legacy directory limit.
+export function processCwd(value = process.cwd()) {
+  if (process.platform !== 'win32') return value;
+  const absolute = resolve(value);
+  return absolute.length >= 248 ? processPath(absolute) : value;
+}
+export async function checkPythonExecutablePath(executable) {
+  if (process.platform !== 'win32' || executable.length < 248) return;
+  // The Windows venv redirector can hang while relaunching its base interpreter
+  // from a long executable path. Refuse this unsupported profile before spawn.
+  try { await lstat(join(dirname(dirname(executable)), 'pyvenv.cfg')); }
+  catch (error) { if (error.code === 'ENOENT') return; throw error; }
+  throw Object.assign(new Error('Windows virtual-environment interpreter path is too long. Select an environment in a shorter directory; long instance and module directories are supported independently.'), { code: 'WINDOWS_VENV_PATH_TOO_LONG' });
+}
 export function relativePath(value) {
   if (typeof value !== 'string' || !value || value.length > 240 || value.includes('\\')
       || value.split('/').some(p => !p || p === '.' || p === '..' || /[<>:"|?*\x00-\x1f]/.test(p)

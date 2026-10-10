@@ -1,11 +1,12 @@
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { filteredEnv } from './package.mjs';
+import { processCwd, processPath } from './paths.mjs';
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 function tail(text, bound = 65536) { const bytes = Buffer.from(text); return bytes.length <= bound ? text : bytes.subarray(bytes.length - bound).toString('utf8'); }
 export function ownProcess(executable, argv, { cwd, temporary, secrets, onFailure, onEvent, signal } = {}) {
-  const child = spawn(executable, argv, { cwd, env: filteredEnv(executable, temporary), shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(processPath(executable), argv, { cwd: processCwd(cwd), env: filteredEnv(executable, temporary), shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
   const handle = { child, pid: child.pid, exit: null, ready: null, messages: [], stdout: '', stderr: '', truncated: false, stopping: false };
   let closeResolve;
   handle.closed = new Promise(resolve => { closeResolve = resolve; });

@@ -2,7 +2,7 @@ import { readFile, readdir, mkdir, writeFile, lstat, realpath } from 'node:fs/pr
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { hash, relativePath, ordinaryPath, readBounded, collectFiles, privateJson } from './paths.mjs';
+import { hash, relativePath, ordinaryPath, readBounded, collectFiles, privateJson, processCwd, processPath, checkPythonExecutablePath } from './paths.mjs';
 
 export const repository = fileURLToPath(new URL('../../', import.meta.url));
 const idPattern = /^[a-z0-9][a-z0-9._-]{0,63}$/;
@@ -104,11 +104,12 @@ async function interpreter(command, kind, packages = {}) {
     selected = found;
   }
   selected = await realpath(resolve(selected));
+  if (kind === 'python') await checkPythonExecutablePath(selected);
   const code = kind === 'node' ? 'console.log(JSON.stringify({executable:process.execPath,version:process.versions.node,packages:{}}))'
     : 'import sys,json,importlib.metadata; print(json.dumps({"executable":sys.executable,"version":".".join(map(str,sys.version_info[:3])),"packages":{name:importlib.metadata.version(name) for name in json.loads(sys.argv[1])}}))';
   const args = kind === 'node' ? ['-e', code] : ['-I', '-c', code, JSON.stringify(Object.keys(packages))];
   // Explicit interpreter probes only, never a module/install script.
-  const result = spawnSync(selected, args, { shell: false, windowsHide: true, encoding: 'utf8', timeout: 10000, maxBuffer: 65536, env: filteredEnv(resolve(selected)) });
+  const result = spawnSync(processPath(selected), args, { cwd: processCwd(), shell: false, windowsHide: true, encoding: 'utf8', timeout: 10000, maxBuffer: 65536, env: filteredEnv(resolve(selected)) });
   if (result.error || result.status !== 0) throw new Error(`Missing or unusable ${kind} runtime/dependency: ${result.error?.message || result.stderr}`);
   let actual;
   try { actual = JSON.parse(result.stdout.trim()); } catch { throw new Error(`Invalid ${kind} runtime probe response`); }
