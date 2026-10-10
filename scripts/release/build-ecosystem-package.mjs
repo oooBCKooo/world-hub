@@ -28,7 +28,7 @@ const documentation = ['README.en.md', ...SDK_DOCUMENTATION_FILES,
     .map(name => `docs/${name}.md`),
   ...['index', 'boundaries', 'protocol', 'reliability-access', 'directed-and-bulk', 'management',
     'bridge-interoperability', 'manual-workbench', 'operations'].map(name => `docs/specs/${name}.md`),
-  'docs/modules/provider-contract.md', 'docs/ecosystem/developer.md', 'docs/ecosystem/developer.en.md', 'docs/ecosystem/phase17.md', 'docs/ecosystem/pack-spec.md', 'docs/ecosystem/runtime.md', 'docs/ecosystem/launcher.md', 'docs/ecosystem/authoring.md', 'docs/ecosystem/sources.md', 'docs/ecosystem/workshop.md'];
+  'docs/modules/provider-contract.md', 'docs/ecosystem/developer.md', 'docs/ecosystem/developer.en.md', 'docs/ecosystem/phase17.md', 'docs/ecosystem/pack-spec.md', 'docs/ecosystem/runtime.md', 'docs/ecosystem/launcher.md', 'docs/ecosystem/authoring.md', 'docs/ecosystem/sources.md', 'docs/ecosystem/workshop.md', 'docs/ecosystem/templates.md', 'docs/ecosystem/upgrade.md', 'docs/ecosystem/isolation.md', 'docs/independent-author-acceptance.md'];
 export const ECOSYSTEM_SOURCE_FILES = Object.freeze([...new Set([
   ...APPLICATION_FILES, ...SDK_FILES, ...MODULE_CONTRACT_FILES, ...ECOSYSTEM_SCHEMA_FILES,
   ...ECOSYSTEM_RUNTIME_FILES, ...LAUNCHER_FILES, ...WORKSHOP_FILES, ...ECOSYSTEM_PACK_FILES, ...documentation,

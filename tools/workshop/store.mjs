@@ -66,7 +66,7 @@ function assertState(state) {
   for (const invitation of state.invitations) requireValue(shaPattern.test(invitation.hash) && users.has(invitation.creatorId) && Number.isFinite(Date.parse(invitation.expiresAt)), 'INVALID_STORE', 'Invalid Workshop invitation metadata.', 500);
   for (const p of state.publications) {
     const key = `${p.kind}:${p.id}`;
-    requireValue(identifier.test(p.entryId) && !publications.has(p.entryId) && users.has(p.ownerId) && ['module', 'pack'].includes(p.kind)
+    requireValue(identifier.test(p.entryId) && !publications.has(p.entryId) && users.has(p.ownerId) && ['module', 'pack', 'template'].includes(p.kind)
       && shaPattern.test(p.sha256) && typeof p.hidden === 'boolean' && Array.isArray(p.comments) && p.comments.length <= 100
       && Array.isArray(p.proposals) && p.proposals.length <= 32 && (!identities.has(key) || identities.get(key) === p.ownerId), 'INVALID_STORE', 'Invalid Workshop publication metadata.', 500);
     requireValue(!versions.has(`${key}@${p.version}`), 'INVALID_STORE', 'Duplicate immutable publication version.', 500);
@@ -209,7 +209,7 @@ export class WorkshopStore {
       createdAt: p.createdAt, hidden: p.hidden, commentsCount: p.comments.length, proposalsCount: p.proposals.length };
   }
   catalog({ search = '', kind = '', contract = '', offset = 0, limit = 40 } = {}, user = null) {
-    requireValue(typeof search === 'string' && search.length <= 128 && ['', 'module', 'pack'].includes(kind) && typeof contract === 'string' && contract.length <= 128
+    requireValue(typeof search === 'string' && search.length <= 128 && ['', 'module', 'pack', 'template'].includes(kind) && typeof contract === 'string' && contract.length <= 128
       && Number.isSafeInteger(offset) && offset >= 0 && Number.isSafeInteger(limit) && limit >= 1 && limit <= 100, 'INVALID_INPUT', 'Invalid catalog filter or pagination.');
     const needle = search.toLowerCase();
     const matches = this.state.publications.filter(p => (!p.hidden || user?.role === 'admin') && (!kind || p.kind === kind)

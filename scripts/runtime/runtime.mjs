@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { inspectPackage, instancePath, repository, copyPackage } from './package.mjs';
 import { hash, ordinaryPath, privateJson, readBounded } from './paths.mjs';
 import { ownProcess } from './process.mjs';
+import { assertNoIncompleteUpgrades } from './upgrade.mjs';
+import { reviewIsolationPackage, planIsolation, ownIsolatedProcess } from './isolation.mjs';
 export { inspectPackage, importPackage, createLock } from './package.mjs';
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -33,9 +35,13 @@ const publicError = error => ({ code: 'RUNTIME_ERROR', message: String(error.mes
 function bearerEquals(actual, wanted) { if (typeof actual !== 'string') return false; const a = Buffer.from(actual), b = Buffer.from(wanted); return a.length === b.length && timingSafeEqual(a, b); }
 export async function startInstance(options) {
   const stateDir = instancePath(options.root, options.instanceId); await ordinaryPath(stateDir);
+  await assertNoIncompleteUpgrades(stateDir);
   const plan = await inspectPackage(join(stateDir, 'package'), options);
   if (options.signal?.aborted) throw new Error('Runtime startup aborted');
   if (options.trust !== plan.digest) throw new Error(`Local executable code and declared permissions must be explicitly trusted with current review digest: ${plan.digest}`);
+  const isolation = options.isolation ? await reviewIsolationPackage(plan, options.isolation) : null;
+  if (isolation && options.isolationTrust !== isolation.digest) throw Object.assign(new Error('Review the current package isolation policy, Docker executable and image before starting'), { code: 'ISOLATION_REVIEW_REQUIRED' });
+  if (!isolation && options.isolationTrust !== undefined) throw Object.assign(new Error('An isolation review cannot be used for trusted-local execution'), { code: 'ISOLATION_REVIEW_REQUIRED' });
   const recorded = await json(join(stateDir, 'instance.json'));
   if (recorded.instanceId !== options.instanceId || recorded.digest !== plan.digest) throw new Error('Instance review has changed; export/reimport and review this package/environment before starting');
   const lockFile = join(stateDir, 'owner.lock'), nonce = randomUUID();
@@ -53,7 +59,8 @@ export async function startInstance(options) {
   const cancelStartup = () => { startupCancelled = true; startupController.abort(); };
   let resolveClosed; const closed = new Promise(resolve => { resolveClosed = resolve; });
   const state = { format: 'world-hub.runtime-status/v1', instanceId: options.instanceId, state: 'starting', runId: nonce,
-    pack: { id: plan.pack.id, version: plan.pack.version }, reviewDigest: plan.digest, components, hub: null, sandbox: false, startedAt: new Date().toISOString() };
+    pack: { id: plan.pack.id, version: plan.pack.version }, reviewDigest: plan.digest, components, hub: null, sandbox: Boolean(isolation),
+    executionProfile: isolation?.profile ?? 'trusted-local', ...(isolation ? { isolation: { profile: isolation.profile, image: isolation.image, limits: isolation.limits, reviewDigest: isolation.digest, appliesTo: 'components', hubOnHost: true } } : {}), startedAt: new Date().toISOString() };
   const statusFile = join(stateDir, 'status.json');
   const snapshot = () => JSON.parse(JSON.stringify(state));
   const persist = () => { const value = snapshot(); persistQueue = persistQueue.catch(() => {}).then(() => privateJson(statusFile, value)); return persistQueue; };
@@ -182,10 +189,20 @@ export async function startInstance(options) {
       const pythonArgs = m.manifest.runtime.kind === 'python'
         ? ['-B', '-s', ...(process.platform === 'win32' && entry.length >= 248
           ? ['-c', longPythonEntry] : [])] : [];
-      const h = ownProcess(executable, [...pythonArgs, entry, '--runtime-config', config], { cwd: componentState, temporary: join(componentState, 'tmp'), secrets, onFailure: fail, signal: startupController.signal });
+      const processOptions = { cwd: componentState, temporary: join(componentState, 'tmp'), secrets, onFailure: fail, signal: startupController.signal };
+      const isolatedPlan = isolation ? await planIsolation({ ...isolation.policy, sourceDirectory: join(stateDir, 'package', m.source), stateDirectory: componentState,
+        configPath: config, adapterDirectory: join(runDir, c.id + '-isolation'), entry: m.manifest.runtime.entry, runtime: 'node' }) : null;
+      const h = isolatedPlan ? await ownIsolatedProcess(isolatedPlan, { ...processOptions, trust: isolatedPlan.digest })
+        : ownProcess(executable, [...pythonArgs, entry, '--runtime-config', config], processOptions);
       h.id = c.id; children.push(h); row.pid = h.pid; row.process = 'running';
+      if (isolation) {
+        const actual = await h.waitFor(event => event.event === 'isolation-ready', plan.pack.startupTimeoutMs);
+        if (actual.nodeVersion !== isolation.expectedNodeVersion || actual.user !== isolation.limits.user) throw Object.assign(new Error('Container Node version or user differs from the reviewed locked environment'), { code: 'ISOLATION_ENVIRONMENT_MISMATCH' });
+        row.isolation = h.isolation;
+      }
       const application = await h.waitFor(e => e.event === 'module-ready', plan.pack.startupTimeoutMs); row.readiness = 'ready';
       if (application.entryUrl !== undefined) {
+        if (isolation) throw Object.assign(new Error('The headless isolation profile cannot expose an HTTP entry URL'), { code: 'ISOLATION_NETWORK_UNSUPPORTED' });
         const url = new URL(application.entryUrl);
         if (c.id !== plan.pack.entry.component || !m.manifest.permissions.network.includes('loopback-listen') || url.protocol !== 'http:'
             || url.hostname !== '127.0.0.1' || !url.port || url.username || url.password || url.search || url.hash) throw new Error('Module reported an undeclared or invalid loopback entry URL');

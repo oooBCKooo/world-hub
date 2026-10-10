@@ -1,4 +1,5 @@
 // Optional maintenance, source distribution and creator tools. Remote content is always text.
+import { createCompletionUi } from './completion-ui.mjs';
 export function createAdvancedUi(ctx) {
   const { state, api, el, button: baseButton, pill, t, toast, definition, display, date, errorContents, current, idOf, endpoint, operationFor, exitUnconfirmed, refresh, renderDetail, navigate, selectInstance, openImport, replaceInstance } = ctx;
   const $ = selector => document.querySelector(selector);
@@ -33,6 +34,7 @@ export function createAdvancedUi(ctx) {
   }
   const value = (form, key) => form.elements[key]?.value.trim() ?? '';
   const jsonView = (title, object, open = false) => el('details', { class: 'json-details', ...(open ? { open: true } : {}) }, [el('summary', {}, title), el('pre', {}, JSON.stringify(object, null, 2))]);
+  const completion = createCompletionUi({ ...ctx, button, say, panel, note, field, form, value, env, jsonView, reviewAction, operation });
   const heading = (title, subtitle, eyebrow) => el('div', { class: 'page-heading' }, el('div', {}, [el('div', { class: 'eyebrow' }, eyebrow), el('h1', {}, title), el('p', {}, subtitle)]));
 
   const actionDialog = el('dialog', { class: 'dialog', id: 'advanced-action-dialog' });
@@ -95,7 +97,7 @@ export function createAdvancedUi(ctx) {
       });
       } catch (failure) { showFailure(failure); }
     }, 'button button-quiet', !stopped);
-    return [panel(label('storage'), [el('div', { class: 'panel-heading' }, [storage ? pill(`${bytes(storage.bytes)} · ${storage.files} ${say('文件', 'files')}`) : null, inspect]), ...rows, note(say('运行期间的存储用量是即时观察，不能证明一致备份。独立目录不等于 OS 访问隔离。', 'Storage usage during a run is an observation, not proof of backup consistency. Independent directories are not OS access isolation.'))]), panel(say('备份与恢复', 'Backup & restore'), [backup, button(say('检查备份并恢复到新实例', 'Inspect backup and restore to a new instance'), openRestore, 'button button-quiet')]), panel(say('实例维护', 'Instance maintenance'), [detach, el('p', { class: 'field-help' }, say('请先停止实例并等待实际进程退出确认。', 'Stop the instance and wait for confirmed process exit first.'))])];
+    return [panel(label('storage'), [el('div', { class: 'panel-heading' }, [storage ? pill(`${bytes(storage.bytes)} · ${storage.files} ${say('文件', 'files')}`) : null, inspect]), ...rows, note(say('运行期间的存储用量是即时观察，不能证明一致备份。独立目录不等于 OS 访问隔离。', 'Storage usage during a run is an observation, not proof of backup consistency. Independent directories are not OS access isolation.'))]), panel(say('备份与恢复', 'Backup & restore'), [backup, button(say('检查备份并恢复到新实例', 'Inspect backup and restore to a new instance'), openRestore, 'button button-quiet')]), panel(say('实例维护', 'Instance maintenance'), [detach, el('p', { class: 'field-help' }, say('请先停止实例并等待实际进程退出确认。', 'Stop the instance and wait for confirmed process exit first.'))]), ...completion.maintenance(instance)];
   }
   async function loadStorage(id, explicit = false) {
     if (!id || extra.storagePending.has(id)) return; extra.storagePending.add(id);
@@ -178,7 +180,7 @@ export function createAdvancedUi(ctx) {
   function renderSourceEntries(target) {
     const data = extra.index, index = data.index ?? {}, entries = index.entries ?? [], allowPrivateNetwork = data.networkPolicy === 'trusted-private-ipv4';
     const search = el('input', { type: 'search', placeholder: say('名称或能力合同', 'Name or capability contract'), 'aria-label': say('筛选软件', 'Filter software') });
-    const kind = el('select', { 'aria-label': say('对象种类', 'Object kind') }, [['', say('模块与整合包', 'Modules & packs')], ['pack', say('整合包', 'Pack')], ['module', say('模块', 'Module')]].map(([value, title]) => el('option', { value }, title)));
+    const kind = el('select', { 'aria-label': say('对象种类', 'Object kind') }, [['', say('模块与整合包', 'Modules & packs')], ['pack', say('整合包', 'Pack')], ['module', say('模块', 'Module')], ['template', say('模板', 'Template')]].map(([value, title]) => el('option', { value }, title)));
     const platform = el('input', { placeholder: say('平台，例如 win32-x64', 'Platform, e.g. win32-x64'), 'aria-label': say('平台筛选', 'Platform filter') });
     const license = el('input', { placeholder: say('许可，例如 MIT', 'License, e.g. MIT'), 'aria-label': say('许可筛选', 'License filter') });
     const cards = el('div', { class: 'pack-grid' });
@@ -188,7 +190,7 @@ export function createAdvancedUi(ctx) {
       cards.replaceChildren(...matches.map(entry => el('article', { class: 'panel source-card' }, [el('div', { class: 'panel-heading' }, [el('h3', {}, entry.title ?? entry.id), pill(entry.kind)]), el('p', { class: 'mono subtle' }, `${entry.id} · ${entry.version}`), el('p', { class: 'field-help' }, `${entry.license ?? '—'} · ${(entry.platforms ?? []).join(', ')}`), jsonView(say('来源、摘要与合同', 'Source, digest & contracts'), { source: entry.source, sha256: entry.sha256, provides: entry.provides, requires: entry.requires }), button(say('验证并获取到缓存', 'Verify and fetch to cache'), () => reviewAction(say('获取软件制品', 'Fetch software artifact'), [note(say('内容会验证摘要后保存到新的本机缓存目录，不安装依赖、不导入实例、不启动程序。', 'Contents are hash-verified into a new local cache directory. This does not install dependencies, import an instance, or execute programs.')), definition([[say('来源索引', 'Source index'), extra.source], ['ID', entry.id], [say('许可', 'License'), entry.license], ['SHA-256', entry.sha256], [say('网络策略', 'Network policy'), allowPrivateNetwork ? say('可信私网／DNS 代理', 'Trusted private network / DNS proxy') : say('公共网络', 'Public network')]])], say('我已检查来源、网络策略和摘要，允许下载或复制该制品到本机缓存。', 'I reviewed the source, network policy, and digest and authorize downloading or copying this artifact to the local cache.'), async () => {
         const fetched = await operation(await api('/api/sources/fetch', { ...(data.sourceId && data.receiptId ? { sourceId: data.sourceId, receiptId: data.receiptId } : { source: extra.source, indexDigest: data.digest, ...(allowPrivateNetwork ? { allowPrivateNetwork: true } : {}) }), entryId: entry.entryId }), 'fetch');
         if (fetched.sourceReceipt) target.append(jsonView(say('后台核对的来源收据（不证明代码安全）', 'Backend-verified source receipt (does not establish code safety)'), fetched.sourceReceipt, true));
-        const fetchedView = el('div', { class: 'notice' }, [el('p', {}, `${say('已获取', 'Fetched')}: ${fetched.directory}`), fetched.kind === 'pack' ? button(t('importPack'), () => { openImport(); $('#import-form').elements.directory.value = fetched.directory; }, 'button button-small button-primary') : button(say('在创作工作台使用', 'Use in creator workspace'), () => { extra.moduleCandidate = fetched.directory; navigate('creator'); }, 'button button-small button-quiet')]); target.append(fetchedView);
+        const fetchedView = el('div', { class: 'notice' }, [el('p', {}, `${say('已获取', 'Fetched')}: ${fetched.directory}`), fetched.kind === 'pack' ? button(t('importPack'), () => { openImport(); $('#import-form').elements.directory.value = fetched.directory; }, 'button button-small button-primary') : fetched.kind === 'template' ? button(say('填写参数生成包', 'Instantiate template'), () => completion.openTemplate(fetched.directory), 'button button-small button-primary') : button(say('在创作工作台使用', 'Use in creator workspace'), () => { extra.moduleCandidate = fetched.directory; navigate('creator'); }, 'button button-small button-quiet')]); target.append(fetchedView);
       }), 'button button-small button-primary')])));
       if (!matches.length) cards.append(el('p', { class: 'field-help' }, say('没有匹配的制品。', 'No matching artifacts.')));
     };
@@ -266,6 +268,7 @@ export function createAdvancedUi(ctx) {
       extra.directory = directory; extra.authoring = data.authoring ?? data; extra.edited = structuredClone(extra.authoring.pack); extra.replacements.clear(); extra.comments = null; renderCreator();
     }, say('检查读取锁与完整来源。所有编辑在草稿中进行，派生只写入新目录，不更改已运行实例。', 'Inspection reads the lock and complete sources. Edits are drafts. Derivation writes a new directory and does not modify running instances.'));
     root.replaceChildren(heading(label('creator'), say('可视化组合独立模块，制作派生包与可分享的软件源。', 'Compose independent modules and create derived packs and shareable sources.'), 'CREATE · COMPOSE · COLLABORATE'), note(say('编辑不执行模块。新包仍需在导入时审阅环境与权限，并明确授权执行。许可证允许再分发才可分享；可获取不代表可再发布。', 'Editing does not execute modules. New packs still require environment and permission review and explicit execution authorization. Share only when licenses permit redistribution. Availability does not grant publishing rights.')), panel(say('选择创作来源', 'Choose a creation source'), [inspect, el('details', { class: 'json-details' }, [el('summary', {}, say('环境或 Hub 版本变化：复制并重建锁', 'Changed environment or Hub version: copy and rebuild lock')), rebuildForm()])]), el('div', { id: 'advanced-progress' }));
+    root.append(completion.templatePanel());
     if (!extra.authoring || !extra.edited) { root.append(publishPanel()); return; }
     const pack = extra.edited;
     root.append(panel(say('组件与能力组合', 'Components & capability composition'), [definition([[say('源包', 'Source pack'), `${extra.authoring.pack.id}@${extra.authoring.pack.version}`], [say('基线内容版本', 'Base content revision'), extra.authoring.revision]]), graph(), extra.replacements.size ? jsonView(say('待验证模块替换', 'Pending module replacements'), [...extra.replacements.values()], true) : null, el('details', { class: 'json-details' }, [el('summary', {}, say('添加匹配合同的连线', 'Connect a matching contract')), bindingForm()]) ]));
@@ -286,7 +289,7 @@ export function createAdvancedUi(ctx) {
     });
   }
   function publishPanel() {
-    return panel(say('发布到可分享的软件源目录', 'Publish to a shareable source directory'), [form([field('directory', say('要发布的包或模块目录', 'Pack or module directory to publish'), extra.directory), el('label', {}, [say('制品类型', 'Artifact kind'), el('select', { name: 'kind' }, [el('option', { value: 'pack' }, say('整合包', 'Pack')), el('option', { value: 'module' }, say('模块', 'Module'))])]), field('destination', say('新的发布目录', 'New publication directory'))], say('审阅并生成索引与制品', 'Review and generate index & artifact'), async f => {
+    return panel(say('发布到可分享的软件源目录', 'Publish to a shareable source directory'), [form([field('directory', say('要发布的包或模块目录', 'Pack or module directory to publish'), extra.directory), el('label', {}, [say('制品类型', 'Artifact kind'), el('select', { name: 'kind' }, [el('option', { value: 'pack' }, say('整合包', 'Pack')), el('option', { value: 'module' }, say('模块', 'Module')), el('option', { value: 'template' }, say('模板', 'Template'))])]), field('destination', say('新的发布目录', 'New publication directory'))], say('审阅并生成索引与制品', 'Review and generate index & artifact'), async f => {
       const body = { directory: value(f, 'directory'), destination: value(f, 'destination'), kind: value(f, 'kind'), redistributionAcknowledged: true, ...env() };
       reviewAction(say('发布本机制品', 'Publish local artifact'), [note(say('生成新的索引和内容制品供你分享，不会上传公网。只发布公开包或模块，不包含实例数据；公开 settings 会包含在内。', 'Creates a new index and content artifact for you to share. Nothing is uploaded. Only public packs or modules are published; instance data is excluded. Public settings are included.'), true), definition([[t('source'), body.directory], [t('destination'), body.destination], [say('类型', 'Kind'), body.kind]])], say('我确认公开内容没有秘密，许可允许再分发，并已检查来源与版权。', 'I confirm the public contents contain no secrets, licenses permit redistribution, and sources and copyright were reviewed.'), async () => {
         const data = await api('/api/sources/publish', body); await operation(data, 'publish', result => toast(say(`索引已生成：${result.indexPath}`, `Index generated: ${result.indexPath}`)));
@@ -324,6 +327,18 @@ export function createAdvancedUi(ctx) {
     return panel(say('本地讨论与评论交换', 'Local discussion & comment exchange'), [button(say('读取最新评论', 'Read current comments'), load, 'button button-small button-quiet'), list, add, exchange]);
   }
 
+  function isolationPanel() {
+    const result = el('div');
+    const selection = form([field('policy', say('Docker Node 无界面执行策略 JSON', 'Docker Node headless execution policy JSON'), JSON.stringify(state.isolationSelection ?? { dockerPath: '', endpoint: 'unix:///var/run/docker.sock', image: '', limits: { memoryMiB: 256, pids: 64, cpus: 1, user: 1000 } }, null, 2), { multiline: true, rows: 8 })], say('检查并选择严格隔离', 'Probe and select strict isolation'), async f => {
+      const policy = JSON.parse(value(f, 'policy'));
+      const data = await api('/api/isolation/probe', { dockerPath: policy.dockerPath, endpoint: policy.endpoint });
+      result.replaceChildren(jsonView(say('实际提供者状态', 'Actual provider status'), data.probe, true));
+      if (!data.probe.available) throw new Error(say('隔离提供者不可用，未改变执行选择。', 'Isolation provider is unavailable; execution selection was not changed.'));
+      state.isolationSelection = policy; state.reviews.clear(); state.trustReview = null;
+      result.append(note(say('已选择严格模式。下次逐包审阅仍会检查镜像摘要和程序形态；失败时拒绝启动。', 'Strict mode selected. Each package review still checks the image digest and program shape; failure refuses execution.')));
+    });
+    return panel(say('选择执行保护等级', 'Select execution protection'), [note(say('默认 trusted-local。可选 docker-node-headless/v1：只支持 Node 无界面模块、无子进程、仅经桥访问实例 Hub。需要已运行的 Linux Docker 与已拉取的摘要镜像；不自动安装、拉取或回退。', 'Default: trusted-local. Optional docker-node-headless/v1 supports Node headless modules, no child processes, and bridge access to the instance Hub only. Requires a running Linux Docker engine and an already pulled digest image. No automatic installation, pull, or fallback.')), selection, result, button(say('明确选择可信本机模式', 'Explicitly select trusted-local mode'), () => { state.isolationSelection = null; state.reviews.clear(); state.trustReview = null; result.replaceChildren(note(say('已选择 trusted-local；启动仍须审阅，权限声明不受 OS 强制执行。', 'Selected trusted-local. Execution still requires review; declared permissions are not OS-enforced.'))); }, 'button button-quiet')]);
+  }
   function renderEnvironmentTools() {
     let mount = $('#advanced-environment');
     if (!mount) { mount = el('div', { id: 'advanced-environment' }); $('#view-environment').append(mount); }
@@ -344,7 +359,7 @@ export function createAdvancedUi(ctx) {
         });
       });
     }, say('当前有限方案只准备支持且锁定的 Python 依赖，未知依赖显示可复制的手动指引。Node 使用已安装解释器。', 'The limited recipe prepares supported locked Python dependencies only. Unknown dependencies provide copyable manual guidance. Node uses an installed interpreter.'));
-    mount.replaceChildren(panel(say('发现与选择环境', 'Discover & select environments'), [discover, candidates]), panel(say('经审阅的依赖准备', 'Reviewed dependency preparation'), [prepare, el('div', { id: 'advanced-environment-results' })]));
+    mount.replaceChildren(isolationPanel(), panel(say('发现与选择环境', 'Discover & select environments'), [discover, candidates]), panel(say('经审阅的依赖准备', 'Reviewed dependency preparation'), [prepare, el('div', { id: 'advanced-environment-results' })]));
     if (state.environment?.candidates) renderCandidates(state.environment.candidates);
   }
 

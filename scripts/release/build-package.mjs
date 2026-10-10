@@ -19,14 +19,14 @@ export const SDK_FILES = ['sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-
   'sdk/powershell/HubBridge.psm1', 'sdk/powershell/HubBridge.cs'];
 export const SDK_DOCUMENTATION_FILES = Object.freeze(['sdk/javascript/README.md', 'sdk/python/README.md', 'sdk/powershell/README.md']);
 export const MODULE_CONTRACT_FILES = Object.freeze(['docs/modules/text-statistics.contract.json']);
-export const ECOSYSTEM_SCHEMA_FILES = Object.freeze(['docs/ecosystem/module.schema.json', 'docs/ecosystem/pack.schema.json', 'docs/ecosystem/pack-lock.schema.json']);
+export const ECOSYSTEM_SCHEMA_FILES = Object.freeze(['docs/ecosystem/module.schema.json', 'docs/ecosystem/pack.schema.json', 'docs/ecosystem/pack-lock.schema.json', 'docs/ecosystem/template.schema.json', 'docs/ecosystem/template.example.json']);
 export const ECOSYSTEM_RUNTIME_FILES = Object.freeze(['bin/world-hub-pack.mjs',
-  ...['index', 'runtime', 'package', 'paths', 'process', 'hub-process', 'maintenance', 'authoring', 'sources', 'developer'].map(name => `scripts/runtime/${name}.mjs`),
+  ...['index', 'runtime', 'package', 'paths', 'process', 'hub-process', 'maintenance', 'authoring', 'sources', 'developer', 'template', 'upgrade', 'completion-cli', 'isolation', 'isolation-wrapper', 'isolation-channel'].map(name => `scripts/runtime/${name}.mjs`),
   'scripts/runtime/templates/node/program.mjs', 'scripts/runtime/templates/node/logic.mjs', 'scripts/runtime/templates/node/logic.test.mjs',
   'scripts/runtime/templates/python/program.py', 'scripts/runtime/templates/python/logic.py', 'scripts/runtime/templates/python/test_logic.py']);
 export const LAUNCHER_FILES = Object.freeze(['bin/world-hub.mjs',
   ...['cli', 'server', 'manager', 'source-registry', 'environment', 'environment-prepare', 'diagnostics', 'topology'].map(name => `tools/launcher/${name}.mjs`),
-  ...['index.html', 'app.mjs', 'style.css', 'i18n.mjs', 'advanced.mjs'].map(name => `tools/launcher/public/${name}`)]);
+  ...['index.html', 'app.mjs', 'style.css', 'i18n.mjs', 'advanced.mjs', 'completion-ui.mjs'].map(name => `tools/launcher/public/${name}`)]);
 export const WORKSHOP_FILES = Object.freeze(['tools/workshop/cli.mjs', 'tools/workshop/store.mjs', 'tools/workshop/server.mjs',
   ...['index.html', 'app.mjs', 'style.css'].map(name => `tools/workshop/public/${name}`)]);
 export const DOCUMENTATION_IMAGE_FILES = Object.freeze(
@@ -93,7 +93,7 @@ export async function buildPackage({ output, runtimeDirectory = null, sourceRoot
   await copy('LICENSE', 'license');
   await add('package.json', JSON.stringify({ name: 'world-hub-bundle', version, private: true, type: 'module', license: 'MIT', engines: { node: '>=22.4.0' }, scripts: { start: 'node scripts/launcher.mjs', ui: 'node bin/world-hub.mjs ui --open', check: 'node scripts/launcher.mjs --check', 'verify:package': 'node scripts/release/verify-package.mjs' } }, null, 2) + '\n', 'tooling');
   await add('README.md', portableReadme(version, kind).replace('\n\n', '\n\n[English](README.en.md)\n\n')
-    + '\n## 可选统一 Launcher 与外部程序包 Runtime\n\n双击 `ui.cmd` 或运行 `node bin/world-hub.mjs ui --open`，打开默认显示“我的整合包”的统一 Launcher；原 `start.cmd` 继续直接启动 Hub 管理。Launcher 提供本机目录检查、导入、明确授权当前代码、启停、模块权限、日志、真实桥归属与公开包导出，还提供私人备份／新实例恢复、保留数据卸载、创作派生／重建锁、软件源缓存与发布、评论和提案交换。首次访问使用终端打开的一次性授权入口，终端保持运行；环境检查只运行固定探针，有限依赖准备须另行审阅授权。实例根目录可用 `--root <自己的目录>` 选择，包含私人运行配置与凭据，不能作为公开包分享。完整操作见[Launcher](docs/ecosystem/launcher.md)。\n\n本包另外携带 `bin/world-hub-pack.mjs`、独立 Runtime 与开放部署 Schema；可用 `node bin/world-hub-pack.mjs --help` 查看本地程序包检查、导入、启停和导出。便携包可把 node 换成 runtime\\node.exe。业务模块包另行取得，默认 Hub 启动不执行它们。按目标包锁准备自己的 Python 与依赖；本包没有 Python 便携运行时。权限是声明，工具不提供 OS 沙箱。完整说明见[外部 Runtime](docs/ecosystem/runtime.md)与[开放部署规范](docs/ecosystem/pack-spec.md)。\n', 'documentation');
+    + '\n## 可选统一 Launcher 与外部程序包 Runtime\n\n双击 `ui.cmd` 或运行 `node bin/world-hub.mjs ui --open`，打开默认显示“我的整合包”的统一 Launcher；原 `start.cmd` 继续直接启动 Hub 管理。Launcher 提供本机目录检查、导入、明确授权当前代码、启停、模块权限、日志、真实桥归属与公开包导出，还提供私人备份／新实例恢复、保留数据卸载、创作派生／重建锁、软件源缓存与发布、评论和提案交换。首次访问使用终端打开的一次性授权入口，终端保持运行；环境检查只运行固定探针，有限依赖准备须另行审阅授权。实例根目录可用 `--root <自己的目录>` 选择，包含私人运行配置与凭据，不能作为公开包分享。完整操作见[Launcher](docs/ecosystem/launcher.md)。\n\n本包另外携带 `bin/world-hub-pack.mjs`、独立 Runtime 与开放部署 Schema；可用 `node bin/world-hub-pack.mjs --help` 查看本地程序包检查、导入、启停和导出。便携包可把 node 换成 runtime\\node.exe。业务模块包另行取得，默认 Hub 启动不执行它们。按目标包锁准备自己的 Python 与依赖；本包没有 Python 便携运行时。默认可信本机模式权限是声明；可选有限 Node 无界面容器模式须另行准备 Linux Docker 与摘要镜像，并逐包审阅。见 docs/ecosystem/isolation.md。完整说明见[外部 Runtime](docs/ecosystem/runtime.md)与[开放部署规范](docs/ecosystem/pack-spec.md)。\n', 'documentation');
   await copy('README.en.md', 'documentation');
   await add('start.cmd', wrapper('start'), 'tooling');
   await add('check.cmd', wrapper('check'), 'tooling');

@@ -9,6 +9,21 @@ permissions:
   contents: read
 
 jobs:
+  isolation-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.2'
+      - name: Prepare explicitly pinned official Node image for acceptance
+        run: docker pull node@sha256:48e4b67d85f87bd551df43704e24d252f56cc5f8e9718841aace50f19948f0f9
+      - name: Actual container restrictions and SDK communication
+        env:
+          WORLD_HUB_TEST_DOCKER: /usr/bin/docker
+          WORLD_HUB_TEST_IMAGE: node@sha256:48e4b67d85f87bd551df43704e24d252f56cc5f8e9718841aace50f19948f0f9
+        run: node --test --test-timeout=180000 tests/integration/ecosystem-runtime/isolation-docker.test.mjs
   node:
     runs-on: windows-latest
     timeout-minutes: 15

@@ -2,10 +2,10 @@
   "format": "world-hub.pack-lock/v1",
   "pack": {
     "id": "demo.polyglot",
-    "version": "1.1.1",
-    "sha256": "114f22b7665b209b96c3d76960fda0b540b60f8ba7cd0859f5d157d061de384a"
+    "version": "1.1.2",
+    "sha256": "d5f3afaf886191909d8614986a797a76ea06a8a1acdec2135ad27160923fe517"
   },
-  "hubVersion": "0.17.1",
+  "hubVersion": "0.17.2",
   "platform": {
     "os": "win32",
     "arch": "x64"

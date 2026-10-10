@@ -7,6 +7,7 @@ import { isIP } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { inspectPackage, validatePack, validateModule, validateLock } from './package.mjs';
 import { ordinaryPath, readBounded, collectFiles, hash, relativePath, privateJson } from './paths.mjs';
+import { inspectTemplate, validateTemplateFiles } from './template.mjs';
 
 const sha = /^[a-f0-9]{64}$/;
 const semver = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/;
@@ -84,7 +85,7 @@ export function validateSourceIndex(index, options = {}) {
   for (const entry of index.entries) {
     exact(entry, ['entryId', 'kind', 'id', 'version', 'title', 'license', 'platforms', 'provides', 'requires', 'source', 'sha256'], 'source entry');
     if (typeof entry.entryId !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,127}$/.test(entry.entryId) || ids.has(entry.entryId)
-        || !['pack', 'module'].includes(entry.kind) || typeof entry.id !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(entry.id)
+        || !['pack', 'module', 'template'].includes(entry.kind) || typeof entry.id !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(entry.id)
         || typeof entry.version !== 'string' || entry.version.length > 128 || !semver.test(entry.version)
         || typeof entry.title !== 'string' || !entry.title || entry.title.length > 256
         || typeof entry.license !== 'string' || !entry.license || entry.license.length > 128 || !sha.test(entry.sha256)
@@ -120,7 +121,7 @@ export async function readSourceIndex(source, options = {}) {
 }
 function validateArtifact(artifact) {
   exact(artifact, ['format', 'kind', 'id', 'version', 'files', 'provenance'], 'distribution artifact');
-  if (artifact.format !== 'world-hub.source-artifact/v1' || !['pack', 'module'].includes(artifact.kind)
+  if (artifact.format !== 'world-hub.source-artifact/v1' || !['pack', 'module', 'template'].includes(artifact.kind)
       || !Array.isArray(artifact.files) || artifact.files.length < 1 || artifact.files.length > 8192
       || !artifact.provenance || typeof artifact.provenance !== 'object' || Array.isArray(artifact.provenance)) throw new Error('Invalid distribution artifact');
   const paths = new Set(); let size = 0; const decoded = [];
@@ -140,7 +141,7 @@ function validateArtifact(artifact) {
   const getJson = path => {
     const f = decoded.find(v => v.path === path); if (!f) throw new Error(`Artifact lacks ${path}`); return JSON.parse(f.bytes.toString());
   };
-  const manifest = getJson(artifact.kind === 'pack' ? 'pack.json' : 'module.json');
+  const manifest = getJson(artifact.kind === 'pack' ? 'pack.json' : artifact.kind === 'template' ? 'template.json' : 'module.json');
   if (artifact.kind === 'pack') {
     validatePack(manifest); const lock = getJson('pack.lock'); validateLock(lock);
     if (lock.format !== 'world-hub.pack-lock/v1' || lock.pack?.sha256 !== hash(decoded.find(v => v.path === 'pack.json').bytes)
@@ -173,6 +174,8 @@ function validateArtifact(artifact) {
       const match = contract => contract.id === binding.contract.id && contract.version === binding.contract.version;
       if (!from?.provides.some(match) || !to?.requires.some(match)) throw new Error('Distributed capability binding is incompatible');
     }
+  } else if (artifact.kind === 'template') {
+    validateTemplateFiles(decoded);
   } else {
     validateModule(manifest);
     if (!decoded.some(f => f.path === manifest.runtime.entry)) throw new Error('Distributed module entry is missing');
@@ -188,7 +191,7 @@ export function validateArtifactBytes(input) {
   if (!bytes.length || bytes.length > maximumArtifact) throw new Error('Artifact exceeds distribution size bound');
   const validated = validateArtifact(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)));
   const { artifact, manifest, decoded } = validated;
-  const lock = artifact.kind === 'pack' ? JSON.parse(decoded.find(f => f.path === 'pack.lock').bytes.toString()) : null;
+  const lock = ['pack', 'template'].includes(artifact.kind) ? JSON.parse(decoded.find(f => f.path === (artifact.kind === 'pack' ? 'pack.lock' : 'base/pack.lock')).bytes.toString()) : null;
   const entry = { entryId: `${artifact.kind}.${artifact.id}.${artifact.version}`, kind: artifact.kind,
     id: artifact.id, version: artifact.version, title: manifest.title ?? manifest.id, license: manifest.license,
     platforms: lock ? [`${lock.platform.os}-${lock.platform.arch}`] : manifest.platforms,
@@ -203,7 +206,7 @@ function checkEntry(validated, entry) {
   let platforms, provides, requires;
   if (artifact.kind === 'module') { platforms = manifest.platforms; provides = manifest.provides; requires = manifest.requires; }
   else {
-    const lock = JSON.parse(validated.decoded.find(f => f.path === 'pack.lock').bytes.toString());
+    const lock = JSON.parse(validated.decoded.find(f => f.path === (artifact.kind === 'template' ? 'base/pack.lock' : 'pack.lock')).bytes.toString());
     platforms = [`${lock.platform.os}-${lock.platform.arch}`]; provides = []; requires = [];
   }
   if (artifact.kind !== entry.kind || artifact.id !== entry.id || artifact.version !== entry.version || manifest.license !== entry.license
@@ -324,7 +327,12 @@ export async function publishArtifact(directory, options) {
     manifest = JSON.parse((await readBounded(join(root, 'module.json'))).toString()); validateModule(manifest);
     files = await collectFiles(root); platforms = manifest.platforms; provides = manifest.provides; requires = manifest.requires;
     provenance = { redistributionAcknowledged: true };
-  } else throw new Error('Publication kind must be pack or module');
+  } else if (options.kind === 'template') {
+    const plan = await inspectTemplate(root, options); manifest = plan.manifest; files = plan.files;
+    platforms = plan.platforms; provides = []; requires = [];
+    provenance = { basePack: { id: plan.pack.id, version: plan.pack.version, sha256: plan.lock.pack.sha256 },
+      components: plan.modules.map(m => ({ id: m.manifest.id, version: m.manifest.version, license: m.manifest.license })), redistributionAcknowledged: true };
+  } else throw new Error('Publication kind must be pack, module or template');
   let size = 0; const encoded = [];
   for (const f of files) {
     cancelled(options); const bytes = await readBounded(join(root, f.path), 8 * 1024 * 1024); size += bytes.length;

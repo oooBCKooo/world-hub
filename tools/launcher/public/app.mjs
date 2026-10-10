@@ -8,7 +8,7 @@ const state = {
   selected: null, session: null, auth: null, online: false, loading: false,
   reviews: new Map(), operations: new Map(), topology: null, logs: null,
   importReview: null, trustReview: null, trustKind: 'start', trustInstanceId: null, environment: null,
-  environmentSelection: {}, lastRefresh: null, renderStamp: '', detailStamp: '', headingStamp: '', topologyStamp: '', topologyLoading: false,
+  environmentSelection: {}, isolationSelection: null, lastRefresh: null, renderStamp: '', detailStamp: '', headingStamp: '', topologyStamp: '', topologyLoading: false,
   logSelection: 'all', importRequest: 0, trustRequest: 0, logsRequest: 0, returnNotice: '',
   hubsObservedAt: null, hubsUnavailable: false, topologyUnavailable: false,
 };
@@ -202,7 +202,8 @@ function moduleView(module, review, full = true) {
 }
 function reviewView(data, mode = 'execution') {
   const review = data.review;
-  const nodes = [el('div', { class: 'review-summary' }, [el('div', {}, [el('h3', {}, review.pack?.title ?? review.pack?.id ?? '—'), el('p', {}, `${review.pack?.id ?? '—'} · v${review.pack?.version ?? '—'}`)]), pill(t('noSandbox'), 'amber')]), el('div', { class: `notice ${mode === 'execution' ? 'notice-warning' : ''}` }, t(mode === 'execution' ? 'codeExecutionNotice' : 'importNoExecution')), el('div', { class: 'review-section' }, [el('h3', {}, t('source')), el('p', { class: 'review-digest' }, review.directory ?? '—')]), el('div', { class: 'review-section' }, [el('h3', {}, t('modulesPermissions')), el('div', { class: 'review-modules' }, (review.modules ?? []).map(module => moduleView(module, review, false)))]), el('div', { class: 'review-section' }, [el('h3', {}, t('executionOrder')), el('div', { class: 'review-order' }, (review.order ?? []).flatMap((id, i) => [i ? '→' : null, el('span', {}, id)]))]), el('div', { class: 'review-section' }, [el('h3', {}, t('environmentReview')), ...runtimeEnvironment(review.environment)])];
+  const nodes = [el('div', { class: 'review-summary' }, [el('div', {}, [el('h3', {}, review.pack?.title ?? review.pack?.id ?? '—'), el('p', {}, `${review.pack?.id ?? '—'} · v${review.pack?.version ?? '—'}`)]), pill(data.isolation ? data.isolation.profile : t('noSandbox'), 'amber')]), el('div', { class: `notice ${mode === 'execution' ? 'notice-warning' : ''}` }, mode === 'execution' && data.isolation ? (state.language === 'zh' ? '本次审阅选择严格 Node 容器隔离。请核对下方固定限制与镜像，仍需信任协议内的信息与代码。' : 'This review selects strict Node container isolation. Inspect the fixed restrictions and image below; protocol data and code still require trust.') : t(mode === 'execution' ? 'codeExecutionNotice' : 'importNoExecution')), el('div', { class: 'review-section' }, [el('h3', {}, t('source')), el('p', { class: 'review-digest' }, review.directory ?? '—')]), el('div', { class: 'review-section' }, [el('h3', {}, t('modulesPermissions')), el('div', { class: 'review-modules' }, (review.modules ?? []).map(module => moduleView(module, review, false)))]), el('div', { class: 'review-section' }, [el('h3', {}, t('executionOrder')), el('div', { class: 'review-order' }, (review.order ?? []).flatMap((id, i) => [i ? '→' : null, el('span', {}, id)]))]), el('div', { class: 'review-section' }, [el('h3', {}, t('environmentReview')), ...runtimeEnvironment(review.environment)])];
+  if (data.isolation) nodes.push(el('details', { class: 'json-details', open: true }, [el('summary', {}, data.isolation.profile), el('pre', {}, JSON.stringify(data.isolation, null, 2))]));
   if (data.sourceReceipt) nodes.push(el('details', { class: 'json-details', open: true }, [el('summary', {}, t('sourceReceipt')), el('p', {}, t('integrityNotIdentity')), el('pre', {}, JSON.stringify(data.sourceReceipt, null, 2))]));
   if (data.permissionDiff?.length) nodes.push(el('div', { class: 'notice notice-warning' }, [el('h3', {}, t('permissionChanges')), el('p', {}, t('changesRequireReview')), ...data.permissionDiff.map(change => el('div', { class: 'review-module' }, [el('h4', {}, change.module ?? '—'), ...Object.keys({ ...change.before, ...change.after }).filter(key => JSON.stringify(change.before?.[key]) !== JSON.stringify(change.after?.[key])).map(key => el('p', {}, `${key}: ${display(change.before?.[key])} → ${display(change.after?.[key])}`))]))]));
   nodes.push(el('p', { class: 'field-help' }, `${t('reviewValidUntil')}: ${date(data.expiresAt)}`), el('details', { class: 'json-details' }, [el('summary', {}, t('reviewFingerprint')), el('p', { class: 'review-digest' }, review.digest)]));
@@ -386,7 +387,7 @@ async function importSubmit(event) {
     if (reviewExpired(state.importReview)) { state.importReview = null; $('#import-review').hidden = true; $('#import-fields').hidden = false; $('#import-back').hidden = true; throw new Error(t('reviewExpired')); }
     if (!state.importReview) {
       submit.textContent = t('checking');
-      const data = await api('/api/review', { directory: form.elements.directory.value.trim(), ...environmentOptions(form) });
+      const data = await api('/api/review', { directory: form.elements.directory.value.trim(), ...environmentOptions(form), ...(state.isolationSelection ? { isolation: state.isolationSelection } : {}) });
       if (request !== state.importRequest || !$('#import-dialog').open) return;
       state.importReview = data; $('#import-review').replaceChildren(...reviewView(data, 'import')); $('#import-review').hidden = false; $('#import-fields').hidden = true; $('#import-back').hidden = false;
       $('#step-review').classList.add('active'); $('#step-create').classList.add('active'); submit.textContent = t('confirmImport');
@@ -407,7 +408,7 @@ async function reviewInstance(id, kind) {
   $('.consent').hidden = kind === 'review'; $('#trust-submit').hidden = kind === 'review'; if (!$('#trust-dialog').open) $('#trust-dialog').showModal();
   try {
     const selected = Object.keys(state.environmentSelection).length ? state.environmentSelection : instance.environment ?? {};
-    const data = await api(endpoint(id, 'review'), selected);
+    const data = await api(endpoint(id, 'review'), { ...selected, ...(state.isolationSelection ? { isolation: state.isolationSelection } : {}) });
     if (request !== state.trustRequest || !$('#trust-dialog').open) return;
     state.reviews.set(id, data); state.trustReview = { ...data, instanceId: id }; $('#trust-consent').disabled = false;
     $('#trust-review').replaceChildren(...reviewView(data), el('p', { class: 'field-help' }, t('reviewEnvironmentHint'))); renderDetail(true);

@@ -14,6 +14,9 @@ import { readSourceIndex, fetchSourceArtifact, publishArtifact } from '../../scr
 import { loopbackUrl, mapTopology, managementLink } from './topology.mjs';
 import { diagnose } from './diagnostics.mjs';
 import { SourceRegistry } from './source-registry.mjs';
+import { inspectTemplate, previewTemplate, instantiateTemplate, createTemplate } from '../../scripts/runtime/template.mjs';
+import { previewUpgrade, upgradeInstance, inspectUpgradeHistory, previewRollback, rollbackUpgrade, recoverUpgrade } from '../../scripts/runtime/upgrade.mjs';
+import { probeIsolation, reviewIsolationPackage } from '../../scripts/runtime/isolation.mjs';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
 export function launcherError(code, message, status = 409) { return Object.assign(new Error(message), { code, status }); }
@@ -34,7 +37,7 @@ export class LauncherManager {
     this.root = resolve(options.root); this.defaults = { nodePath: options.nodePath ?? process.execPath,
       pythonPath: options.pythonPath ?? (process.platform === 'win32' ? 'python.exe' : 'python3') };
     this.records = new Map(); this.reviews = new Map(); this.operations = new Map(); this.sessions = new Map();
-    this.sourceRegistry = new SourceRegistry(this.root); this.sourceReviews = new Map();
+    this.sourceRegistry = new SourceRegistry(this.root); this.sourceReviews = new Map(); this.completionReviews = new Map();
     this.busy = new Map(); this.registryQueue = Promise.resolve(); this.saveQueue = Promise.resolve(); this.environmentPlans = new Map(); this.preparationOwners = new Map(); this.url = ''; this.hub = null; this.hubFailure = null; this.closing = false;
   }
   async initialize() {
@@ -58,6 +61,7 @@ export class LauncherManager {
   environment(input = {}) { return { nodePath: input.nodePath ?? this.defaults.nodePath, pythonPath: input.pythonPath ?? this.defaults.pythonPath }; }
   async detect(input) { const chosen = this.environment(input); const [environment, candidates] = await Promise.all([detectEnvironment(chosen), discoverEnvironment(chosen)]);
     return { environment, candidates, guidance: ['Select an installed interpreter and check again. Prepare the supported dependency in a reviewed private venv, or install other dependencies manually in your own private environment.'] }; }
+  async isolationProbe(input) { return { probe: await probeIsolation(input) }; }
   async environmentPlan(input) {
     const plan = await planPythonEnvironment({ root: this.root, ...input, ...this.environment(input) }), planId = randomUUID();
     this.environmentPlans.set(planId, { plan, createdAt: Date.now() });
@@ -88,6 +92,7 @@ export class LauncherManager {
   }
   async review(directory, environment, instanceId = null) {
     const chosen = this.environment(environment), plan = await inspectPackage(directory, chosen);
+    const isolation = environment?.isolation ? await reviewIsolationPackage(plan, environment.isolation) : null;
     const old = instanceId ? this.records.get(instanceId)?.permissions ?? [] : [];
     const names = new Set([...old, ...plan.permissions].map(p => p.module));
     const permissionDiff = [...names].map(module => ({ module, before: old.find(p => p.module === module)?.declared ?? null,
@@ -95,9 +100,9 @@ export class LauncherManager {
     const row = instanceId ? this.records.get(instanceId) : null;
     const sourceReceipt = row?.sourceDigest === plan.digest ? row.sourceReceipt ?? null : await this.sourceRegistry.recognize(plan.directory);
     const reviewId = randomUUID(), created = Date.now();
-    this.reviews.set(reviewId, { reviewId, plan, environment: chosen, instanceId, createdAt: created, sourceReceipt });
+    this.reviews.set(reviewId, { reviewId, plan, environment: chosen, isolation, instanceId, createdAt: created, sourceReceipt });
     while (this.reviews.size > 64) this.reviews.delete(this.reviews.keys().next().value);
-    return { reviewId, review: plan, permissionDiff, sourceReceipt, createdAt: new Date(created).toISOString(), expiresAt: new Date(created + 10 * 60000).toISOString() };
+    return { reviewId, review: plan, isolation, executionProfile: isolation?.profile ?? 'trusted-local', permissionDiff, sourceReceipt, createdAt: new Date(created).toISOString(), expiresAt: new Date(created + 10 * 60000).toISOString() };
   }
   reviewed(reviewId, instanceId) {
     const review = this.reviews.get(reviewId);
@@ -108,6 +113,7 @@ export class LauncherManager {
   async verifyReview(review) {
     const actual = await inspectPackage(review.plan.directory, review.environment);
     if (actual.digest !== review.plan.digest) throw launcherError('REVIEW_CHANGED', 'Package, permissions or interpreter changed after review. Inspect again.');
+    if (review.isolation && (await reviewIsolationPackage(actual, review.isolation.policy)).digest !== review.isolation.digest) throw launcherError('REVIEW_CHANGED', 'Isolation provider or image changed after review. Inspect again.');
     return actual;
   }
   row(id) { safeId(id); const row = this.records.get(id); if (!row) throw launcherError('INSTANCE_NOT_FOUND', 'Unknown Launcher instance', 404); return row; }
@@ -188,7 +194,8 @@ export class LauncherManager {
     return this.launch(restart ? 'restart' : 'start', id, async (_, signal) => {
       if (restart) await this.stopNow(id);
       try {
-        const session = await startInstance({ ...optionsFor(row), ...reviewed.environment, trust: reviewed.plan.digest, signal });
+        const session = await startInstance({ ...optionsFor(row), ...reviewed.environment, trust: reviewed.plan.digest,
+          ...(reviewed.isolation ? { isolation: reviewed.isolation.policy, isolationTrust: reviewed.isolation.digest } : {}), signal });
         this.sessions.set(id, session);
         void session.closed.then(state => { if (state.stoppedAt && !state.cleanupIncomplete && this.sessions.get(id) === session) this.sessions.delete(id); });
         return await this.instance(id);
@@ -294,6 +301,63 @@ export class LauncherManager {
       if (kind === 'publish') return publishArtifact(input.directory, options);
       throw launcherError('NOT_FOUND', 'Unknown creator operation', 404);
     });
+  }
+  rememberCompletion(kind, input, preview, instanceId = null) {
+    const previewId = randomUUID(), createdAt = Date.now();
+    this.completionReviews.set(previewId, { kind, input: structuredClone(input), preview, instanceId, createdAt });
+    while (this.completionReviews.size > 64) this.completionReviews.delete(this.completionReviews.keys().next().value);
+    return { previewId, preview, createdAt: new Date(createdAt).toISOString(), expiresAt: new Date(createdAt + 10 * 60000).toISOString() };
+  }
+  completionReview(previewId, kind, instanceId = null) {
+    const review = this.completionReviews.get(previewId);
+    if (!review || review.kind !== kind || review.instanceId !== instanceId || Date.now() - review.createdAt > 10 * 60000)
+      throw launcherError('REVIEW_REQUIRED', 'Inspect a current preview for this exact operation first.');
+    return review;
+  }
+  async templateInspect(input) { return { inspection: await inspectTemplate(input.directory) }; }
+  async templatePreview(input) {
+    const preview = await previewTemplate(input.directory, { values: input.values, identity: input.identity });
+    return this.rememberCompletion('template', input, preview);
+  }
+  templateInstantiate(input) {
+    if (input.redistributionAcknowledged !== true) throw launcherError('LICENSE_ACKNOWLEDGEMENT_REQUIRED', 'Review redistribution and template licenses first.');
+    const review = this.completionReview(input.previewId, 'template');
+    const result = this.launch('instantiate-template', '$creator-' + resolve(input.destination), async (_, signal) => instantiateTemplate(review.input.directory, {
+      values: review.input.values, identity: review.input.identity, destination: input.destination,
+      expectedRevision: review.preview.templateRevision, expectedPreviewDigest: review.preview.previewDigest,
+      expectedParameterDigest: review.preview.parameterDigest, redistributionAcknowledged: true, signal }));
+    this.completionReviews.delete(input.previewId); return result;
+  }
+  templateCreate(input) {
+    if (input.redistributionAcknowledged !== true) throw launcherError('LICENSE_ACKNOWLEDGEMENT_REQUIRED', 'Review redistribution and template licenses first.');
+    return this.launch('create-template', '$creator-' + resolve(input.destination), async (_, signal) => createTemplate(input.directory, { ...input, signal }));
+  }
+  async upgradePreview(id, input) {
+    const row = await this.maintainedRow(id); if (row.detached) throw launcherError('INSTANCE_DETACHED', 'Reattach software before upgrading.');
+    if (this.busy.has(id)) throw launcherError('INSTANCE_BUSY', 'Wait for the current instance operation.');
+    const options = { ...optionsFor(row), candidate: input.candidate, statePolicies: input.statePolicies };
+    return this.rememberCompletion('upgrade', options, await previewUpgrade(options), id);
+  }
+  async rollbackPreview(id, input) {
+    const row = this.row(id); if (this.busy.has(id)) throw launcherError('INSTANCE_BUSY', 'Wait for the current instance operation.');
+    const options = { ...optionsFor(row), transactionId: input.transactionId };
+    return this.rememberCompletion('rollback', options, await previewRollback(options), id);
+  }
+  async upgradeHistory(id) { return { history: await inspectUpgradeHistory(optionsFor(this.row(id))) }; }
+  async completionExecute(id, kind, input) {
+    if (input.accepted !== true) throw launcherError('TRUST_REQUIRED', 'Explicitly accept the displayed code, data policy and snapshot.');
+    const review = this.completionReview(input.previewId, kind === 'upgrade' ? 'upgrade' : 'rollback', id);
+    if (kind === 'recover-upgrade' && review.preview.recoveryRequired !== true) throw launcherError('RECOVERY_NOT_REQUIRED', 'This transaction is not interrupted; use reviewed rollback.');
+    const operation = this.launch(kind, id, async (_, signal) => {
+      const options = { ...review.input, trust: review.preview.trustDigest, signal };
+      const result = await (kind === 'upgrade' ? upgradeInstance(options) : kind === 'recover-upgrade' ? recoverUpgrade(options) : rollbackUpgrade(options));
+      const row = this.row(id), plan = await inspectPackage(join(instancePath(this.root, id), 'package'), row.environment);
+      row.pack = { id: plan.pack.id, version: plan.pack.version, title: plan.pack.title }; row.permissions = plan.permissions;
+      row.sourceReceipt = null; row.sourceDigest = null; row.updatedAt = new Date().toISOString(); await this.save();
+      for (const [key, value] of this.reviews) if (value.instanceId === id) this.reviews.delete(key);
+      return { ...result, instance: await this.instance(id), requiresNewExecutionReview: true };
+    });
+    this.completionReviews.delete(input.previewId); return operation;
   }
   fetchSource(input) {
     const key = '$source-cache';

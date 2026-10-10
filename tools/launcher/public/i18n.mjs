@@ -32,3 +32,6 @@ export function applyLanguage(language, root = document) {
   for (const element of root.querySelectorAll('[data-i18n]')) element.textContent = translate(language, element.dataset.i18n);
   for (const element of root.querySelectorAll('[data-placeholder]')) element.placeholder = translate(language, element.dataset.placeholder);
 }
+
+Object.assign(messages.zh, { noSandbox:'可信本机模式：无 OS 沙箱', sandboxNotice:'trusted-local 模式不强制限制模块的文件、网络或资源。可在下方明确选择有限 Node 容器隔离；逐包审阅展示当前选择。', integrityNotIdentity:'摘要证明内容一致性，发布者身份与代码安全未验证。请核对本次执行保护等级后授权。' });
+Object.assign(messages.en, { noSandbox:'Trusted-local: no OS sandbox', sandboxNotice:'Trusted-local does not enforce module file, network, or resource restrictions. Select the limited Node container profile below; each package review displays the current selection.', integrityNotIdentity:'Digests establish content integrity, not publisher identity or code safety. Inspect the current execution profile before authorizing.' });

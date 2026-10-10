@@ -31,7 +31,7 @@ function portablePath(path) {
 }
 async function installedVersion() { return (await json(join(repository, 'package.json'))).version; }
 
-async function confirmedStopped(directory, instanceId) {
+export async function confirmedStopped(directory, instanceId) {
   const identity = await json(join(directory, 'instance.json'));
   if (identity.format !== 'world-hub.instance/v1' || identity.instanceId !== instanceId || !SHA.test(identity.digest))
     throw fault('INSTANCE_INVALID', 'Instance identity is invalid');
@@ -53,25 +53,29 @@ async function confirmedStopped(directory, instanceId) {
   }
   return { identity, status };
 }
-async function withStoppedInstance(options, operation) {
+export async function withStoppedInstance(options, operation) {
   const directory = await ordinaryPath(instancePath(options.root, options.instanceId));
   const file = join(directory, 'owner.lock'), nonce = randomUUID();
+  const transactionId = options.maintenanceTransactionId;
+  if (transactionId !== undefined && !/^[a-f0-9-]{36}$/.test(transactionId)) throw fault('INSTANCE_INVALID', 'Invalid maintenance transaction identity');
   await ordinaryPath(file, { allowMissing: true });
-  let handle;
+  let handle, retainLock = false;
   try { handle = await open(file, 'wx', 0o600); }
   catch (error) {
     if (error.code === 'EEXIST') throw fault('INSTANCE_LOCKED', 'An instance owner or maintenance operation still holds its lock; stop the owning supervisor first. Stored PIDs are never killed.');
     throw error;
   }
   try {
-    await handle.writeFile(JSON.stringify({ format: 'world-hub.maintenance-owner/v1', nonce, pid: process.pid, startedAt: new Date().toISOString() }) + '\n');
+    await handle.writeFile(JSON.stringify({ format: 'world-hub.maintenance-owner/v1', nonce, pid: process.pid, startedAt: new Date().toISOString(),
+      ...(transactionId ? { transactionId } : {}) }) + '\n');
     await handle.close(); handle = null;
     cancelled(options.signal);
     const stopped = await confirmedStopped(directory, options.instanceId);
-    return await operation(directory, stopped);
+    try { return await operation(directory, stopped); }
+    catch (error) { retainLock = error.retainMaintenanceOwner === true; throw error; }
   } finally {
     if (handle) await handle.close().catch(() => {});
-    try { if ((await json(file)).nonce === nonce) await unlink(file); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (!retainLock) try { if ((await json(file)).nonce === nonce) await unlink(file); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
 }
 
@@ -93,7 +97,7 @@ async function streamHash(file, signal, consume) {
     return { bytes: position, sha256: digest.digest('hex') };
   } finally { await handle.close(); }
 }
-async function persistentFiles(directory, plan, signal) {
+export async function persistentFiles(directory, plan, signal) {
   const files = [], names = new Set(), directories = new Set(); let entries = 0, bytes = 0;
   const add = async path => {
     portablePath(path); cancelled(signal);
@@ -155,11 +159,21 @@ async function writeAll(handle, bytes) {
 
 /** Creates a private, bounded file snapshot only after confirmed Runtime stop. */
 export async function backupInstance(options) {
-  return withStoppedInstance(options, async (directory, stopped) => {
+  return withStoppedInstance(options, (directory, stopped) => backupStoppedInstance(directory, stopped, options));
+}
+/** Internal deployment-tool primitive: caller must already hold the instance owner lock. */
+export async function backupStoppedInstance(directory, stopped, options) {
     const source = await exists(join(directory, 'detached.json')) ? 'detached-package' : 'package';
     const plan = await inspectPackage(join(directory, source), options);
     const destination = await ordinaryPath(options.destination, { allowMissing: true });
-    if (within(directory, destination)) throw fault('BACKUP_PATH', 'Choose a backup destination outside the source instance');
+    if (within(directory, destination)) {
+      const transactionId = options.maintenanceTransactionId;
+      const owner = await json(join(directory, 'owner.lock'));
+      if (!transactionId || !/^[a-f0-9-]{36}$/.test(transactionId)
+          || destination !== await ordinaryPath(join(directory, 'upgrades', transactionId, 'snapshot.whbackup'), { allowMissing: true })
+          || owner.format !== 'world-hub.maintenance-owner/v1' || owner.transactionId !== transactionId || owner.pid !== process.pid)
+        throw fault('BACKUP_PATH', 'Choose a backup destination outside the source instance');
+    }
     const contents = await persistentFiles(directory, plan, options.signal), { files, directories } = contents;
     const createdAt = new Date().toISOString();
     const header = { format: FORMAT, private: true, excludesGeneratedRuntimeFiles: true, mayIncludeApplicationSecrets: true, createdAt,
@@ -189,7 +203,6 @@ export async function backupInstance(options) {
     } finally {
       if (!complete) { await output.close().catch(() => {}); await ordinaryPath(destination); await unlink(destination); }
     }
-  });
 }
 
 function validateHeader(header) {
@@ -330,6 +343,25 @@ async function removeCreatedDirectory(path, parent) {
     const info = await lstat(child); if (info.isSymbolicLink()) throw fault('BACKUP_PATH', 'Restore cleanup encountered a link'); if (info.isDirectory()) await check(child);
   } }
   await check(actual); await rm(actual, { recursive: true, force: false });
+}
+/** Internal deployment-tool primitive: materializes only a fresh private snapshot tree. */
+export async function extractBackup(file, destination, options = {}) {
+  const target = await ordinaryPath(destination, { allowMissing: true });
+  await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+  await mkdir(target, { mode: 0o700 });
+  let complete = false;
+  try {
+    const archive = await readArchive(file, options, async item => {
+      const outputFile = join(target, portablePath(item.path));
+      await ordinaryPath(outputFile, { allowMissing: true });
+      await mkdir(dirname(outputFile), { recursive: true, mode: 0o700 });
+      const output = await open(outputFile, 'wx', 0o600);
+      return { write: bytes => writeAll(output, bytes), close: () => output.close() };
+    });
+    for (const path of archive.header.directories) await mkdir(join(target, portablePath(path)), { recursive: true, mode: 0o700 });
+    complete = true;
+    return { ...archive, directory: target };
+  } finally { if (!complete) await removeCreatedDirectory(target, dirname(target)); }
 }
 /** Restores only into a new instance directory; generated identities/tokens are never copied. */
 export async function restoreInstance(options) {

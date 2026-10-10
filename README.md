@@ -207,7 +207,7 @@ world-hub-pack start --root ./pack-runtime --instance one --trust $review.digest
 
 先检查 `plan` 的内容、依赖和权限声明，再使用实际摘要启动。每实例有自己的 Hub、端口、凭据和程序状态；进程、自报健康与真实桥连接分别显示。[跨语言文本台包](examples/ecosystem-pack/README.md)提供三个真实程序：JavaScript 原文来源、Python 统计、JavaScript 浏览器界面；界面经 Hub 请求来源和统计并自己保存成果，支持中文与 English。样例锁要求预安装 Node 22.23.2、Python 3.14.0 与 websockets 15.0.1。
 
-Runtime 是独立部署层，Hub 继续只做通讯十字路口。每个实例有独立 Hub，权限是声明，未提供 OS 沙箱或自动业务重试。Launcher 可经用户明确审阅，按有限固定方案准备支持的 Python 依赖，并提供静态软件源与本地创作协作；它不托管在线社区。完整 CLI／公开 API、锁更新及数据边界见[外部 Runtime](docs/ecosystem/runtime.md)。
+Runtime 是独立部署层，Hub 继续只做通讯十字路口。每个实例有独立 Hub；默认 trusted-local 权限是声明，可另选有限 Node 容器隔离。业务重试仍由程序决定。Launcher 可经用户明确审阅，按有限固定方案准备支持的 Python 依赖，并提供静态软件源与本地创作协作；它不托管在线社区。完整 CLI／公开 API、锁更新及数据边界见[外部 Runtime](docs/ecosystem/runtime.md)。
 
 ## 仓库结构
 
@@ -231,3 +231,5 @@ tools/launcher/       可选整合包管理后台与统一浏览器入口
 支持环境、测试范围与已知限制见[验证说明](docs/verification.md)。部署时请注意：消息追加不保证断电耐久，本机管理接口面向同一信任域；配置与容量说明见[部署文档](docs/deployment.md)。
 
 本项目采用 [MIT 许可证](LICENSE)。便携包附带的 Node.js 运行时保留其自己的许可证；外部程序和 harness 按各自许可使用。
+
+共享组合还可以制作成[参数化模板](docs/ecosystem/templates.md)，填写公开参数后生成新的锁定包；已停止实例可[升级与完整数据回滚](docs/ecosystem/upgrade.md)，数据策略由各程序作者决定。可选[Node 无界面容器隔离](docs/ecosystem/isolation.md)具有固定文件、网络、子进程与资源限制，需自行准备 Linux Docker 与摘要镜像；其他程序继续按所选部署方式接入。

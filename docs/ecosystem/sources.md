@@ -71,3 +71,7 @@ Preparing an artifact takes an exclusive `wx` lock for that digest and extracts 
 Inspecting an index, downloading an artifact, publishing local files and reading comments execute no module code and create no running instance. Obtaining an artifact returns a local directory. Import and execution use the normal Launcher/Runtime review, which checks actual files, current locks, interpreters and permissions. Replacing a component goes through the same contract checks as any local package edit.
 
 SHA-256 establishes content identity and integrity relative to a selected index. It does not establish author identity or code safety. Version 1 does not implement publisher signatures; future signatures can identify a publisher but cannot certify that their program is safe. The reference Runtime is trusted-local execution, without an OS sandbox. A downloaded module runs with the user's operating-system privileges only after explicit execution review. Remote descriptions, comments and package metadata are plain text in the UI and cannot call the privileged local API.
+
+## Template 分发
+
+`kind:"template"` 是独立分发对象。其制品包含 `template.json`、完整 `base/pack.json`／`base/pack.lock` 和锁定模块源码；静态校验不探测解释器，也不执行模板或模块。索引的平台与契约来自锁定基包。获取后先检查参数并生成新 Pack，再走独立的导入、环境和执行审阅；缓存或发布都不等于运行授权。完整 Schema 和 API 见[模板](templates.md)。

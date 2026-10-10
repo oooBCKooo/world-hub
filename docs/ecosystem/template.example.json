@@ -1,0 +1,26 @@
+{
+  "format": "world-hub.template/v1",
+  "id": "demo.text-template",
+  "version": "1.0.0",
+  "title": "Reusable text workbench / 可复用文本工作台",
+  "license": "MIT",
+  "base": "base",
+  "parameters": [
+    {
+      "name": "initial-text",
+      "title": "Initial text / 初始文本",
+      "type": "string",
+      "default": "你好，世界 🌍\nHello World Hub\n",
+      "constraints": { "maxLength": 4096 },
+      "targets": [{ "kind": "setting", "component": "source", "path": ["text"] }]
+    },
+    {
+      "name": "source-topic",
+      "title": "Source topic / 来源通讯主题",
+      "type": "string",
+      "default": "template/text/read",
+      "constraints": { "minLength": 1, "maxLength": 512 },
+      "targets": [{ "kind": "topic", "key": "source" }]
+    }
+  ]
+}

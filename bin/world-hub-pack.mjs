@@ -5,8 +5,9 @@ import { inspectPackage, createLock, importPackage, startInstance, statusInstanc
   backupInstance, inspectBackup, restoreInstance, storageInstance, detachInstance, reattachInstance,
   inspectAuthoring, previewReplacement, derivePackage, rebuildPackage, exportProposal, applyProposal, readSourceIndex, fetchSourceArtifact, publishArtifact } from '../scripts/runtime/index.mjs';
 import { readBounded } from '../scripts/runtime/paths.mjs';
+import { completionCommands, completionHelp, parseCompletionArgs, runCompletion } from '../scripts/runtime/completion-cli.mjs';
 
-export const HELP = `World Hub optional local pack Runtime (trusted local code; no OS sandbox)
+export const HELP = `World Hub optional pack Runtime (default trusted-local; optional Docker Node headless isolation)
 
   world-hub-pack plan <pack-directory> [--node executable] [--python executable]
   world-hub-pack lock <pack-directory> [--node executable] [--python executable]
@@ -41,10 +42,12 @@ Creator/source actions produce local artifacts only; they never grant execution 
 init-module generates an optional text.statistics author sample, not a universal application shape.
 validate-module checks declarations/files; doctor-module additionally probes the selected interpreter and dependency.
 These checks and replacement previews do not establish business correctness or operating-system isolation.
+${completionHelp}
 `;
 const operations = ['plan', 'lock', 'import', 'start', 'status', 'logs', 'stop', 'export', 'storage', 'backup', 'inspect-backup', 'restore', 'detach', 'reattach',
   'authoring', 'derive', 'rebuild', 'proposal', 'apply-proposal', 'source', 'fetch-source', 'publish', 'init-module', 'validate-module', 'doctor-module', 'preview-replacement'];
 export function parseArgs(argv) {
+  if (completionCommands.includes(argv[0])) return parseCompletionArgs(argv);
   if (argv.length === 0 || argv.length === 1 && ['--help', '-h'].includes(argv[0])) return { help: true };
   if (argv.length === 1 && ['--version', '-V'].includes(argv[0])) return { version: true };
   if (argv[0] === 'completion') {
@@ -69,7 +72,7 @@ export function parseArgs(argv) {
     : ['derive', 'proposal'].includes(command) ? ['--destination', '--manifest', '--replacements', '--revision', '--acknowledge-licenses', '--node', '--python']
     : command === 'apply-proposal' ? ['--destination', '--proposal', '--acknowledge-licenses', '--node', '--python']
     : command === 'import' ? ['--root', '--instance', '--node', '--python']
-      : command === 'start' ? ['--root', '--instance', '--trust', '--node', '--python']
+      : command === 'start' ? ['--root', '--instance', '--trust', '--node', '--python', '--isolation', '--isolation-trust']
         : ['export', 'backup'].includes(command) ? ['--root', '--instance', '--destination', '--node', '--python']
           : command === 'restore' ? ['--root', '--instance', '--backup', '--sha256', '--node', '--python']
           : command === 'reattach' ? ['--root', '--instance', '--trust', '--node', '--python'] : ['--root', '--instance'];
@@ -77,7 +80,7 @@ export function parseArgs(argv) {
   const keys = { '--root': 'root', '--instance': 'instanceId', '--node': 'nodePath', '--python': 'pythonPath', '--trust': 'trust', '--destination': 'destination',
     '--backup': 'backup', '--sha256': 'expectedSha256', '--manifest': 'manifestFile', '--replacements': 'replacementsFile', '--revision': 'expectedRevision',
     '--proposal': 'proposalDirectory', '--index-digest': 'indexDigest', '--entry': 'entryId', '--cache': 'cacheRoot', '--kind': 'kind', '--acknowledge-licenses': 'redistributionAcknowledged',
-    '--id': 'id', '--runtime': 'runtime', '--component': 'componentId', '--module': 'moduleDirectory' };
+    '--id': 'id', '--runtime': 'runtime', '--component': 'componentId', '--module': 'moduleDirectory', '--isolation': 'isolationFile', '--isolation-trust': 'isolationTrust' };
   for (; index < argv.length; index += 2) {
     const key = argv[index], value = argv[index + 1];
     if (!accepted.includes(key) || seen.has(key) || !value || value.startsWith('--')) throw new Error(`Unknown, duplicate or incomplete option: ${key}`);
@@ -85,6 +88,7 @@ export function parseArgs(argv) {
   }
   if (!positional.includes(command) || command === 'import') if (!options.root || !options.instanceId) throw new Error('--root and --instance are required');
   if (['start', 'reattach'].includes(command) && !options.trust) throw new Error('--trust must be the reviewed current digest');
+  if (command === 'start' && Boolean(options.isolationFile) !== Boolean(options.isolationTrust)) throw new Error('--isolation and --isolation-trust must be supplied together');
   if (command === 'init-module' && (!options.id || !['node', 'python'].includes(options.runtime))) throw new Error('--id and --runtime node|python are required');
   if (command === 'preview-replacement' && (!options.componentId || !options.moduleDirectory)) throw new Error('--component and --module are required');
   if (['export', 'backup', 'derive', 'rebuild', 'proposal', 'apply-proposal', 'publish'].includes(command) && !options.destination) throw new Error('--destination is required');
@@ -105,7 +109,8 @@ export async function main(argv = process.argv.slice(2)) {
   if (args.completion) { process.stdout.write(completionScript(args.completion)); return; }
   const print = value => console.log(JSON.stringify(value));
   const { command, packDirectory, options } = args;
-  if (command === 'plan') { const plan = await inspectPackage(packDirectory, options); print(plan); }
+  if (completionCommands.includes(command)) print(await runCompletion(args));
+  else if (command === 'plan') { const plan = await inspectPackage(packDirectory, options); print(plan); }
   else if (command === 'lock') print(await createLock(packDirectory, options));
   else if (command === 'import') { const result = await importPackage(packDirectory, options); print(result); }
   else if (command === 'status') print(await statusInstance(options));
@@ -137,6 +142,7 @@ export async function main(argv = process.argv.slice(2)) {
   else if (command === 'fetch-source') print(await fetchSourceArtifact(packDirectory, options.indexDigest, options.entryId, options));
   else if (command === 'publish') print(await publishArtifact(packDirectory, options));
   else {
+    if (options.isolationFile) options.isolation = JSON.parse((await readBounded(options.isolationFile)).toString('utf8'));
     let session, interrupted = false; const controller = new AbortController();
     const stop = () => { interrupted = true; if (session) void session.close().catch(error => { console.error(error.message); process.exitCode = 1; }); else controller.abort(); };
     process.on('SIGINT', stop); process.on('SIGTERM', stop);
@@ -150,7 +156,7 @@ export async function main(argv = process.argv.slice(2)) {
   }
 }
 export function completionScript(shell) {
-  const commands = [...operations, 'completion'];
+  const commands = [...operations, ...completionCommands, 'completion'];
   const words = [...commands, '--help', '--version', '--node', '--python', '--id', '--runtime', '--component', '--module', '--destination', '--root', '--instance'];
   if (shell === 'powershell') return `Register-ArgumentCompleter -Native -CommandName world-hub-pack -ScriptBlock {\n  param($wordToComplete, $commandAst, $cursorPosition)\n  @(${words.map(word => `'${word}'`).join(', ')}) | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }\n}\n`;
   if (shell === 'bash') return `complete -W '${words.join(' ')}' world-hub-pack\n`;
