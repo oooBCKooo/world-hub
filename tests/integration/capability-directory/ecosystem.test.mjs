@@ -107,6 +107,9 @@ async function scene(t, { skip = [], extraCredentials = {}, extraTopics = [], ca
     const result = await catalog();
     return ids.every(id => result.entries.some(entry => entry.module.id === id && entry.state === 'lease-valid')) ? result : false;
   }, { timeoutMs: 8000, what: 'live capability advertisements' });
+  // Ordinary interoperability checks allow for slower CI disk scheduling.
+  // The uncertain/late-response scenario below sets its own 150 ms deadline.
+  assert.equal((await compose({ command: 'configure', timeoutMs: 5000 })).ok, true);
   checkpoints.push({ label: 'independent-programs', hubPid: hub.child.pid, programs: [...programs].map(([id, p]) => ({ id, pid: p.child.pid })),
     scope: 'This controlled fixture deliberately shares its public test token. The actual isolatedCredentials launcher generates independent per-principal credentials.' });
   const pids = owned.map(program => program.child.pid);

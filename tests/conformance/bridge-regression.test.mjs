@@ -264,7 +264,10 @@ test('old async consumption cannot ACK or block a restored connection with reuse
 });
 
 test('both source programs read_now actually sample, and source resume policy recovers offline commands', async (t) => {
-  const { h, panel } = await setup(t);
+  const { h, panel, publisher } = await setup(t);
+  // This fixture publisher shares source.ticker's identity. Close it before
+  // starting the real ticker so reconnects cannot take over its session.
+  await publisher.close('unused publisher in source-program lifecycle test');
   const c = panel(); const messages = [];
   c.on('delivery', (m) => messages.push(m)); await c.connect(); await c.subscribe(['source/#'], { from: 0 });
   for (const source of ['sensor-a', 'ticker']) {
