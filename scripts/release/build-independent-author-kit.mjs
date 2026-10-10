@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { ordinaryPath } from '../runtime/paths.mjs';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 export const authorKitFiles = Object.freeze(['LICENSE', 'docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json',
-  'docs/specs/protocol.md', 'docs/specs/reliability-access.md', 'docs/specs/directed-and-bulk.md', 'docs/onboarding.md', 'docs/npm.md', 'docs/verification.md', 'sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-client.mjs', 'sdk/javascript/README.md',
+  'docs/specs/protocol.md', 'docs/specs/reliability-access.md', 'docs/specs/directed-and-bulk.md', 'docs/specs/bridge-interoperability.md', 'docs/onboarding.md', 'docs/npm.md', 'docs/verification.md', 'sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-client.mjs', 'sdk/javascript/README.md',
   'sdk/python/hub_bridge.py', 'sdk/python/requirements.txt', 'sdk/python/README.md']);
 export async function buildIndependentAuthorKit(output) {
   const directory = resolve(output); await ordinaryPath(directory, { allowMissing: true });
