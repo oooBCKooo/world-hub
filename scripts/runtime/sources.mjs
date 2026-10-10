@@ -5,7 +5,7 @@ import { request } from 'node:https';
 import { lookup } from 'node:dns';
 import { isIP } from 'node:net';
 import { randomUUID } from 'node:crypto';
-import { inspectPackage, validatePack, validateModule } from './package.mjs';
+import { inspectPackage, validatePack, validateModule, validateLock } from './package.mjs';
 import { ordinaryPath, readBounded, collectFiles, hash, relativePath, privateJson } from './paths.mjs';
 
 const sha = /^[a-f0-9]{64}$/;
@@ -142,7 +142,7 @@ function validateArtifact(artifact) {
   };
   const manifest = getJson(artifact.kind === 'pack' ? 'pack.json' : 'module.json');
   if (artifact.kind === 'pack') {
-    validatePack(manifest); const lock = getJson('pack.lock');
+    validatePack(manifest); const lock = getJson('pack.lock'); validateLock(lock);
     if (lock.format !== 'world-hub.pack-lock/v1' || lock.pack?.sha256 !== hash(decoded.find(v => v.path === 'pack.json').bytes)
         || lock.pack.id !== manifest.id || lock.pack.version !== manifest.version || !Array.isArray(lock.modules)
         || lock.modules.length < 1 || lock.modules.length > 32 || !lock.platform || typeof lock.platform.os !== 'string' || typeof lock.platform.arch !== 'string') throw new Error('Invalid distributed pack lock');
@@ -151,18 +151,51 @@ function validateArtifact(artifact) {
       relativePath(m.source); if (!Array.isArray(m.files) || m.files.length < 1 || m.files.length > 4096) throw new Error('Invalid distributed module files');
       const module = getJson(`${m.source}/module.json`); validateModule(module);
       if (module.id !== m.id || module.version !== m.version) throw new Error('Distributed module identity mismatch');
+      if (!module.platforms.includes(`${lock.platform.os}-${lock.platform.arch}`)) throw new Error('Distributed module does not support the locked platform');
+      if (!lock.runtimes[module.runtime.kind]) throw new Error('Distributed module runtime is not locked');
+      if (!m.files.some(f => f.path === 'module.json') || !m.files.some(f => f.path === module.runtime.entry)) throw new Error('Distributed module manifest or entry is not locked');
       for (const f of m.files) {
         const path = `${m.source}/${relativePath(f.path)}`; allowed.add(path);
         const data = decoded.find(v => v.path === path); if (!data || hash(data.bytes) !== f.sha256) throw new Error('Distributed module hash mismatch');
       }
     }
     if (decoded.some(f => !allowed.has(f.path))) throw new Error('Distributed pack includes private or unlocked files');
+    const modules = lock.modules.map(m => getJson(`${m.source}/module.json`));
+    if (modules.some(m => !manifest.components.some(c => c.module === m.id))) throw new Error('Distributed pack contains an unused module');
+    for (const component of manifest.components) {
+      const module = modules.find(m => m.id === component.module);
+      if (!module || module.bridges.length !== Object.keys(component.bridges).length || module.bridges.some(slot => !Object.hasOwn(component.bridges, slot))) throw new Error('Distributed component bridge slots do not match its module');
+      for (const required of module.requires) if (!manifest.bindings.some(b => b.to === component.id && b.contract.id === required.id && b.contract.version === required.version)) throw new Error('Distributed component contract is unbound');
+    }
+    for (const binding of manifest.bindings) {
+      const from = modules.find(m => m.id === manifest.components.find(c => c.id === binding.from).module);
+      const to = modules.find(m => m.id === manifest.components.find(c => c.id === binding.to).module);
+      const match = contract => contract.id === binding.contract.id && contract.version === binding.contract.version;
+      if (!from?.provides.some(match) || !to?.requires.some(match)) throw new Error('Distributed capability binding is incompatible');
+    }
   } else {
     validateModule(manifest);
     if (!decoded.some(f => f.path === manifest.runtime.entry)) throw new Error('Distributed module entry is missing');
   }
   if (manifest.id !== artifact.id || manifest.version !== artifact.version) throw new Error('Artifact identity mismatch');
   return { artifact, manifest, decoded };
+}
+// A hosted catalog validates data without probing interpreters, extracting files
+// or executing uploaded programs. Preserve exact bytes for content addressing.
+export function validateArtifactBytes(input) {
+  const bytes = Buffer.isBuffer(input) || input instanceof Uint8Array
+    ? Buffer.from(input) : Buffer.from(JSON.stringify(input) + '\n');
+  if (!bytes.length || bytes.length > maximumArtifact) throw new Error('Artifact exceeds distribution size bound');
+  const validated = validateArtifact(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)));
+  const { artifact, manifest, decoded } = validated;
+  const lock = artifact.kind === 'pack' ? JSON.parse(decoded.find(f => f.path === 'pack.lock').bytes.toString()) : null;
+  const entry = { entryId: `${artifact.kind}.${artifact.id}.${artifact.version}`, kind: artifact.kind,
+    id: artifact.id, version: artifact.version, title: manifest.title ?? manifest.id, license: manifest.license,
+    platforms: lock ? [`${lock.platform.os}-${lock.platform.arch}`] : manifest.platforms,
+    provides: lock ? [] : manifest.provides, requires: lock ? [] : manifest.requires,
+    source: { path: 'artifact.json' }, sha256: hash(bytes) };
+  validateSourceIndex({ format: 'world-hub.source-index/v1', id: 'verified-artifact', title: 'Verified artifact', entries: [entry] });
+  return { ...validated, bytes, entry };
 }
 function checkEntry(validated, entry) {
   const { artifact, manifest } = validated;

@@ -7,7 +7,7 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { buildPackage, APPLICATION_FILES, SDK_FILES, SDK_DOCUMENTATION_FILES, MODULE_CONTRACT_FILES, DOCUMENTATION_IMAGE_FILES,
-  ECOSYSTEM_SCHEMA_FILES, ECOSYSTEM_RUNTIME_FILES, LAUNCHER_FILES } from './build-package.mjs';
+  ECOSYSTEM_SCHEMA_FILES, ECOSYSTEM_RUNTIME_FILES, LAUNCHER_FILES, WORKSHOP_FILES } from './build-package.mjs';
 import { verifyPackage } from './verify-package.mjs';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
@@ -33,7 +33,7 @@ test('source distribution is independent of local runtime caches and copies only
   assert.equal(manifest.runtime, null);
   assert.equal(built.runtimeVerified, false);
   assert.equal((await verifyPackage(bundle)).passed, true);
-  for (const path of [...APPLICATION_FILES, ...SDK_FILES, ...DOCUMENTATION_IMAGE_FILES, ...ECOSYSTEM_SCHEMA_FILES, ...ECOSYSTEM_RUNTIME_FILES, ...LAUNCHER_FILES]) {
+  for (const path of [...APPLICATION_FILES, ...SDK_FILES, ...DOCUMENTATION_IMAGE_FILES, ...ECOSYSTEM_SCHEMA_FILES, ...ECOSYSTEM_RUNTIME_FILES, ...LAUNCHER_FILES, ...WORKSHOP_FILES]) {
     assert.equal(hash(await readFile(join(bundle, path))), hash(await readFile(join(repository, path))), path);
   }
   assert.ok(manifest.files.every(item => !/(?:\.local|\.artifacts|node_modules|__pycache__|\.bak|worker\.py|ProtocolWorker\.cs|harness-program|programs\.config)/.test(item.path)));

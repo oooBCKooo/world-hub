@@ -29,6 +29,12 @@ Launcher is an optional local deployment and navigation tool that calls the exte
 
 ![Unified interface: a running cross-language pack and its independent programs](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-launcher-en.jpg?v=0.16.1)
 
+## Optional hosted community
+
+[World Hub Workshop](https://peros.cn/workshop/) provides a public Pack and Module catalog with downloads. Invited developers can publish immutable versions, comment, and submit proposals tied to the original artifact's digest. Authors review proposals before publishing a new version. Add `https://peros.cn/workshop/index.json` under Launcher **Software sources** to verify and cache an artifact, then import and start it through the local review process.
+
+Workshop is an independent external service; uploaded programs are never run on the community server. Community login does not grant local execution permission, and existing local instances work offline. The initial deployment uses invitation registration and a single server. See the [Workshop guide](docs/ecosystem/workshop.md) for operation, capacity limits, and migration.
+
 ## What can you compose?
 
 | System you want to build | Separate external programs | How they cooperate through the Hub |

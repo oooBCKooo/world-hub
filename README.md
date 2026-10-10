@@ -29,6 +29,12 @@ Launcher 是可选的本机部署与导航工具，调用外部 Runtime。Hub Co
 
 ![统一入口：实际运行的跨语言整合包及其独立程序](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-launcher.jpg?v=0.16.1)
 
+## 可选托管社区
+
+[World Hub Workshop](https://peros.cn/workshop/) 提供公开的 Pack／Module 目录和下载。受邀开发者可以发布不可变版本、发表评论，并提交绑定原版摘要的改进提案；作者检查后发布新版本。将 `https://peros.cn/workshop/index.json` 加到 Launcher 的“软件源”，即可校验、缓存，再按本机审阅流程导入与启动。
+
+Workshop 是独立的外部服务，上传的程序不会在社区服务器运行。社区登录不授予本机执行权限；已有本地实例可以离线使用。当前采用邀请注册和单服务器配置，运行方法、容量限制及迁移见[Workshop 指南](docs/ecosystem/workshop.md)。
+
 ## 可以组合出什么
 
 | 你想构造的系统 | 拆成哪些外部程序 | 经枢纽怎样协作 |

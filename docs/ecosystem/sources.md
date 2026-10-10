@@ -4,6 +4,8 @@ Software sources are optional distribution inputs. Local package inspection, imp
 
 ## Index version 1
 
+The optional [hosted Workshop](workshop.md) serves the same open index and artifact formats at `https://peros.cn/workshop/index.json`. Community accounts are required for publication and collaboration; reading and fetching this source require no login. Local execution remains a separate review and authorization step.
+
 An index is UTF-8 JSON of at most 4 MiB, with at most 4096 entries. Fields are closed: unknown fields are rejected in this version.
 
 ```json

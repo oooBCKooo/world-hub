@@ -14,6 +14,8 @@ ZIP 分发适合独立目录部署或 Windows 便携使用。用途演示整合�
 
 npm 和 Hub 源码／便携 ZIP 随带 Launcher 的本机服务与中英文页面、Runtime CLI、实现与三个开放部署 Schema，业务模块仍由使用者另行取得。选择 Launcher 或 Runtime 不会改变默认 Hub 启动；完整的三程序组合由下面的独立生态源码 ZIP 分发。
 
+npm、Hub 源码／便携包和生态源码包另带可选的独立 [Workshop](ecosystem/workshop.md) 服务及其页面。它要求部署者自己的私有配置、数据和 HTTPS 代理，不随默认 Hub 或 Launcher 启动，也不执行上传程序。社区私有导出含账号与会话元数据，应单独迁移，不能当作公开整合包上传。
+
 ## 从源码构建
 
 轻量源码分发无需下载运行时：

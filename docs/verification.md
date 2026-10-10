@@ -10,6 +10,7 @@ npm 安装包的 `world-hub --check` 是部署前的只读环境与配置检查�
 | 四个用途演示的独立程序、通讯链路和 source 打包 | `npm run test:demos` | Node 22；无需模型账号或 DSH |
 | 外部能力目录、独立处理器替换与可解释故障 | `npm run test:capabilities` | Node 22；无模型账号或 DSH |
 | 可选外部 Runtime、真实 JS／Python 文本台、实例隔离与源码分发 | `npm run test:ecosystem` | 参考锁 Node 22.23.2、Python 3.14.0、websockets 15.0.1 |
+| 独立托管 Workshop 的账号、发布、协作、停机与迁移 | `npm run test:workshop` | Node 22；隔离回环 HTTP 测试，不访问正式社区 |
 | npm CLI 与真实 tarball 隔离安装、启动、桥通讯及停机 | `npm run test:npm` | Node 22 + npm；不改用户全局安装，也不发布 |
 | JS／Python／PowerShell 互操作和三个候选桥 profile | `npm run test:cross-language` | Node、Python + websockets、PowerShell 7 |
 | 真实已安装 DSH 的隔离测试模型集成 | `npm run test:dsh` | Node、显式 `PEROS_DSH_ROOT` |
@@ -63,7 +64,9 @@ npm run test:dsh
 
 可选统一 Launcher 使用 `npm run test:launcher` 单独验收。当前 Windows 参考环境覆盖本机授权与 CSRF、一次性页面引导、当前内容审阅、环境缺失和版本不符、真实 JS／Python／JS 调用、两实例隔离、重启与包导出重建、实际桥归属和过期导航、启动中停止、并发导入、独立 Hub 启停，以及清理失败后的所有权保留与重试。源码整合包锁定 Node 22.23.2、Python 3.14.0 和 websockets 15.0.1；解释器检测不表示自动安装。
 
-本机浏览器验收另行操作导入和明确审阅启动，检查真实成果、中英文和窄屏导航、Hub 实际桥定位与返回组件日志。页面显示的进程、健康、模块自报就绪、真实连接与业务结果保留各自含义；这些结果不能扩大为 OS 沙箱、实例数据备份／迁移、在线 Workshop 或任意第三方模块的验收。
+本机浏览器验收另行操作导入和明确审阅启动，检查真实成果、中英文和窄屏导航、Hub 实际桥定位与返回组件日志。页面显示的进程、健康、模块自报就绪、真实连接与业务结果保留各自含义；这些结果不能扩大为 OS 沙箱或任意第三方模块的验收。
+
+独立 Workshop 集合检查邀请注册、会话和 CSRF、纯制品校验、不可变版本、公开来源索引与摘要下载、评论和绑定基线的提案、管理员隐藏与禁用、重启、私有导出与新目录恢复，以及部分写入故障和私有 nonce 优雅停机。上传程序不执行。浏览器交互和真实 HTTPS 发布→Launcher 获取→本机审阅与运行须另行验收；回环测试不证明正式服务器、断电耐久或高负载容量。部署限制见[Workshop 指南](ecosystem/workshop.md)。
 
 CI 当前选择 Windows 和明确的 Node／Python／PowerShell 环境。只有实际工作流结果才能说明远端执行是否通过；本机 green 不等于 GitHub Actions 已执行。Linux、跨机器、断电耐久、至少 24 小时高负载、所有辅助技术与任意容量附件均需另行验收。
 

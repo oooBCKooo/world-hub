@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { APPLICATION_FILES, SDK_FILES, SDK_DOCUMENTATION_FILES, MODULE_CONTRACT_FILES,
-  ECOSYSTEM_SCHEMA_FILES, ECOSYSTEM_RUNTIME_FILES, LAUNCHER_FILES } from './build-package.mjs';
+  ECOSYSTEM_SCHEMA_FILES, ECOSYSTEM_RUNTIME_FILES, LAUNCHER_FILES, WORKSHOP_FILES } from './build-package.mjs';
 import { zipDirectory } from './zip.mjs';
 import { verifyPackage } from './verify-package.mjs';
 import { collectFiles, ordinaryPath, readBounded, relativePath } from '../runtime/paths.mjs';
@@ -28,10 +28,10 @@ const documentation = ['README.en.md', ...SDK_DOCUMENTATION_FILES,
     .map(name => `docs/${name}.md`),
   ...['index', 'boundaries', 'protocol', 'reliability-access', 'directed-and-bulk', 'management',
     'bridge-interoperability', 'manual-workbench', 'operations'].map(name => `docs/specs/${name}.md`),
-  'docs/modules/provider-contract.md', 'docs/ecosystem/pack-spec.md', 'docs/ecosystem/runtime.md', 'docs/ecosystem/launcher.md', 'docs/ecosystem/authoring.md', 'docs/ecosystem/sources.md'];
+  'docs/modules/provider-contract.md', 'docs/ecosystem/pack-spec.md', 'docs/ecosystem/runtime.md', 'docs/ecosystem/launcher.md', 'docs/ecosystem/authoring.md', 'docs/ecosystem/sources.md', 'docs/ecosystem/workshop.md'];
 export const ECOSYSTEM_SOURCE_FILES = Object.freeze([...new Set([
   ...APPLICATION_FILES, ...SDK_FILES, ...MODULE_CONTRACT_FILES, ...ECOSYSTEM_SCHEMA_FILES,
-  ...ECOSYSTEM_RUNTIME_FILES, ...LAUNCHER_FILES, ...ECOSYSTEM_PACK_FILES, ...documentation,
+  ...ECOSYSTEM_RUNTIME_FILES, ...LAUNCHER_FILES, ...WORKSHOP_FILES, ...ECOSYSTEM_PACK_FILES, ...documentation,
   'bin/world-hub.mjs', 'scripts/launcher.mjs', 'scripts/launcher-support.mjs',
   'scripts/release/verify-package.mjs', 'config/hub.json', 'LICENSE',
 ])]);

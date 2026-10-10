@@ -13,11 +13,11 @@ let suite = 'node', evidenceRoot = join(root, '.artifacts/evidence');
 const seen = new Set();
 for (let index = 0; index < args.length; index += 2) {
   const option = args[index], value = args[index + 1];
-  if (!['--suite', '--evidence'].includes(option) || !value || seen.has(option)) throw new Error('usage: node scripts/verify.mjs [--suite node|dsh|cross-language|demos|capabilities|ecosystem|launcher] [--evidence directory]');
+  if (!['--suite', '--evidence'].includes(option) || !value || seen.has(option)) throw new Error('usage: node scripts/verify.mjs [--suite node|dsh|cross-language|demos|capabilities|ecosystem|launcher|workshop] [--evidence directory]');
   seen.add(option);
   if (option === '--suite') suite = value; else evidenceRoot = resolve(value);
 }
-if (!['node', 'dsh', 'cross-language', 'demos', 'capabilities', 'ecosystem', 'launcher'].includes(suite)) throw new Error(`unknown suite: ${suite}`);
+if (!['node', 'dsh', 'cross-language', 'demos', 'capabilities', 'ecosystem', 'launcher', 'workshop'].includes(suite)) throw new Error(`unknown suite: ${suite}`);
 const directory = join(evidenceRoot, `${suite}-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID()}`);
 await mkdir(directory, { recursive: true });
 const report = { suite, startedAt: new Date().toISOString(), node: process.version, platform: process.platform, arch: process.arch,
@@ -90,6 +90,9 @@ try {
   } else if (suite === 'launcher') {
     const cases = (await readdir(join(root, 'tests/integration/launcher'))).filter(name => name.endsWith('.test.mjs')).sort().map(name => `tests/integration/launcher/${name}`);
     await execute('Unified Launcher: reviewed starts, real cross-language packs, lifecycle and navigation', nodeTests(cases), { test: true });
+  } else if (suite === 'workshop') {
+    const cases = (await readdir(join(root, 'tests/integration/workshop'))).filter(name => name.endsWith('.test.mjs')).sort().map(name => `tests/integration/workshop/${name}`);
+    await execute('Optional hosted Workshop: publication, accounts, collaboration and persistence', nodeTests(cases), { test: true });
   } else if (suite === 'dsh') {
     report.dsh = requireDshInstall();
     await execute('Explicit local DSH integration', nodeTests(['tests/integration/context/harness-program.test.mjs', 'tests/integration/context/phase2-e2e.test.mjs', 'tests/integration/context/phase2-lifecycle.test.mjs', 'tests/integration/directed-transfer/dsh-scenario.test.mjs']), { test: true });

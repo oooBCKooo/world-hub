@@ -25,6 +25,8 @@ export const ECOSYSTEM_RUNTIME_FILES = Object.freeze(['bin/world-hub-pack.mjs',
 export const LAUNCHER_FILES = Object.freeze(['bin/world-hub.mjs',
   ...['cli', 'server', 'manager', 'environment', 'environment-prepare', 'diagnostics', 'topology'].map(name => `tools/launcher/${name}.mjs`),
   ...['index.html', 'app.mjs', 'style.css', 'i18n.mjs', 'advanced.mjs'].map(name => `tools/launcher/public/${name}`)]);
+export const WORKSHOP_FILES = Object.freeze(['tools/workshop/cli.mjs', 'tools/workshop/store.mjs', 'tools/workshop/server.mjs',
+  ...['index.html', 'app.mjs', 'style.css'].map(name => `tools/workshop/public/${name}`)]);
 export const DOCUMENTATION_IMAGE_FILES = Object.freeze(
   ['hub-topology', 'hub-workbench', 'hub-launcher', 'demo-event-desk', 'demo-modular-assistant', 'demo-digital-world', 'demo-capability-directory']
     .flatMap(name => [`docs/images/${name}.jpg`, `docs/images/${name}-en.jpg`]));
@@ -80,6 +82,7 @@ export async function buildPackage({ output, runtimeDirectory = null, sourceRoot
   for (const path of ECOSYSTEM_SCHEMA_FILES) await copy(path, 'documentation-contract');
   for (const path of ECOSYSTEM_RUNTIME_FILES) await copy(path, 'tooling');
   for (const path of LAUNCHER_FILES) await copy(path, path.startsWith('tools/launcher/public/') ? 'application' : 'tooling');
+  for (const path of WORKSHOP_FILES) await copy(path, path.includes('/public/') ? 'application' : 'tooling');
   for (const path of EXAMPLE_FILES) await copy(path, 'example');
   await copy('scripts/launcher.mjs', 'tooling');
   await copy('scripts/launcher-support.mjs', 'tooling');

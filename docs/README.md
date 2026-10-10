@@ -8,6 +8,7 @@
 | 通过 npm 安装 CLI、取得三个语言 SDK | [npm 包](npm.md) |
 | 从浏览器导入、审阅和运行本地整合包 | [统一 Launcher](ecosystem/launcher.md) |
 | 备份私有实例、派生组合、浏览软件源与交换创作提案 | [Launcher 维护与创作](ecosystem/launcher.md#私有实例备份恢复与维护) |
+| 部署可选社区、发布软件及交换评论和提案 | [托管 Workshop](ecosystem/workshop.md) |
 | 用自己的程序接入 | [mod 接入](onboarding.md) |
 | 当前规范 | [规范索引](specs/index.md) |
 | 理解源码目录与组件责任 | [仓库结构](repository.md) |

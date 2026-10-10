@@ -23,6 +23,8 @@ jobs:
         run: npm test
       - name: Purpose demos and demo distribution
         run: npm run test:demos
+      - name: Optional hosted Workshop closure
+        run: npm run test:workshop
       - name: npm CLI and isolated package installation
         run: npm run test:npm
       - name: Build source distribution

@@ -7,7 +7,7 @@ import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startOwnedProgram } from '../../tests/helpers/owned-program.mjs';
-import { LAUNCHER_FILES } from './build-package.mjs';
+import { LAUNCHER_FILES, WORKSHOP_FILES } from './build-package.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -17,7 +17,7 @@ const ecosystemFiles = ['bin/world-hub-pack.mjs',
   ...['index', 'package', 'paths', 'process', 'runtime', 'hub-process', 'maintenance', 'authoring', 'sources'].map(name => `scripts/runtime/${name}.mjs`),
   'docs/ecosystem/pack-spec.md', 'docs/ecosystem/runtime.md',
   ...['module', 'pack', 'pack-lock'].map(name => `docs/ecosystem/${name}.schema.json`)];
-const developerMaterial = ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md', 'docs/ecosystem/launcher.md', ...ecosystemFiles, ...LAUNCHER_FILES];
+const developerMaterial = ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md', 'docs/ecosystem/launcher.md', ...ecosystemFiles, ...LAUNCHER_FILES, ...WORKSHOP_FILES];
 
 async function findNpmCli() {
   const candidates = [process.env.npm_execpath, join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js'),
@@ -55,7 +55,7 @@ function allowedPackageFile(path) {
     'docs/images/hub-launcher.jpg', 'docs/images/hub-launcher-en.jpg',
     'docs/images/demo-event-desk-en.jpg', 'docs/images/demo-modular-assistant-en.jpg', 'docs/images/demo-digital-world-en.jpg',
     'docs/images/demo-capability-directory.jpg', 'docs/images/demo-capability-directory-en.jpg',
-    'docs/modules/text-statistics.contract.json', ...ecosystemFiles, ...LAUNCHER_FILES].includes(path)
+    'docs/modules/text-statistics.contract.json', ...ecosystemFiles, ...LAUNCHER_FILES, ...WORKSHOP_FILES].includes(path)
     || /^src\/.+\.(?:mjs|js|html|css|json)$/.test(path)
     || /^docs\/.+\.md$/.test(path);
 }
@@ -101,6 +101,8 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
     assert.equal(pkg.exports?.['./blob'], './sdk/javascript/blob-client.mjs');
     assert.equal(pkg.exports?.['./runtime'], './scripts/runtime/index.mjs');
     assert.equal(pkg.bin?.['world-hub-pack'], 'bin/world-hub-pack.mjs');
+    assert.equal(pkg.exports?.['./workshop'], './tools/workshop/server.mjs');
+    assert.equal(pkg.bin?.['world-hub-workshop'], 'tools/workshop/cli.mjs');
     assert.deepEqual(pkg.dependencies ?? {}, {}); assert.deepEqual(pkg.optionalDependencies ?? {}, {});
     await access(join(sourceRoot, 'LICENSE'));
     let archive;
@@ -208,6 +210,82 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
     const launcherCheck = JSON.parse(await execute('Installed Launcher serves exact assets and manages a reviewed real pack through authenticated APIs', process.execPath,
       [launcherCheckPath], { cwd: workspace }));
     assert.equal(launcherCheck.passed, true); assert.equal(launcherCheck.version, pkg.version); assert.equal(launcherCheck.stopped, true);
+    const workshopHelp = await execute('Installed hosted Workshop CLI exposes its independent command contract', process.execPath,
+      [join(localPackage, pkg.bin['world-hub-workshop']), '--help'], { cwd: workspace });
+    assert.match(workshopHelp, /World Hub Workshop/); assert.match(workshopHelp, /--password-stdin/); assert.match(workshopHelp, /--stop/);
+    const resolvedWorkshopHelp = await npm('Resolve the installed Workshop executable through npm exec',
+      ['exec', '--offline', '--prefix', localApp, '--', 'world-hub-workshop', '--help'], { cwd: workspace });
+    assert.match(resolvedWorkshopHelp, /World Hub Workshop/);
+    const workshopCheckPath = join(localApp, 'workshop-check.mjs');
+    // The probe is outside the installed tree, and imports the actual public
+    // export. Bootstrap secrets exist only in child memory and CLI stdin.
+    await writeFile(workshopCheckPath, String.raw`import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { mkdtemp, readFile, writeFile, access, rm } from 'node:fs/promises';
+import { basename, dirname, join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { createHash, randomBytes } from 'node:crypto';
+import { createWorkshopServer } from 'world-hub/workshop';
+import { validateSourceIndex } from 'world-hub/runtime';
+const packageRoot = dirname(fileURLToPath(import.meta.resolve('world-hub/package.json')));
+const pkg = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
+const temporaryParent = resolve(tmpdir());
+const dataRoot = await mkdtemp(join(temporaryParent, 'wh-npm-workshop-'));
+assert.equal(dirname(resolve(dataRoot)), temporaryParent);
+assert.ok(basename(dataRoot).startsWith('wh-npm-workshop-'));
+const password = randomBytes(24).toString('base64url');
+const config = { root: dataRoot, baseURL: 'http://127.0.0.1:0/workshop', port: 0, allowInsecureLoopback: true, secureCookie: false };
+const configPath = join(dataRoot, 'private-config.json');
+await writeFile(configPath, JSON.stringify(config) + '\n', { mode: 0o600 });
+let service, bootstrapPid, bootstrapExit;
+const sha = bytes => createHash('sha256').update(bytes).digest('hex');
+try {
+  const child = spawn(process.execPath, [join(packageRoot, pkg.bin['world-hub-workshop']), '--config', configPath, '--initialize-admin', 'npmadmin', '--password-stdin'], { cwd: dataRoot, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  bootstrapPid = child.pid; let stdout = '', stderr = '';
+  child.stdout.on('data', bytes => { stdout += bytes; }); child.stderr.on('data', bytes => { stderr += bytes; });
+  const timer = setTimeout(() => child.kill(), 10000); timer.unref();
+  try {
+    child.stdin.end(password + '\n');
+    bootstrapExit = await new Promise((resolveExit, reject) => { child.once('error', reject); child.once('close', (code, signal) => resolveExit({ code, signal })); });
+  } finally { clearTimeout(timer); }
+  assert.equal(bootstrapExit.code, 0); assert.equal(stdout.includes(password), false); assert.equal(stderr.includes(password), false);
+  const initialized = JSON.parse(stdout); assert.equal(initialized.event, 'workshop-admin-initialized'); assert.equal(initialized.user.role, 'admin'); assert.equal(initialized.user.username, 'npmadmin');
+  const metadata = await readFile(join(dataRoot, 'metadata.json'), 'utf8'); assert.equal(metadata.includes(password), false); assert.equal(JSON.parse(metadata).users.length, 1);
+  await assert.rejects(access(join(dataRoot, 'workshop-owner.lock')), { code: 'ENOENT' });
+  service = await createWorkshopServer(config);
+  async function api(path, body, actor, expected = 200, overrides = {}) {
+    const response = await fetch(new URL(path, service.url), { method: body === undefined ? 'GET' : 'POST', redirect: 'error', signal: AbortSignal.timeout(5000), headers: { ...(body === undefined ? {} : { origin: service.origin, 'content-type': 'application/json' }), ...(actor?.cookie ? { cookie: actor.cookie } : {}), ...(actor?.csrfToken ? { 'x-csrf-token': actor.csrfToken } : {}), ...overrides }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    const value = await response.json(); assert.equal(response.status, expected); return { value, cookie: response.headers.get('set-cookie')?.split(';')[0], headers: response.headers };
+  }
+  assert.equal((await api('health')).value.ok, true); assert.equal((await api('api/me')).value.user, null);
+  const index = (await api('index.json')).value; assert.equal(index.format, 'world-hub.source-index/v1'); validateSourceIndex(index);
+  assert.deepEqual((await api('api/catalog')).value.publications, []);
+  for (const [path, file] of [['', 'index.html'], ['app.mjs', 'app.mjs'], ['style.css', 'style.css']]) {
+    const response = await fetch(new URL(path, service.url), { redirect: 'error', signal: AbortSignal.timeout(5000) }); assert.equal(response.status, 200); assert.match(response.headers.get('content-security-policy'), /script-src 'self'/); assert.equal(sha(Buffer.from(await response.arrayBuffer())), sha(await readFile(join(packageRoot, 'tools/workshop/public', file))));
+  }
+  const authenticated = await api('api/login', { username: 'npmadmin', password });
+  assert.equal(authenticated.value.user.role, 'admin'); assert.match(authenticated.headers.get('set-cookie'), /HttpOnly/); assert.match(authenticated.headers.get('set-cookie'), /SameSite=Strict/);
+  const actor = { ...authenticated.value, cookie: authenticated.cookie };
+  assert.equal((await api('api/me', undefined, actor)).value.user.username, 'npmadmin');
+  assert.equal((await api('api/invitations', {}, { cookie: actor.cookie }, 403)).value.error.code, 'CSRF_REQUIRED');
+  assert.equal((await api('api/invitations', {}, actor, 403, { origin: 'https://external.invalid' })).value.error.code, 'ORIGIN_REQUIRED');
+  await api('api/logout', {}, actor); assert.equal((await api('api/me', undefined, actor)).value.user, null);
+  const listener = service.url; await service.close(); await service.closed; service = null;
+  await assert.rejects(access(join(dataRoot, 'workshop-owner.lock')), { code: 'ENOENT' });
+  await assert.rejects(fetch(new URL('health', listener), { signal: AbortSignal.timeout(1000) }));
+  console.log(JSON.stringify({ passed: true, version: pkg.version, publicExport: 'world-hub/workshop', cliInitialized: true, stdinSecretLogged: false, bootstrapPid, bootstrapExit, exactUiAssets: 3, csrfRejected: true, stopped: true }));
+} finally {
+  await service?.close();
+  assert.equal(dirname(resolve(dataRoot)), temporaryParent); assert.ok(basename(dataRoot).startsWith('wh-npm-workshop-'));
+  await rm(dataRoot, { recursive: true, force: false });
+}
+`);
+    const workshopCheck = JSON.parse(await execute('Installed public Workshop API serves exact UI and authenticated accounts initialized by the real CLI stdin, then releases its owner and listener', process.execPath,
+      [workshopCheckPath], { cwd: workspace }));
+    assert.equal(workshopCheck.passed, true); assert.equal(workshopCheck.version, pkg.version); assert.equal(workshopCheck.stopped, true);
+    assert.equal(workshopCheck.cliInitialized, true); assert.equal(workshopCheck.stdinSecretLogged, false); assert.equal(workshopCheck.exactUiAssets, 3);
+    report.workshop = workshopCheck;
     const probe = join(localApp, 'sdk-probe.mjs');
     await writeFile(probe, `import assert from 'node:assert/strict';
 import { Bridge, WIRE_VERSION } from ${JSON.stringify(pkg.name)};

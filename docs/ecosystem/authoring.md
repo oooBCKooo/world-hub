@@ -6,6 +6,8 @@ The Launcher creator view can inspect an existing package, edit its composition 
 
 ## Composition and replacement
 
+To exchange publications, comments, and proposals online, use the independent [Workshop service](workshop.md). Local creator functions continue to work offline; a community account never authorizes local program execution.
+
 `inspectAuthoring(directory, environment)` returns the complete editable `pack` model, module declarations, an independent content `revision`, and Runtime's environment and permission review. `derivePackage(source, options)` accepts:
 
 ```js

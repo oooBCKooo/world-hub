@@ -55,6 +55,9 @@ ESM 命名导出入口：
 | `world-hub` 或 `world-hub/bridge` | `Bridge`、`WIRE_VERSION`、`WIRE_FRAMES`、`defaultCursorPath` |
 | `world-hub/blob` | `uploadFile`、`uploadStream`、`downloadFile`、`readAttachment` |
 | `world-hub/runtime` | 外部 `inspectPackage`、`createLock`、`importPackage`、`startInstance`、`statusInstance`、`logsInstance`、`stopInstance`、`exportInstance` |
+| `world-hub/workshop` | 独立托管社区的 `createWorkshopServer`；需要自己的私有配置、数据目录和 HTTPS 代理 |
+
+可选命令 `world-hub-workshop --config <私有配置>` 启动独立社区，维护命令包括 `--initialize-admin`、`--password-stdin`、`--stop` 和 `--export`。安装包不会自动启动社区。账号、公开软件源和迁移流程见[Workshop](ecosystem/workshop.md)。
 
 以下示例要求部署方先在 `acl.credentials` 登记 `example.program`、自己的 token 和对 `example/message` 的发布／订阅权限，并重启 Hub。由程序通过自己的环境提供 token；不将实际值写进代码：
 

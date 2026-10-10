@@ -1,6 +1,6 @@
 {
   "name": "world-hub",
-  "version": "0.16.1",
+  "version": "0.16.2",
   "license": "MIT",
   "author": "oooBCKooo",
   "repository": {
@@ -20,13 +20,15 @@
   ],
   "bin": {
     "world-hub": "bin/world-hub.mjs",
-    "world-hub-pack": "bin/world-hub-pack.mjs"
+    "world-hub-pack": "bin/world-hub-pack.mjs",
+    "world-hub-workshop": "tools/workshop/cli.mjs"
   },
   "exports": {
     ".": "./sdk/javascript/bridge-kit.mjs",
     "./bridge": "./sdk/javascript/bridge-kit.mjs",
     "./blob": "./sdk/javascript/blob-client.mjs",
     "./runtime": "./scripts/runtime/index.mjs",
+    "./workshop": "./tools/workshop/server.mjs",
     "./package.json": "./package.json"
   },
   "files": [
@@ -69,7 +71,11 @@
     "tools/launcher/*.mjs",
     "tools/launcher/public/*.mjs",
     "tools/launcher/public/*.html",
-    "tools/launcher/public/*.css"
+    "tools/launcher/public/*.css",
+    "tools/workshop/*.mjs",
+    "tools/workshop/public/*.mjs",
+    "tools/workshop/public/*.html",
+    "tools/workshop/public/*.css"
   ],
   "publishConfig": {
     "access": "public",
@@ -111,6 +117,8 @@
     "demo:capabilities-explorer": "node examples/purpose-demos/run-demo.mjs --profile capability-directory --open",
     "check:repository": "node scripts/check-repository.mjs",
     "ui": "node bin/world-hub.mjs ui",
-    "test:launcher": "node scripts/verify.mjs --suite launcher"
+    "test:launcher": "node scripts/verify.mjs --suite launcher",
+    "workshop": "node tools/workshop/cli.mjs",
+    "test:workshop": "node scripts/verify.mjs --suite workshop"
   }
 }

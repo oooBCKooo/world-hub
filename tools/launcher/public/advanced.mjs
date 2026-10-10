@@ -127,6 +127,14 @@ export function createAdvancedUi(ctx) {
   function rememberIndex(source, data) { extra.indexes[source] = data; try { localStorage.setItem('world-hub.launcher.source-indexes', JSON.stringify(extra.indexes)); } catch {} }
   function renderSources() {
     const root = $('#sources-content');
+    let communityURL = 'https://peros.cn/workshop/';
+    try { communityURL = localStorage.getItem('world-hub.launcher.community') ?? communityURL; } catch {}
+    const community = form([field('community', say('可选社区地址（HTTPS）', 'Optional community URL (HTTPS)'), communityURL)], say('在独立页面打开社区', 'Open community in a separate page'), f => {
+      const url = new URL(value(f, 'community'));
+      if (url.protocol !== 'https:' || url.username || url.password || url.hash || url.search || (url.port && url.port !== '443')) throw new Error(say('社区地址须为无凭据的 HTTPS 443 地址。', 'Use a HTTPS 443 community URL without credentials.'));
+      try { localStorage.setItem('world-hub.launcher.community', url.href); } catch {}
+      window.open(url.href, '_blank', 'noopener,noreferrer');
+    }, say('社区提供账号、发布、评论与提案交换，在独立页面运行。复制其 index.json 地址到下面的软件源；社区登录不授予本机管理或程序执行权限。', 'The community provides accounts, publishing, comments and proposal exchange in a separate page. Copy its index.json URL into a source below. Community login does not grant local management or execution permissions.'));
     const sourceSelect = el('select', { name: 'source', 'aria-label': label('sources') }, [el('option', { value: '' }, say('选择软件源', 'Select a source')), ...extra.sources.map(source => el('option', { value: source.source }, source.name))]);
     sourceSelect.value = extra.source;
     const result = el('div', { id: 'source-results' });
@@ -148,7 +156,7 @@ export function createAdvancedUi(ctx) {
       extra.sources = [...extra.sources.filter(item => item.source !== source.source), source]; saveSources(); rememberIndex(source.source, data); extra.source = source.source; extra.index = data; renderSources();
     });
     const sourcesList = el('div', { class: 'stack' }, extra.sources.map(source => el('div', { class: 'runtime-row' }, [el('div', {}, [el('h3', {}, source.name), el('p', {}, source.source), el('p', { class: 'field-help' }, source.allowPrivateNetwork === true ? say('明确允许可信私网／DNS 代理', 'Trusted private network / DNS proxy explicitly allowed') : say('公共网络策略（默认）', 'Public network policy (default)'))]), button(say('移除配置', 'Remove configuration'), () => { extra.sources = extra.sources.filter(item => item.source !== source.source); if (extra.source === source.source) { extra.source = ''; extra.index = null; } saveSources(); renderSources(); }, 'button button-small button-quiet')])));
-    root.replaceChildren(heading(label('sources'), say('按合同、平台和许可查找模块与整合包，验证内容后缓存到本机。', 'Find modules and packs by contract, platform, and license, then verify and cache them locally.'), 'OPTIONAL DISTRIBUTION'), note(say('软件源是可选的。浏览和获取不会执行模块，不替代代码审阅或授权。摘要核对证明内容一致性，不证明代码安全；本地实例无需社区在线。', 'Sources are optional. Browsing and fetching do not execute modules or replace code review and authorization. Hashes establish content integrity, not code safety. Local instances work without community services.')), panel(say('我的软件源', 'My sources'), [sourcesList, el('details', { class: 'json-details' }, [el('summary', {}, say('添加来源', 'Add a source')), add])]), panel(say('发现模块与整合包', 'Discover modules & packs'), [browse, result]));
+    root.replaceChildren(heading(label('sources'), say('按合同、平台和许可查找模块与整合包，验证内容后缓存到本机。', 'Find modules and packs by contract, platform, and license, then verify and cache them locally.'), 'OPTIONAL DISTRIBUTION'), note(say('软件源是可选的。浏览和获取不会执行模块，不替代代码审阅或授权。摘要核对证明内容一致性，不证明代码安全；本地实例无需社区在线。', 'Sources are optional. Browsing and fetching do not execute modules or replace code review and authorization. Hashes establish content integrity, not code safety. Local instances work without community services.')), panel(say('托管社区（可选）', 'Hosted community (optional)'), [community]), panel(say('我的软件源', 'My sources'), [sourcesList, el('details', { class: 'json-details' }, [el('summary', {}, say('添加来源', 'Add a source')), add])]), panel(say('发现模块与整合包', 'Discover modules & packs'), [browse, result]));
     if (extra.index) renderSourceEntries(result);
   }
   function renderSourceEntries(target) {

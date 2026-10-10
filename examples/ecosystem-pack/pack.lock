@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "sha256": "8ec9cc512e8775366574b0c914a8db99b10e9fc2e94540656cd6d7cdf4c9486a"
   },
-  "hubVersion": "0.16.1",
+  "hubVersion": "0.16.2",
   "platform": {
     "os": "win32",
     "arch": "x64"
