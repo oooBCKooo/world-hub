@@ -12,7 +12,7 @@ export function createAdvancedUi(ctx) {
   const button = (title, action, ...options) => baseButton(title, async event => { try { await action(event); } catch (failure) { showFailure(failure); } }, ...options);
   const labels = { sources: ['软件源', 'Software sources'], creator: ['创作工作台', 'Creator workspace'], storage: ['存储与备份', 'Storage & backups'] };
   const label = key => say(...labels[key]);
-  const extra = { sources: [], index: null, source: '', indexes: {}, authoring: null, directory: '', edited: null, replacements: new Map(), storage: new Map(), storagePending: new Set(), comments: null, environmentPlan: null, action: null, actionRunning: false, loading: new Set() };
+  const extra = { sources: [], index: null, source: '', indexes: {}, authoring: null, directory: '', edited: null, replacements: new Map(), storage: new Map(), storagePending: new Set(), comments: null, environmentPlan: null, action: null, actionRunning: false, loading: new Set(), derived: null, moduleCandidate: '', moduleCandidateReceipt: null, compositionComponent: '' };
   const env = () => Object.keys(state.environmentSelection).length ? state.environmentSelection : Object.fromEntries(['nodePath', 'pythonPath'].map(key => [key, $('#environment-form').elements[key].value.trim()]).filter(([, value]) => value));
   const panel = (title, children = []) => el('section', { class: 'panel' }, [el('div', { class: 'panel-heading' }, el('h2', {}, title)), ...children]);
   const note = (text, warning = false) => el('div', { class: `notice${warning ? ' notice-warning' : ''}` }, text);
@@ -190,7 +190,7 @@ export function createAdvancedUi(ctx) {
       cards.replaceChildren(...matches.map(entry => el('article', { class: 'panel source-card' }, [el('div', { class: 'panel-heading' }, [el('h3', {}, entry.title ?? entry.id), pill(entry.kind)]), el('p', { class: 'mono subtle' }, `${entry.id} · ${entry.version}`), el('p', { class: 'field-help' }, `${entry.license ?? '—'} · ${(entry.platforms ?? []).join(', ')}`), jsonView(say('来源、摘要与合同', 'Source, digest & contracts'), { source: entry.source, sha256: entry.sha256, provides: entry.provides, requires: entry.requires }), button(say('验证并获取到缓存', 'Verify and fetch to cache'), () => reviewAction(say('获取软件制品', 'Fetch software artifact'), [note(say('内容会验证摘要后保存到新的本机缓存目录，不安装依赖、不导入实例、不启动程序。', 'Contents are hash-verified into a new local cache directory. This does not install dependencies, import an instance, or execute programs.')), definition([[say('来源索引', 'Source index'), extra.source], ['ID', entry.id], [say('许可', 'License'), entry.license], ['SHA-256', entry.sha256], [say('网络策略', 'Network policy'), allowPrivateNetwork ? say('可信私网／DNS 代理', 'Trusted private network / DNS proxy') : say('公共网络', 'Public network')]])], say('我已检查来源、网络策略和摘要，允许下载或复制该制品到本机缓存。', 'I reviewed the source, network policy, and digest and authorize downloading or copying this artifact to the local cache.'), async () => {
         const fetched = await operation(await api('/api/sources/fetch', { ...(data.sourceId && data.receiptId ? { sourceId: data.sourceId, receiptId: data.receiptId } : { source: extra.source, indexDigest: data.digest, ...(allowPrivateNetwork ? { allowPrivateNetwork: true } : {}) }), entryId: entry.entryId }), 'fetch');
         if (fetched.sourceReceipt) target.append(jsonView(say('后台核对的来源收据（不证明代码安全）', 'Backend-verified source receipt (does not establish code safety)'), fetched.sourceReceipt, true));
-        const fetchedView = el('div', { class: 'notice' }, [el('p', {}, `${say('已获取', 'Fetched')}: ${fetched.directory}`), fetched.kind === 'pack' ? button(t('importPack'), () => { openImport(); $('#import-form').elements.directory.value = fetched.directory; }, 'button button-small button-primary') : fetched.kind === 'template' ? button(say('填写参数生成包', 'Instantiate template'), () => completion.openTemplate(fetched.directory), 'button button-small button-primary') : button(say('在创作工作台使用', 'Use in creator workspace'), () => { extra.moduleCandidate = fetched.directory; navigate('creator'); }, 'button button-small button-quiet')]); target.append(fetchedView);
+        const fetchedView = el('div', { class: 'notice' }, [el('p', {}, `${say('已获取', 'Fetched')}: ${fetched.directory}`), fetched.kind === 'pack' ? button(t('importPack'), () => { openImport(); $('#import-form').elements.directory.value = fetched.directory; }, 'button button-small button-primary') : fetched.kind === 'template' ? button(say('填写参数生成包', 'Instantiate template'), () => completion.openTemplate(fetched.directory), 'button button-small button-primary') : button(say('在创作工作台使用', 'Use in creator workspace'), () => { extra.moduleCandidate = fetched.directory; extra.moduleCandidateReceipt = fetched.sourceReceipt ?? null; navigate('creator'); }, 'button button-small button-quiet')]); target.append(fetchedView);
       }), 'button button-small button-primary')])));
       if (!matches.length) cards.append(el('p', { class: 'field-help' }, say('没有匹配的制品。', 'No matching artifacts.')));
     };
@@ -208,7 +208,7 @@ export function createAdvancedUi(ctx) {
     const nodes = el('div', { class: 'composition-nodes' });
     for (const component of pack.components) {
       const manifest = currentModule(component);
-      nodes.append(el('article', { class: 'composition-node' }, [el('div', { class: 'composition-node-heading' }, [el('strong', {}, component.id), pill(manifest?.runtime?.kind ?? component.module)]), el('p', { class: 'mono' }, manifest?.id ?? component.module), el('div', { class: 'module-permissions' }, (manifest?.provides ?? []).map(contract => el('span', { class: 'permission' }, `↑ ${contract.id}@${contract.version}`))), el('div', { class: 'module-permissions' }, (manifest?.requires ?? []).map(contract => el('span', { class: 'permission' }, `↓ ${contract.id}@${contract.version}`))), button(say('修改配置与模块', 'Edit settings & module'), () => editComponent(component.id), 'button button-small button-quiet')]));
+      nodes.append(el('article', { class: 'composition-node' }, [el('div', { class: 'composition-node-heading' }, [el('strong', {}, component.id), pill(manifest?.runtime?.kind ?? component.module)]), el('p', { class: 'mono' }, manifest?.id ?? component.module), el('div', { class: 'module-permissions' }, (manifest?.provides ?? []).map(contract => el('span', { class: 'permission' }, `↑ ${contract.id}@${contract.version}`))), el('div', { class: 'module-permissions' }, (manifest?.requires ?? []).map(contract => el('span', { class: 'permission' }, `↓ ${contract.id}@${contract.version}`))), button(say('选择替代模块', 'Choose a replacement module'), () => { extra.compositionComponent = component.id; renderCreator(); }, 'button button-small button-primary'), button(say('修改配置与模块', 'Edit settings & module'), () => editComponent(component.id), 'button button-small button-quiet')]));
     }
     graph.append(nodes, el('div', { class: 'composition-bindings' }, pack.bindings.map((binding, index) => el('div', { class: 'binding-row' }, [el('strong', {}, binding.from), el('span', { class: 'binding-arrow', 'aria-hidden': 'true' }, '→'), el('strong', {}, binding.to), el('span', { class: 'mono subtle' }, `${binding.contract.id}@${binding.contract.version}`), button(say('移除绑定', 'Remove binding'), () => { extra.edited.bindings.splice(index, 1); renderCreator(); }, 'button button-small button-quiet')]))));
     if (!pack.bindings.length) graph.append(el('p', { class: 'field-help' }, say('当前没有能力绑定。', 'No capability bindings in the current composition.')));
@@ -230,6 +230,85 @@ export function createAdvancedUi(ctx) {
       pack.bindings.push(binding); renderCreator();
     }, say('只提供双方声明中 ID 和版本完全匹配的合同；派生时后台再次检查依赖、槽与所有绑定。', 'Only exact contract IDs and versions declared by both sides are offered. The backend revalidates dependencies, slots, and all bindings when deriving.'));
   }
+  function readableDeclaration(value) {
+    if (value === undefined || value === null) return say('未声明', 'Not declared');
+    if (Array.isArray(value)) return value.length ? value.map(readableDeclaration).join(' · ') : say('无', 'None');
+    if (typeof value === 'object') {
+      if (!Object.keys(value).length) return say('无', 'None');
+      if (value.id && value.version && Object.keys(value).every(key => ['id', 'version'].includes(key))) return `${value.id}@${value.version}`;
+      const names = { provides: ['提供', 'Provides'], requires: ['要求', 'Requires'], kind: ['解释器', 'Interpreter'], entry: ['入口', 'Entry'], filesystem: ['文件访问', 'File access'], network: ['网络访问', 'Network access'], processes: ['子进程', 'Child processes'], after: ['在这些组件后启动', 'Starts after'], components: ['在这些组件后启动', 'Starts after'], contracts: ['要求的能力合同', 'Required contracts'], requirements: ['解释器依赖声明', 'Interpreter dependency declaration'] };
+      return Object.entries(value).map(([key, item]) => `${names[key] ? say(...names[key]) : key}: ${readableDeclaration(item)}`).join(' · ');
+    }
+    return String(value);
+  }
+  function diagnosticView(diagnostic) {
+    const reasons = {
+      PLATFORM_UNSUPPORTED: ['候选模块没有声明支持当前平台。', 'The candidate does not declare support for this platform.'],
+      BRIDGE_SLOTS_MISMATCH: ['候选桥槽与组件接线不同，需要作者适配。', 'Candidate bridge slots differ from this component’s wiring and require author adaptation.'],
+      CONTRACT_UNBOUND: ['候选要求的能力没有连到提供者。', 'A capability required by the candidate is not connected to a provider.'],
+      CONTRACT_INCOMPATIBLE: ['双方合同 ID 或精确版本不匹配。', 'The contract ID or exact version does not match between components.'],
+      RUNTIME_UNAVAILABLE: ['所需解释器不可用，请到环境页选择并检测。', 'The required interpreter is unavailable. Select and check it in Environment.'],
+      RUNTIME_INCOMPATIBLE: ['候选解释器或依赖与当前环境不匹配。', 'The candidate interpreter or dependencies do not match this environment.'],
+      DEPENDENCY_UNAVAILABLE: ['候选依赖不可用，请先准备匹配环境。', 'A candidate dependency is unavailable. Prepare a matching environment first.'],
+      INTERPRETER_UNAVAILABLE: ['所需解释器不可用，请到环境页选择并检测。', 'The required interpreter is unavailable. Select and check it in Environment.'],
+      INTERPRETER_VERSION: ['所选解释器版本不符合 SDK 要求，请选择支持的解释器。', 'The selected interpreter version does not meet SDK requirements. Choose a supported interpreter.'],
+      DEPENDENCY_MISMATCH: ['候选声明的依赖版本与所选环境不同，请准备匹配环境。', 'The candidate’s declared dependency version differs from the selected environment. Prepare a matching environment.'],
+      DEPENDENCY_ORDER_INVALID: ['组件启动顺序不满足依赖，需要作者调整。', 'The component startup order does not satisfy its dependencies and requires author changes.']
+    };
+    return el('div', { class: 'notice notice-warning' }, [el('strong', {}, reasons[diagnostic.code] ? say(...reasons[diagnostic.code]) : diagnostic.message ?? diagnostic.code), el('p', { class: 'field-help' }, [diagnostic.componentId, diagnostic.moduleId, diagnostic.code].filter(Boolean).join(' · '))]);
+  }
+  function replacementView(preview, component) {
+    const declarationCompatible = preview.declarationCompatible ?? preview.compatible;
+    const compatible = preview.compatible === true;
+    const unsupported = preview.environmentCompatible === false || (preview.diagnostics ?? []).some(item => item.layer === 'environment' || ['PLATFORM_UNSUPPORTED', 'RUNTIME_UNAVAILABLE', 'RUNTIME_INCOMPATIBLE', 'DEPENDENCY_UNAVAILABLE'].includes(item.code));
+    const status = compatible ? say('精确声明匹配；业务未经验证', 'Exact declarations match; business behavior unverified') : declarationCompatible && unsupported ? say('声明匹配；当前环境不可运行', 'Declarations match; current environment cannot run it') : unsupported ? say('当前平台或运行环境不兼容', 'Incompatible platform or runtime environment') : say('需要作者人工适配', 'Author adaptation required');
+    const names = { identity: ['模块身份', 'Module identity'], contracts: ['能力合同', 'Capability contracts'], bridges: ['桥槽', 'Bridge slots'], permissions: ['声明权限', 'Declared permissions'], platforms: ['支持平台', 'Supported platforms'], runtime: ['运行入口', 'Runtime entry'], license: ['许可证', 'License'], startupDependencies: ['启动依赖', 'Startup dependencies'] };
+    const changes = Object.entries(preview.differences ?? {}).map(([key, change]) => el('div', { class: 'runtime-row' }, [el('div', {}, [el('h3', {}, names[key] ? say(...names[key]) : key), el('p', { class: 'field-help' }, `${say('原来', 'Before')}: ${readableDeclaration(change.before)}`), el('p', { class: 'field-help' }, `${say('候选', 'Candidate')}: ${readableDeclaration(change.after)}`)]), pill(change.changed ? say('有变化', 'Changed') : say('相同', 'Unchanged'))]));
+    if (!Object.hasOwn(preview.differences ?? {}, 'startupDependencies')) changes.push(el('div', { class: 'runtime-row' }, [el('div', {}, [el('h3', {}, say('组件启动依赖', 'Component startup dependencies')), el('p', { class: 'field-help' }, readableDeclaration(component?.after ?? []))]), pill(say('本次保持原配置', 'Existing configuration retained'))]));
+    const sourceReceipt = preview.candidate?.directory === extra.moduleCandidate ? extra.moduleCandidateReceipt : null;
+    return [note(status, !compatible), definition([[say('实际候选', 'Actual candidate'), `${preview.candidate?.manifest?.id ?? '—'}@${preview.candidate?.manifest?.version ?? '—'}`], [say('影响组件', 'Affected components'), (preview.affectedComponents ?? []).join(', ') || component?.id], [say('内容摘要', 'Content digest'), preview.candidateDigest], [say('来源观察', 'Source observation'), sourceReceipt ? say('已有软件源获取收据；身份由来源声明', 'A source retrieval receipt exists; publisher identity is source-declared') : say('本地目录；发布者身份尚未验证', 'Local directory; publisher identity unverified')], [say('执行授权', 'Execution authorization'), say('尚未授予；派生后逐实例审阅', 'Not granted; review each derived instance')], [say('业务与状态', 'Business & state'), say('未运行候选；数据格式兼容未知', 'Candidate not executed; data format compatibility unknown')]]), ...(preview.diagnostics ?? []).map(diagnosticView), ...changes,
+      ...(preview.environment ? [definition([[say('所选解释器', 'Selected interpreter'), preview.environment.interpreter?.available ? `${preview.environment.runtime} ${preview.environment.interpreter.version} · ${preview.environment.interpreter.executable}` : say('不可用', 'Unavailable')], [say('已检查的 SDK 依赖', 'Checked SDK dependencies'), readableDeclaration(preview.environment.interpreter?.packages ?? {})], [say('其他应用依赖', 'Other application dependencies'), preview.environment.otherDependenciesChecked ? say('已检查', 'Checked') : say('未验证；由程序作者另行验收', 'Unverified; program authors must validate them')]]), jsonView(say('所选解释器与依赖检查', 'Selected interpreter and dependency checks'), preview.environment)] : []),
+      note(say('声明检查只证明这份接线可以成立。新实例健康或桥连接成功仍不能证明业务正确；请运行对应合同的应用验收。新目录派生不迁移旧实例数据，不撤销外部 API、已发消息或其他程序状态。', 'Declaration checks establish this wiring only. Instance health or bridge connection does not prove business correctness; run the application acceptance for the contract. Deriving into a new directory does not migrate old instance data or undo external APIs, sent messages, or other programs’ state.')),
+      ...(!compatible ? [button(say('准备或选择环境', 'Prepare or select environment'), () => navigate('environment'), 'button button-small button-quiet'), note(say('可以更换候选或取消本次预览。若需要改合同或桥槽，请交由模块作者适配后重新检查。', 'Choose another candidate or cancel this preview. Ask the module author to adapt incompatible contracts or bridge slots, then check again.'))] : []), jsonView(say('查看技术诊断', 'View technical diagnostics'), preview)].filter(Boolean);
+  }
+  function sameReplacementReview(previous, next) {
+    return previous?.candidateDigest === next.candidateDigest && previous?.candidate?.directory === next.candidate?.directory && previous?.sourceRevision === next.sourceRevision && JSON.stringify(previous?.differences) === JSON.stringify(next.differences) && JSON.stringify(previous?.environment) === JSON.stringify(next.environment);
+  }
+  function replacementPanel() {
+    const choices = extra.edited.components;
+    const chosen = choices.find(component => component.id === extra.compositionComponent) ?? choices.find(component => currentModule(component)?.provides?.length) ?? choices[0];
+    const target = el('select', { name: 'componentId' }, choices.map(component => el('option', { value: component.id }, `${component.id} · ${currentModule(component)?.id ?? component.module}`)));
+    target.value = chosen.id;
+    const results = el('div', { class: 'stack', 'aria-live': 'polite' });
+    let checked = null;
+    const candidate = field('moduleDirectory', say('候选模块目录', 'Candidate module directory'), extra.replacements.get(chosen.id)?.moduleDirectory ?? extra.moduleCandidate);
+    const load = async f => (await api('/api/authoring/preview', { directory: extra.directory, componentId: value(f, 'componentId'), moduleDirectory: value(f, 'moduleDirectory'), ...env() })).preview;
+    const previewForm = form([el('label', {}, [el('span', {}, say('要替换的组件', 'Component to replace')), target]), candidate], say('检查候选与影响', 'Check candidate and impact'), async f => {
+      checked = { input: `${value(f, 'componentId')}\n${value(f, 'moduleDirectory')}`, preview: await load(f) };
+      const component = choices.find(item => item.id === value(f, 'componentId'));
+      results.replaceChildren(...replacementView(checked.preview, component));
+      if (checked.preview.compatible) results.append(button(say('使用此候选模块', 'Use this candidate module'), async () => {
+        if (!checked || checked.input !== `${value(f, 'componentId')}\n${value(f, 'moduleDirectory')}`) throw new Error(say('选择已改变，请重新检查候选。', 'Your selection changed. Check the candidate again.'));
+        const next = await load(f);
+        if (!next.compatible || !sameReplacementReview(checked.preview, next)) {
+          checked = null; results.replaceChildren(...replacementView(next, component), note(say('内容或环境已改变。请重新检查并审阅后再使用。', 'Contents or environment changed. Check and review again before using the candidate.'), true)); return;
+        }
+        const componentId = value(f, 'componentId'), moduleDirectory = value(f, 'moduleDirectory');
+        extra.replacements.set(componentId, { componentId, moduleDirectory, preview: next }); extra.compositionComponent = componentId; renderCreator();
+        toast(say('候选已加入草稿，配置与消费者源码保持原样。请生成新包。', 'Candidate added to the draft. Existing settings and consumer source are preserved. Create a new pack next.'));
+      }, 'button button-primary'));
+      results.append(button(say('取消候选预览', 'Cancel candidate preview'), () => { checked = null; results.replaceChildren(note(say('已取消预览，未修改草稿或现有实例。', 'Preview cancelled. Draft and existing instances were not changed.'))); }, 'button button-quiet'));
+    }, say('替换只选择模块目录，不需要修改 JSON。原接线、公开配置及消费者代码继续使用；作者定义合同与数据兼容性。', 'Choose a module directory without editing JSON. Existing wiring, public settings, and consumer code are retained. Authors define contracts and data compatibility.'));
+    const reset = () => { checked = null; results.replaceChildren(); };
+    target.addEventListener('change', () => { extra.compositionComponent = target.value; previewForm.elements.moduleDirectory.value = extra.replacements.get(target.value)?.moduleDirectory ?? extra.moduleCandidate; reset(); });
+    candidate.querySelector('input').addEventListener('input', reset);
+    return panel(say('换一个模块，保留现有应用', 'Replace a module and retain the application'), [previewForm, button(say('去软件源查找模块', 'Find a module in software sources'), () => navigate('sources'), 'button button-quiet'), results]);
+  }
+  function derivedNextSteps() {
+    if (!extra.derived) return null;
+    const result = extra.derived;
+    return panel(say('新包已创建：继续使用', 'New pack created: continue using it'), [definition([[say('新包目录', 'New pack directory'), result.directory], [say('旧来源', 'Previous source'), result.sourceDirectory], [say('实例数据', 'Instance data'), say('新实例使用新数据目录；旧实例保留', 'New instances use new data directories; previous instances are retained')]]), note(say('接下来检查并导入一个新的实例 ID，然后明确审阅并启动。导入不是执行授权。运行后核对应用结果；不通过时停止新实例，再选择旧实例重新审阅启动。', 'Next, check and import a new instance ID, then explicitly review and start it. Import is not execution authorization. Verify application results after running. If validation fails, stop the new instance, select the previous instance, and review it before starting.')), button(say('导入并审阅运行', 'Import and review execution'), () => { openImport(); $('#import-form').elements.directory.value = result.directory; }, 'button button-primary'), button(say('返回已有实例', 'Return to existing instances'), () => navigate('packs'), 'button button-quiet')]);
+  }
   const componentDialog = el('dialog', { class: 'dialog' }); document.body.append(componentDialog);
   function editComponent(id) {
     const component = extra.edited.components.find(c => c.id === id), replacement = extra.replacements.get(id);
@@ -241,9 +320,9 @@ export function createAdvancedUi(ctx) {
       if (moduleDirectory) {
         const data = await api('/api/authoring/preview', { directory: extra.directory, componentId: id, moduleDirectory, ...env() });
         const preview = data.preview;
-        previewView.replaceChildren(note(say('这是声明兼容预检，未执行候选代码。业务正确性和状态兼容性仍需验证；生成派生包会再次检查。', 'This is a declaration preflight. Candidate code was not run. Business correctness and state compatibility still need verification; derivation checks again.'), true), jsonView(say('实际候选、差异与影响组件', 'Actual candidate, differences and affected components'), preview, true));
+        previewView.replaceChildren(...replacementView(preview, component));
         if (!preview.compatible) throw new Error(say('声明不兼容，请查看预检结果。', 'Declarations are incompatible. See the preflight results.'));
-        if (checkedPreview?.candidateDigest !== preview.candidateDigest || checkedPreview?.candidate?.directory !== preview.candidate?.directory || checkedPreview?.sourceRevision !== preview.sourceRevision) {
+        if (!sameReplacementReview(checkedPreview, preview)) {
           checkedPreview = preview;
           toast(say('预检通过，请检查差异后再次点击保存。', 'Preflight passed. Review the differences, then save again.')); return;
         }
@@ -265,17 +344,17 @@ export function createAdvancedUi(ctx) {
     const root = $('#creator-content');
     const inspect = form([field('directory', say('本机整合包目录', 'Local pack directory'), extra.directory)], say('检查并打开创作草稿', 'Inspect and open a draft'), async f => {
       const directory = value(f, 'directory'), data = await api('/api/authoring/inspect', { directory, ...env() });
-      extra.directory = directory; extra.authoring = data.authoring ?? data; extra.edited = structuredClone(extra.authoring.pack); extra.replacements.clear(); extra.comments = null; renderCreator();
+      extra.directory = directory; extra.authoring = data.authoring ?? data; extra.edited = structuredClone(extra.authoring.pack); extra.replacements.clear(); extra.comments = null; extra.derived = null; renderCreator();
     }, say('检查读取锁与完整来源。所有编辑在草稿中进行，派生只写入新目录，不更改已运行实例。', 'Inspection reads the lock and complete sources. Edits are drafts. Derivation writes a new directory and does not modify running instances.'));
-    root.replaceChildren(heading(label('creator'), say('可视化组合独立模块，制作派生包与可分享的软件源。', 'Compose independent modules and create derived packs and shareable sources.'), 'CREATE · COMPOSE · COLLABORATE'), note(say('编辑不执行模块。新包仍需在导入时审阅环境与权限，并明确授权执行。许可证允许再分发才可分享；可获取不代表可再发布。', 'Editing does not execute modules. New packs still require environment and permission review and explicit execution authorization. Share only when licenses permit redistribution. Availability does not grant publishing rights.')), panel(say('选择创作来源', 'Choose a creation source'), [inspect, el('details', { class: 'json-details' }, [el('summary', {}, say('环境或 Hub 版本变化：复制并重建锁', 'Changed environment or Hub version: copy and rebuild lock')), rebuildForm()])]), el('div', { id: 'advanced-progress' }));
+    root.replaceChildren(...[heading(label('creator'), say('选择已有包，检查候选模块，派生新包，再导入审阅运行。', 'Choose a pack, check a candidate module, derive a new pack, then import and review execution.'), 'CREATE · COMPOSE · COLLABORATE'), note(say('编辑不执行模块。新包仍需在导入时审阅环境与权限，并明确授权执行。许可证允许再分发才可分享；可获取不代表可再发布。', 'Editing does not execute modules. New packs still require environment and permission review and explicit execution authorization. Share only when licenses permit redistribution. Availability does not grant publishing rights.')), derivedNextSteps(), panel(say('选择创作来源', 'Choose a creation source'), [inspect, el('details', { class: 'json-details' }, [el('summary', {}, say('环境或 Hub 版本变化：复制并重建锁', 'Changed environment or Hub version: copy and rebuild lock')), rebuildForm()])]), el('div', { id: 'advanced-progress' })].filter(Boolean));
     root.append(completion.templatePanel());
     if (!extra.authoring || !extra.edited) { root.append(publishPanel()); return; }
     const pack = extra.edited;
-    root.append(panel(say('组件与能力组合', 'Components & capability composition'), [definition([[say('源包', 'Source pack'), `${extra.authoring.pack.id}@${extra.authoring.pack.version}`], [say('基线内容版本', 'Base content revision'), extra.authoring.revision]]), graph(), extra.replacements.size ? jsonView(say('待验证模块替换', 'Pending module replacements'), [...extra.replacements.values()], true) : null, el('details', { class: 'json-details' }, [el('summary', {}, say('添加匹配合同的连线', 'Connect a matching contract')), bindingForm()]) ]));
+    root.append(replacementPanel(), panel(say('组件与能力组合', 'Components & capability composition'), [definition([[say('源包', 'Source pack'), `${extra.authoring.pack.id}@${extra.authoring.pack.version}`], [say('基线内容版本', 'Base content revision'), extra.authoring.revision]]), graph(), ...[...extra.replacements.values()].map(row => el('div', { class: 'notice' }, [el('strong', {}, `${row.componentId} → ${row.preview.candidate.manifest.id}`), el('p', {}, say('已加入草稿；业务仍须运行验证。', 'Added to the draft; business behavior still requires runtime validation.')), button(say('放弃此替换', 'Discard this replacement'), () => { extra.replacements.delete(row.componentId); renderCreator(); }, 'button button-small button-quiet'), jsonView(say('替换预检记录', 'Replacement preflight record'), row.preview)])), el('details', { class: 'json-details' }, [el('summary', {}, say('添加匹配合同的连线', 'Connect a matching contract')), bindingForm()]) ]));
     const derive = form([el('div', { class: 'field-grid' }, [field('packId', say('新包 ID', 'New pack ID'), pack.id), field('packVersion', say('新包版本', 'New pack version'), pack.version)]), field('packTitle', say('包名称', 'Pack title'), pack.title), field('destination', say('新的派生包目录', 'New derived pack directory'))], say('检查并生成派生包', 'Validate and create derived pack'), async f => {
       const body = editedBody(f);
-      reviewAction(say('生成派生整合包', 'Create derived pack'), [note(say('后台重新验证设置、部署依赖、能力合同和替换模块，生成新 pack.lock 与来源记录。目标必须为新目录，不覆盖当前包。不运行模块。', 'The backend revalidates settings, dependencies, capability contracts, and replacements, then creates a new pack.lock and provenance record. The destination must be new. Modules are not executed.')), jsonView(say('将写入的组合', 'Composition to write'), body, true)], say('我已检查公开配置与第三方许可，拥有复制和派生这些组件的权利。', 'I reviewed public settings and third-party licenses and have the right to copy and derive these components.'), async () => {
-        const derived = await api('/api/authoring/derive', body); await operation(derived, 'derive', result => { toast(say(`已创建派生包：${result.directory}`, `Derived pack created: ${result.directory}`)); extra.directory = result.directory; extra.authoring = null; extra.edited = null; renderCreator(); });
+      reviewAction(say('生成派生整合包', 'Create derived pack'), [note(say('后台重新验证设置、部署依赖、能力合同和替换模块，生成新 pack.lock 与来源记录。目标必须为新目录，不覆盖当前包。不运行模块。', 'The backend revalidates settings, dependencies, capability contracts, and replacements, then creates a new pack.lock and provenance record. The destination must be new. Modules are not executed.')), definition([[say('新包', 'New pack'), `${body.pack.id}@${body.pack.version}`], [say('新目录', 'New directory'), body.destination], [say('替换组件', 'Replacement components'), body.replacements.map(row => row.componentId).join(', ') || say('无', 'None')], [say('数据策略', 'Data handling'), say('不复制旧实例运行数据', 'Existing instance data is not copied')]]), jsonView(say('将写入的组合', 'Composition to write'), body)], say('我已检查公开配置与第三方许可，拥有复制和派生这些组件的权利。', 'I reviewed public settings and third-party licenses and have the right to copy and derive these components.'), async () => {
+        const derived = await api('/api/authoring/derive', body); await operation(derived, 'derive', result => { toast(say(`已创建派生包：${result.directory}`, `Derived pack created: ${result.directory}`)); extra.derived = { ...result, sourceDirectory: body.directory }; extra.directory = result.directory; extra.authoring = null; extra.edited = null; extra.replacements.clear(); renderCreator(); });
       });
     });
     root.append(panel(say('派生与生成新锁', 'Derive & create a new lock'), [derive]), publishPanel(), proposalPanel(), commentsPanel());
@@ -378,5 +457,5 @@ export function createAdvancedUi(ctx) {
     const restore = button(say('从私有备份恢复', 'Restore a private backup'), openRestore, 'button button-quiet'); restore.id = 'restore-entry'; $('#view-packs .page-heading').append(restore);
     renderEnvironmentTools(); void loadSources();
   }
-  return { label, languageChanged, sessionReady, renderStorage, loadStorage, openCreator(directory) { extra.directory = directory; extra.authoring = null; extra.edited = null; extra.replacements.clear(); navigate('creator'); }, navigate(view) { if (view === 'sources') { renderSources(); void loadSources(); } if (view === 'creator') renderCreator(); if (view === 'environment') renderEnvironmentTools(); } };
+  return { label, languageChanged, sessionReady, renderStorage, loadStorage, openCreator(directory) { extra.directory = directory; extra.authoring = null; extra.edited = null; extra.replacements.clear(); extra.derived = null; navigate('creator'); }, navigate(view) { if (view === 'sources') { renderSources(); void loadSources(); } if (view === 'creator') renderCreator(); if (view === 'environment') renderEnvironmentTools(); } };
 }

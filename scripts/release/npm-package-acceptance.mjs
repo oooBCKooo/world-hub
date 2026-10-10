@@ -7,7 +7,7 @@ import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startOwnedProgram } from '../../tests/helpers/owned-program.mjs';
-import { LAUNCHER_FILES, WORKSHOP_FILES, ECOSYSTEM_RUNTIME_FILES, ECOSYSTEM_SCHEMA_FILES } from './build-package.mjs';
+import { LAUNCHER_FILES, WORKSHOP_FILES, INTEROP_FILES, ECOSYSTEM_RUNTIME_FILES, ECOSYSTEM_SCHEMA_FILES } from './build-package.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -16,7 +16,7 @@ const safe = value => value.replaceAll('\\', '/');
 const ecosystemFiles = [...ECOSYSTEM_RUNTIME_FILES,
   'docs/ecosystem/pack-spec.md', 'docs/ecosystem/runtime.md',
   ...ECOSYSTEM_SCHEMA_FILES];
-const developerMaterial = ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md', 'docs/ecosystem/launcher.md', ...ecosystemFiles, ...LAUNCHER_FILES, ...WORKSHOP_FILES];
+const developerMaterial = ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md', 'docs/ecosystem/launcher.md', ...ecosystemFiles, ...LAUNCHER_FILES, ...WORKSHOP_FILES, ...INTEROP_FILES];
 
 async function findNpmCli() {
   const candidates = [process.env.npm_execpath, join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js'),
@@ -54,7 +54,7 @@ function allowedPackageFile(path) {
     'docs/images/hub-launcher.jpg', 'docs/images/hub-launcher-en.jpg',
     'docs/images/demo-event-desk-en.jpg', 'docs/images/demo-modular-assistant-en.jpg', 'docs/images/demo-digital-world-en.jpg',
     'docs/images/demo-capability-directory.jpg', 'docs/images/demo-capability-directory-en.jpg',
-    'docs/modules/text-statistics.contract.json', ...ecosystemFiles, ...LAUNCHER_FILES, ...WORKSHOP_FILES].includes(path)
+    'docs/modules/text-statistics.contract.json', ...ecosystemFiles, ...LAUNCHER_FILES, ...WORKSHOP_FILES, ...INTEROP_FILES].includes(path)
     || /^src\/.+\.(?:mjs|js|html|css|json)$/.test(path)
     || /^docs\/.+\.md$/.test(path);
 }
@@ -100,6 +100,7 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
     assert.equal(pkg.exports?.['./blob'], './sdk/javascript/blob-client.mjs');
     assert.equal(pkg.exports?.['./runtime'], './scripts/runtime/index.mjs');
     assert.equal(pkg.bin?.['world-hub-pack'], 'bin/world-hub-pack.mjs');
+    assert.equal(pkg.bin?.['world-hub-interop'], 'bin/world-hub-interop.mjs');
     assert.equal(pkg.exports?.['./workshop'], './tools/workshop/server.mjs');
     assert.equal(pkg.bin?.['world-hub-workshop'], 'tools/workshop/cli.mjs');
     assert.deepEqual(pkg.dependencies ?? {}, {}); assert.deepEqual(pkg.optionalDependencies ?? {}, {});
@@ -203,6 +204,7 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
     const runtime = JSON.parse(await execute('Public installed Runtime API imports, starts, observes, stops and exports a real Node pack', process.execPath, [runtimeCheckPath], { cwd: workspace }));
     assert.equal(runtime.passed, true); assert.equal(runtime.version, pkg.version); assert.equal(runtime.exited, true);
     await execute('Installed optional pack CLI exposes its public command contract', process.execPath, [join(localPackage, 'bin/world-hub-pack.mjs'), '--help'], { cwd: workspace });
+    await execute('Installed public interoperability CLI runs from an independent workspace', process.execPath, [join(localPackage, 'bin/world-hub-interop.mjs'), '--help'], { cwd: workspace });
     const generatedModule = join(workspace, 'installed author module');
     const generated = JSON.parse(await execute('Installed CLI generates a complete independent author sample outside its installation', process.execPath,
       [join(localPackage, 'bin/world-hub-pack.mjs'), 'init-module', generatedModule, '--id', 'npm.author', '--runtime', 'node'], { cwd: workspace }));

@@ -6,4 +6,5 @@ export { readSourceIndex, fetchSourceArtifact, publishArtifact, validateSourceIn
 export { initModule, validateModuleDirectory, doctorModule } from './developer.mjs';
 export { inspectTemplate, previewTemplate, instantiateTemplate, createTemplate } from './template.mjs';
 export { previewUpgrade, upgradeInstance, inspectUpgradeHistory, previewRollback, rollbackUpgrade, recoverUpgrade } from './upgrade.mjs';
+export { previewStagedUpgrade, createStagedUpgrade } from './staged-upgrade.mjs';
 export { probeIsolation, reviewIsolationPackage, planIsolation, ownIsolatedProcess } from './isolation.mjs';

@@ -1,9 +1,31 @@
 // Optional static templates and reviewed instance transactions. No Core business.
 export function createCompletionUi(ctx) {
-  const { api, el, button, say, panel, note, field, form, value, jsonView, reviewAction, operation, refresh, openImport, endpoint } = ctx;
+  const { api, el, button, say, panel, note, field, form, value, jsonView, reviewAction, operation, refresh, openImport, endpoint, selectInstance } = ctx;
   let templateDirectory = '';
   const inputJson = (f, key) => JSON.parse(value(f, key));
   const completed = async result => { await refresh({ explicit: true }); return result; };
+  function candidateSummary(preview) {
+    const none = say('无', 'None'), list = rows => rows?.length ? rows.map(row => typeof row === 'string' ? row : `${row.id}@${row.version}`).join(', ') : none;
+    const fields = value => value ? Object.entries(value).map(([key, item]) => `${key}: ${Array.isArray(item) ? list(item) : item}`).join('; ') || none : none;
+    const moduleName = component => component ? `${component.module.id}@${component.module.version} · ${component.runtime.kind}` : none;
+    const details = (preview.diff.components ?? []).map(component => {
+      const after = component.after;
+      return panel(component.id, [
+        note(`${moduleName(component.before)} → ${moduleName(after)}`),
+        note(`${say('代码新增', 'Code added')}: ${list(component.code.added)}; ${say('移除', 'Removed')}: ${list(component.code.removed)}; ${say('修改', 'Changed')}: ${list(component.code.changed)}`),
+        note(`${say('提供契约', 'Provides')}: ${list(after?.contracts.provides)} · ${say('需要契约', 'Requires')}: ${list(after?.contracts.requires)}`),
+        note(`${say('权限', 'Permissions')}: ${fields(after?.permissions)} · ${say('启动依赖', 'Startup dependencies')}: ${list(after?.dependencies)}`),
+        note(`${say('平台', 'Platforms')}: ${list(after?.platforms)} · ${say('许可', 'License')}: ${after?.license ?? none}`),
+      ]);
+    });
+    const interpreters = Object.entries(preview.diff.candidate.interpreters ?? {}).map(([kind, interpreter]) => note(`${kind} ${interpreter.version} · ${interpreter.executable} · ${say('SDK 依赖', 'SDK dependencies')}: ${fields(interpreter.packages)}`));
+    return panel(say('候选试用摘要', 'Candidate trial summary'), [
+      note(`${preview.instanceId} → ${preview.newInstanceId} · ${preview.current.pack.id}@${preview.current.pack.version} → ${preview.candidate.pack.id}@${preview.candidate.pack.version}`),
+      note(`${say('私有备份', 'Private backup')}: ${preview.backupDestination} · ${preview.snapshot.files} ${say('文件', 'files')}`),
+      note(say('声明已精确检查；实际业务尚未验证。原实例保留，候选使用全新数据。', 'Declarations checked exactly; application behavior is unverified. The old instance is retained and the candidate uses fresh data.')),
+      ...details, ...interpreters,
+    ]);
+  }
   function templatePanel() {
     const results = el('div');
     const inspect = form([field('directory', say('模板目录', 'Template directory'), templateDirectory)], say('检查模板', 'Inspect template'), async f => {
@@ -57,6 +79,19 @@ export function createCompletionUi(ctx) {
   }
   function maintenance(instance) {
     const id = instance.instanceId, results = el('div');
+    const staged = form([field('candidate', say('候选锁定包目录', 'Candidate locked pack directory')),
+      field('newInstanceId', say('新的候选实例 ID', 'New candidate instance ID'), `${id}-trial`),
+      field('backupDestination', say('新的私有备份文件路径', 'New private backup file path'))], say('预览新实例试用（全新数据）', 'Preview candidate trial (fresh data)'), async f => {
+      const review = await api(endpoint(id, 'staged-upgrade-plan'), { candidate: value(f, 'candidate'), newInstanceId: value(f, 'newInstanceId'), backupDestination: value(f, 'backupDestination'), statePolicy: 'fresh' });
+      reviewAction(say('保留旧实例，准备候选实例', 'Keep the old instance and prepare a candidate'), [note(say('旧实例必须停止。先备份旧软件和持久数据，再以全新数据导入候选；不会复制业务状态、启动或切换实例。候选失败后旧实例仍可重新审阅启动。', 'The old instance must be stopped. Back up its software and persistent data, then import the candidate with fresh data. Preparation does not copy business state, start programs, or switch instances. The old instance remains available for a fresh execution review.'), true),
+        note(say('健康检查和业务结果须在另行授权启动后验证。代码恢复无法撤销远程 API、设备动作、消息或其他程序的状态。需要复制或迁移数据时使用 CLI 的提供者策略路径。', 'Health and business results require a separately reviewed start. Code recovery cannot undo remote APIs, device actions, messages, or other programs\' state. Use the CLI provider-policy path to copy or migrate data.')),
+        candidateSummary(review.preview), jsonView(say('完整预览与审阅摘要', 'Complete preview and review digest'), review.preview)],
+        say('我已审阅候选差异、全新数据策略和私有备份范围。', 'I reviewed the candidate differences, fresh-data policy, and private backup scope.'), async () => {
+          await operation(await api(endpoint(id, 'staged-upgrade'), { previewId: review.previewId, accepted: true }), 'staged-upgrade', async result => {
+            await completed(result); await selectInstance(result.newInstanceId);
+          });
+        });
+    });
     const upgrade = form([field('candidate', say('候选锁定包目录', 'Candidate locked pack directory')), field('statePolicies', say('程序提供者的数据策略 JSON', 'Provider-defined state policies JSON'), '', { multiline: true })], say('预览升级', 'Preview upgrade'), async f => {
       const review = await api(endpoint(id, 'upgrade-plan'), { candidate: value(f, 'candidate'), statePolicies: inputJson(f, 'statePolicies') });
       reviewAction(say('升级已停止的实例', 'Upgrade the stopped instance'), [note(say('升级会保存旧软件与持久数据快照，不包括运行日志和模块 tmp。迁移代码由程序作者提供；审阅后执行，成功后仍需重新授权启动。', 'Upgrade snapshots previous software and persistent data, excluding run logs and module tmp. Program authors provide migration code; review it before execution. Starting afterward requires a fresh review.'), true), jsonView(say('旧包、新包、权限与数据策略', 'Previous and candidate packs, permissions, and state policy'), review.preview, true)], say('我已审阅候选代码和权限，确认提供者声明的数据兼容或迁移策略。', 'I reviewed candidate code and permissions and confirm the provider-defined data compatibility or migration policies.'), async () => {
@@ -76,7 +111,9 @@ export function createCompletionUi(ctx) {
         }, 'button button-quiet'));
       }
     }, 'button button-quiet');
-    return [panel(say('升级与数据回滚', 'Upgrade and data rollback'), [note(say('先停止并确认进程退出。每个组件必须有提供者明确的数据策略；枢纽不定义业务数据格式。', 'Stop and confirm process exit first. Every component requires an explicit provider-defined data policy; the Hub does not define business data formats.')), upgrade, history, results])];
+    const candidateOrigin = instance.stagedFrom ? [note(say(`这是独立候选实例。旧实例 ${instance.stagedFrom} 保留；检查候选业务结果后自行决定是否切换。返回旧实例仍须重新审阅启动。`, `This is an independent candidate. Old instance ${instance.stagedFrom} is retained; decide whether to switch after checking candidate business results. Starting the old instance still requires a fresh review.`)),
+      button(say('返回旧实例', 'Return to old instance'), async () => { await refresh({ explicit: true }); await selectInstance(instance.stagedFrom); }, 'button button-quiet')] : [];
+    return [panel(say('保留旧实例的候选试用', 'Candidate trial with the old instance retained'), [...candidateOrigin, staged]), panel(say('升级与数据回滚', 'Upgrade and data rollback'), [note(say('先停止并确认进程退出。每个组件必须有提供者明确的数据策略；枢纽不定义业务数据格式。', 'Stop and confirm process exit first. Every component requires an explicit provider-defined data policy; the Hub does not define business data formats.')), upgrade, history, results])];
   }
   return { templatePanel, openTemplate, maintenance };
 }

@@ -2,6 +2,8 @@
 
 默认 `trusted-local` 仍运行用户明确审阅的本机程序，模块权限是声明。可选 `docker-node-headless/v1` 属于外部 Runtime 的执行适配器，Hub Core 不选择或实现沙箱。该有限 profile 只接受 Node 模块、`processes:"none"`、仅 `hub-loopback` 网络声明。Python、HTTP 界面程序和其他权限形态明确拒绝；没有自动回退到本机执行。
 
+发布者身份、内容摘要、本地执行授权和实际隔离状态是独立维度，见[渐进信任接口](trust.md)。权限声明通过或下载摘要相符不能变成“已隔离”或“已审计”；本 profile 也不会为作者签名背书。升级／恢复只处理记录范围内的软件和私人快照，不能撤销外部 API 或已发送消息，见[升级边界](upgrade.md)。
+
 需要已配置且运行中的 **Linux amd64/arm64 Docker 引擎**、绝对 Docker 客户端路径、固定本机 daemon endpoint 和预先取得的 `repository@sha256:...` 镜像。工具不会安装 Docker、更新 WSL、拉取镜像或运行镜像安装钩子。宿主包锁的 Node 版本必须与容器 Node 完全一致；启动时核对实际版本与 UID。
 
 | 范围 | 固定限制 |

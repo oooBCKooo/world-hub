@@ -22,11 +22,28 @@ test('PREVIEW-01 replacement checks actual declarations, shared identity and per
   assert.deepEqual(preview.affectedComponents, ['fixture', 'second']); assert.equal(preview.differences.permissions.changed, true);
   assert.equal(preview.sourceRevision, original.revision); assert.match(preview.candidateDigest, /^[a-f0-9]{64}$/);
   assert.equal(preview.writesFiles, false); assert.equal(preview.startsModules, false);
+  assert.equal(preview.declarationCompatible, true); assert.equal(preview.environmentCompatible, true);
+  assert.deepEqual((await previewReplacement(directory, { ...environment, componentId: 'fixture', moduleDirectory: replacement })).environment, preview.environment);
+  assert.match(preview.environment.interpreter.sha256, /^[a-f0-9]{64}$/);
   assert.deepEqual(await filesBelow(app.directory), beforeFiles); assert.deepEqual(await readFile(join(directory, 'pack.lock')), beforeLock);
   manifest.id = 'candidate.new'; await save(join(replacement, 'module.json'), manifest);
   const isolated = await previewReplacement(directory, { ...environment, componentId: 'fixture', moduleDirectory: replacement });
   assert.deepEqual(isolated.affectedComponents, ['fixture']); assert.notEqual(isolated.candidateDigest, preview.candidateDigest);
   app.record('read-only-preflight', { sharedIdentityAffectsAllReferences: true, newIdentityAffectsOne: true, businessValidated: false });
+});
+
+test('PREVIEW-03 a newly required missing interpreter is reported separately from matching declarations without starting or installing code', { timeout: 45000 }, async t => {
+  const app = await workspace(t), directory = await fixturePackage(app), replacement = join(app.directory, 'python-candidate');
+  await cp(join(directory, 'modules/fixture'), replacement, { recursive: true });
+  const manifest = await json(join(replacement, 'module.json')); manifest.runtime = { kind: 'python', entry: 'program.py' };
+  await save(join(replacement, 'module.json'), manifest); await writeFile(join(replacement, 'program.py'), 'raise RuntimeError("never execute in preview")\n');
+  await writeFile(join(replacement, 'requirements.txt'), 'websockets==15.0.1\n');
+  const input = { nodePath: process.execPath, pythonPath: join(app.directory, 'absent-python.exe'), componentId: 'fixture', moduleDirectory: replacement };
+  const preview = await previewReplacement(directory, input);
+  assert.equal(preview.declarationCompatible, true); assert.equal(preview.environmentCompatible, false); assert.equal(preview.compatible, false);
+  assert.equal(preview.businessValidated, false); assert.equal(preview.environment.interpreter.available, false);
+  assert.equal(preview.differences.startupDependencies.changed, true); assert.equal(preview.differences.startupDependencies.after.requirements, 'websockets==15.0.1\n');
+  assert.ok(preview.diagnostics.some(d => d.code === 'INTERPRETER_UNAVAILABLE' && d.layer === 'environment' && d.action));
 });
 
 test('PREVIEW-02 preview and derivation share bridge, contract and platform checks; later changes are rechecked', { timeout: 45000 }, async t => {

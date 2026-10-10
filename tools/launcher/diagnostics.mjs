@@ -4,7 +4,8 @@ export function diagnose(error) {
   let kind = 'action-failed';
   if (/cleanup|exits.*unconfirmed/i.test(message) || error.cleanupIncomplete) kind = 'cleanup-unconfirmed';
   else if (/stale|supervisor.*unavailable|different.*run|ended.*run/i.test(message)) kind = 'stale-run';
-  else if (/locked|holds.*lock|owner.*lock/i.test(message)) kind = 'owned-instance';
+  else if (/^INTERPRETER_(?:VERSION|ARCHITECTURE)|^PLATFORM_/.test(code)) kind = 'compatibility';
+  else if (/(?:instance|directory|data)(?: is)? locked|holds.*lock|owner.*lock/i.test(message)) kind = 'owned-instance';
   else if (/revision conflict|changed after|changed.*review|source.*changed|review.*changed|hash.*mismatch|digest.*mismatch/i.test(message)) kind = 'content-changed';
   else if (/interpreter.*not found|interpreter.*missing|choose.*installed|ENOENT.*python/i.test(message)) kind = 'missing-interpreter';
   else if (/dependency|dependencies|recipe.*unavailable|websockets/i.test(message)) kind = 'dependency';

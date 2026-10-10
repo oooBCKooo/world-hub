@@ -19,6 +19,42 @@ const cancelled = signal => { if (signal?.aborted) throw fault('UPGRADE_ABORTED'
 const limitedText = (value, name) => { if (typeof value !== 'string' || !value || value.length > 128 || /[\x00-\x1f]/.test(value)) throw fault('UPGRADE_POLICY_INVALID', `Invalid ${name}`); };
 const closed = (value, keys) => { if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !keys.includes(k)) || keys.some(k => !Object.hasOwn(value, k))) throw fault('UPGRADE_POLICY_INVALID', 'State policy has missing or unsupported fields'); };
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+export const rollbackBoundary = Object.freeze({ softwareAndSnapshotOnly: true, externalApiSideEffects: 'not-restored',
+  alreadySentMessages: 'not-retracted', otherProgramState: 'not-restored', applicationReversibility: 'not-inferred' });
+
+/** Compare already inspected packages. These are exact declarations, never a business proof. */
+export function compareUpgradePackages(current, candidate) {
+  const descriptor = (plan, id) => {
+    const component = plan.pack.components.find(c => c.id === id);
+    if (!component) return null;
+    const module = plan.modules.find(m => m.manifest.id === component.module);
+    return { module: { id: module.manifest.id, version: module.manifest.version, source: module.source },
+      codeSha256: hash(JSON.stringify(module.files)), license: module.manifest.license, contracts: { provides: module.manifest.provides, requires: module.manifest.requires },
+      permissions: module.manifest.permissions, bridges: { slots: module.manifest.bridges, grants: component.bridges },
+      dependencies: component.after, platforms: module.manifest.platforms, runtime: { ...module.manifest.runtime,
+        pin: plan.lock.runtimes[module.manifest.runtime.kind] }, settingsSha256: hash(JSON.stringify(component.settings)), files: module.files };
+  };
+  const ids = [...new Set([...current.pack.components, ...candidate.pack.components].map(c => c.id))].sort();
+  const components = ids.map(id => {
+    const before = descriptor(current, id), after = descriptor(candidate, id);
+    const beforeFiles = new Map((before?.files ?? []).map(f => [f.path, f.sha256])), afterFiles = new Map((after?.files ?? []).map(f => [f.path, f.sha256]));
+    const paths = [...new Set([...beforeFiles.keys(), ...afterFiles.keys()])].sort();
+    const code = { added: paths.filter(p => !beforeFiles.has(p)), removed: paths.filter(p => !afterFiles.has(p)),
+      changed: paths.filter(p => beforeFiles.has(p) && afterFiles.has(p) && beforeFiles.get(p) !== afterFiles.get(p)) };
+    const stripFiles = value => { if (!value) return null; const { files, ...visible } = value; return visible; };
+    const dimensions = ['module', 'license', 'contracts', 'permissions', 'bridges', 'dependencies', 'platforms', 'runtime', 'settingsSha256'];
+    return { id, change: !before ? 'added' : !after ? 'removed' : same(before, after) ? 'unchanged' : 'changed',
+      before: stripFiles(before), after: stripFiles(after), code, changedDimensions: dimensions.filter(key => !same(before?.[key] ?? null, after?.[key] ?? null)) };
+  });
+  return { format: 'world-hub.upgrade-diff/v1', declarations: 'exact-checked', applicationBehavior: 'not-validated',
+    current: { pack: { id: current.pack.id, version: current.pack.version }, digest: current.digest, hubVersion: current.lock.hubVersion,
+      platform: current.lock.platform, interpreters: current.environment, runtimes: current.lock.runtimes },
+    candidate: { pack: { id: candidate.pack.id, version: candidate.pack.version }, digest: candidate.digest, hubVersion: candidate.lock.hubVersion,
+      platform: candidate.lock.platform, interpreters: candidate.environment, runtimes: candidate.lock.runtimes },
+    components, bindings: { changed: !same(current.pack.bindings, candidate.pack.bindings), before: current.pack.bindings, after: candidate.pack.bindings },
+    topics: { changed: !same(current.pack.topics, candidate.pack.topics), before: current.pack.topics, after: candidate.pack.topics },
+    rollbackBoundary };
+}
 function transactionDirectory(directory, transactionId) {
   if (!UUID.test(transactionId)) throw fault('UPGRADE_TRANSACTION_INVALID', 'Invalid upgrade transaction ID');
   return join(directory, 'upgrades', transactionId);
@@ -95,7 +131,7 @@ async function checkStateRoots(directory, pack) {
   if (await exists(join(directory, 'hub'))) for (const name of await readdir(join(directory, 'hub')))
     if (!['log', 'blobs', 'management.json'].includes(name)) throw fault('UPGRADE_STATE_UNKNOWN', 'Unknown Hub persistent paths must be preserved and inspected before upgrade');
 }
-function policiesFor(current, candidate, supplied) {
+export function validateUpgradeStatePolicies(current, candidate, supplied) {
   if (!Array.isArray(supplied) || supplied.length !== current.pack.components.length) throw fault('UPGRADE_POLICY_REQUIRED', 'Explicit provider-defined state policies are required for every component');
   const before = current.pack.components.map(c => c.id).sort(), after = candidate.pack.components.map(c => c.id).sort();
   if (!same(before, after)) throw fault('UPGRADE_COMPONENTS_CHANGED', 'In-place v1 upgrade requires the same stable component IDs; derive and restore a separate instance for topology changes');
@@ -127,7 +163,7 @@ async function upgradePlan(directory, stopped, options) {
   if (await exists(join(directory, 'detached.json'))) throw fault('INSTANCE_DETACHED', 'Reattach and review this instance before in-place upgrade');
   const current = await inspectPackage(join(directory, 'package'), options), candidate = await inspectPackage(options.candidate, options);
   if (stopped.identity.digest !== current.digest) throw fault('UPGRADE_CHANGED', 'Current instance identity differs from its package/environment review');
-  const statePolicies = policiesFor(current, candidate, options.statePolicies);
+  const statePolicies = validateUpgradeStatePolicies(current, candidate, options.statePolicies);
   await checkStateRoots(directory, current.pack);
   const snapshot = await instanceSignature(directory, options.signal);
   const trustDigest = hash(JSON.stringify({ operation: 'upgrade', instanceId: options.instanceId, stateDir: directory, current: current.digest, candidate: candidate.digest,
@@ -138,7 +174,8 @@ async function upgradePlan(directory, stopped, options) {
     candidate: { digest: candidate.digest, directory: candidate.directory, pack: { id: candidate.pack.id, version: candidate.pack.version }, permissions: candidate.permissions },
     statePolicies, snapshot: { digest: snapshot.digest, files: snapshot.files, bytes: snapshot.bytes },
     hubDataPolicy: 'preserve-exact-installed-version', startsModules: false, runsMigrations: statePolicies.some(p => p.mode === 'migrate'), sandbox: false,
-    fullDataRollbackRequiresNewReview: true, _current: current, _candidate: candidate, _snapshot: snapshot };
+    fullDataRollbackRequiresNewReview: true, diff: compareUpgradePackages(current, candidate), stateCompatibility: 'provider-declared-not-business-validated',
+    rollbackBoundary, _current: current, _candidate: candidate, _snapshot: snapshot };
 }
 const publicPlan = ({ _current, _candidate, _snapshot, ...plan }) => plan;
 /** Read-only plan. Confirmation is an exact digest of software, policy, data and last run. */
@@ -268,7 +305,8 @@ export async function upgradeInstance(options) {
       await commitGroups(directory, journal, options.signal);
       return { format: 'world-hub.upgrade-result/v1', instanceId: options.instanceId, transactionId, stateDir: directory,
         digest: reviewed._candidate.digest, plan: reviewed._candidate, state: 'committed', snapshot: journal.snapshot,
-        private: true, startsModules: false, requiresNewExecutionReview: true, sandbox: false };
+        private: true, startsModules: false, requiresNewExecutionReview: true, sandbox: false, rollbackBoundary,
+        stateCompatibility: journal.statePolicies.some(p => p.mode === 'migrate') ? 'migration-completed-business-validation-pending' : 'provider-declared-not-business-validated' };
     } catch (error) {
       journal.error = { code: error.code ?? 'UPGRADE_FAILED', message: String(error.message).slice(0, 1024) };
       if (error.retainMaintenanceOwner) { await writeJournal(directory, journal); throw Object.assign(error, { transactionId }); }
@@ -310,7 +348,7 @@ async function rollbackPlan(directory, options, ownsPreviewLock = false) {
     current: { digest: stopped.identity.digest, lastRunId: stopped.status?.runId ?? null, snapshotDigest: actual.digest, files: actual.files, bytes: actual.bytes },
     restores: journal.current, snapshot: journal.snapshot, preservesLatestData: false, discardsCurrentData: !recoveryRequired,
     latestRunChanged: !same(actual.runtime, journal.after?.runtime ?? journal.before.runtime), startsModules: false, runsMigrations: false,
-    sandbox: false, _journal: journal, _journalDigest: journalDigest, _actual: actual, _owner: owner };
+    sandbox: false, rollbackBoundary, _journal: journal, _journalDigest: journalDigest, _actual: actual, _owner: owner };
 }
 /** A fresh review binds the latest stopped data; old confirmations cannot discard a later run. */
 export async function previewRollback(options) {
@@ -352,7 +390,7 @@ async function rollbackExecution(options, requireRecovery) {
         journal.state = 'aborted'; journal.completedAt = new Date().toISOString(); await writeJournal(directory, journal);
       } else await restoreOriginalGroups(directory, journal);
       return { format: 'world-hub.upgrade-recovery-result/v1', instanceId: options.instanceId, transactionId: options.transactionId,
-        recovered: true, state: journal.state, digest: journal.current.digest, startsModules: false, preservesOriginalData: true };
+        recovered: true, state: journal.state, digest: journal.current.digest, startsModules: false, preservesOriginalData: true, rollbackBoundary };
     }
     const transaction = transactionDirectory(directory, restoreId);
     await mkdir(transaction, { recursive: true, mode: 0o700 });
@@ -377,7 +415,7 @@ async function rollbackExecution(options, requireRecovery) {
       journal.state = 'rolled-back'; journal.restoredByTransactionId = restoreId; journal.completedAt = new Date().toISOString(); await writeJournal(directory, journal);
       return { format: 'world-hub.upgrade-rollback-result/v1', instanceId: options.instanceId, transactionId: options.transactionId, restoreTransactionId: restoreId,
         state: 'rolled-back', digest: checked.digest, plan: checked, snapshot: journal.snapshot, latestDataSnapshot: restore.snapshot,
-        restoresAllPersistentData: true, startsModules: false, requiresNewExecutionReview: true };
+        restoresAllPersistentData: true, startsModules: false, requiresNewExecutionReview: true, rollbackBoundary };
     } catch (error) {
       restore.error = { code: error.code ?? 'UPGRADE_ROLLBACK_FAILED', message: String(error.message).slice(0, 1024) };
       if (restore.state === 'committing') await restoreOriginalGroups(directory, restore);

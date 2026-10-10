@@ -13,11 +13,11 @@ let suite = 'node', evidenceRoot = join(root, '.artifacts/evidence');
 const seen = new Set();
 for (let index = 0; index < args.length; index += 2) {
   const option = args[index], value = args[index + 1];
-  if (!['--suite', '--evidence'].includes(option) || !value || seen.has(option)) throw new Error('usage: node scripts/verify.mjs [--suite node|dsh|cross-language|demos|capabilities|ecosystem|launcher|workshop] [--evidence directory]');
+  if (!['--suite', '--evidence'].includes(option) || !value || seen.has(option)) throw new Error('usage: node scripts/verify.mjs [--suite node|dsh|cross-language|demos|capabilities|ecosystem|launcher|workshop|interop] [--evidence directory]');
   seen.add(option);
   if (option === '--suite') suite = value; else evidenceRoot = resolve(value);
 }
-if (!['node', 'dsh', 'cross-language', 'demos', 'capabilities', 'ecosystem', 'launcher', 'workshop'].includes(suite)) throw new Error(`unknown suite: ${suite}`);
+if (!['node', 'dsh', 'cross-language', 'demos', 'capabilities', 'ecosystem', 'launcher', 'workshop', 'interop'].includes(suite)) throw new Error(`unknown suite: ${suite}`);
 const directory = join(evidenceRoot, `${suite}-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID()}`);
 await mkdir(directory, { recursive: true });
 const report = { suite, startedAt: new Date().toISOString(), node: process.version, platform: process.platform, arch: process.arch,
@@ -80,6 +80,8 @@ try {
       'tests/integration/purpose-demos/explorer-view.test.mjs',
       'tests/integration/purpose-demos/launcher.test.mjs',
     ]), { test: true });
+  } else if (suite === 'interop') {
+    await execute('Public application contract benchmark: unchanged consumer, Node/Python providers, failure boundaries', nodeTests(['tests/integration/interop/reference.test.mjs']), { test: true });
   } else if (suite === 'ecosystem') {
     await execute('Optional trusted-local Runtime: cross-language deploy, isolate, rebuild and reliable cleanup', nodeTests([
       'tests/integration/ecosystem-runtime/runtime.test.mjs',
@@ -91,6 +93,7 @@ try {
       'tests/integration/ecosystem-runtime/developer-cli.test.mjs',
       'tests/integration/ecosystem-runtime/template.test.mjs',
       'tests/integration/ecosystem-runtime/upgrade.test.mjs',
+      'tests/integration/ecosystem-runtime/staged-upgrade.test.mjs',
       'tests/integration/ecosystem-runtime/isolation.test.mjs',
     ]), { test: true });
   } else if (suite === 'launcher') {

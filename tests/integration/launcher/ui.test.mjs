@@ -30,15 +30,16 @@ function element(tag, attributes = {}, children = []) {
   for (const [key, value] of Object.entries(attributes)) { if (value === false || value === undefined || value === null) continue; if (key.startsWith('on')) node.addEventListener(key.slice(2), value); else if (['checked', 'disabled', 'hidden'].includes(key)) node[key] = value; else node.setAttribute(key, value); }
   node.append(...(Array.isArray(children) ? children : [children])); return node;
 }
-function harness(api) {
+function harness(api, overrides = {}) {
   const body = element('body');
   globalThis.document = { body, querySelector: selector => body.querySelector(selector), querySelectorAll: selector => body.querySelectorAll(selector) };
   globalThis.localStorage = { getItem() { return null; }, setItem() {} };
   const environment = element('form', { id: 'environment-form' }, ['nodePath', 'pythonPath'].map(name => element('input', { name })));
-  body.append(element('section', { id: 'view-environment' }, environment), element('section', { id: 'view-packs' }, element('div', { class: 'page-heading' })), ...['sources-content', 'creator-content', 'detail-content'].map(id => element('div', { id })));
-  const selected = [], state = { language: 'en', environmentSelection: {}, view: 'packs', selected: 'first', tab: 'storage' };
-  const ctx = { state, api, el: element, button: (title, action, className = 'button', disabled = false) => element('button', { type: 'button', class: className, onclick: action, disabled }, title), pill: title => element('span', {}, title), t: key => key, toast() {}, definition: pairs => element('dl', {}, pairs.flatMap(([key, value]) => [element('dt', {}, key), element('dd', {}, typeof value === 'object' ? JSON.stringify(value) : String(value ?? ''))])), display: String, date: String, errorContents: failure => [element('p', {}, failure.message)], current() {}, idOf: instance => instance.instanceId ?? instance.id, endpoint: (id, action) => `/api/instances/${id}/${action}`, operationFor: instance => instance.operation, exitUnconfirmed: instance => Boolean(instance.status?.runId && !instance.status.stoppedAt), refresh: async () => {}, renderDetail() {}, navigate() {}, selectInstance: async id => selected.push(id), openImport() {}, replaceInstance() {}, reviewView: data => [element('pre', {}, JSON.stringify(data.review))] };
-  const ui = createAdvancedUi(ctx); return { body, ui, state, selected, mount: nodes => body.querySelector('#detail-content').replaceChildren(...nodes) };
+  body.append(element('section', { id: 'view-environment' }, environment), element('section', { id: 'view-packs' }, element('div', { class: 'page-heading' })), ...['sources-content', 'creator-content', 'detail-content'].map(id => element('div', { id })), element('form', { id: 'import-form' }, element('input', { name: 'directory' })));
+  const selected = [], imports = [], state = { language: 'en', environmentSelection: {}, view: 'packs', selected: 'first', tab: 'storage' };
+  const ctx = { state, api, el: element, button: (title, action, className = 'button', disabled = false) => element('button', { type: 'button', class: className, onclick: action, disabled }, title), pill: title => element('span', {}, title), t: key => key, toast() {}, definition: pairs => element('dl', {}, pairs.flatMap(([key, value]) => [element('dt', {}, key), element('dd', {}, typeof value === 'object' ? JSON.stringify(value) : String(value ?? ''))])), display: String, date: String, errorContents: failure => [element('p', {}, failure.message)], current() {}, idOf: instance => instance.instanceId ?? instance.id, endpoint: (id, action) => `/api/instances/${id}/${action}`, operationFor: instance => instance.operation, exitUnconfirmed: instance => Boolean(instance.status?.runId && !instance.status.stoppedAt), refresh: async () => {}, renderDetail() {}, navigate() {}, selectInstance: async id => selected.push(id), openImport() { imports.push(true); }, replaceInstance() {}, reviewView: data => [element('pre', {}, JSON.stringify(data.review))] };
+  Object.assign(ctx, overrides);
+  const ui = createAdvancedUi(ctx); return { body, ui, ctx, state, selected, imports, mount: nodes => body.querySelector('#detail-content').replaceChildren(...nodes) };
 }
 const byText = (root, text) => root.querySelectorAll('button').find(node => node.textContent === text);
 async function consent(body) { const dialog = body.querySelector('#advanced-action-dialog'); const check = dialog.querySelector('[type=checkbox]'); const confirm = byText(dialog, 'Confirm review and continue'); assert.equal(confirm.disabled, true); assert.equal(check.checked, undefined); check.checked = true; await check.dispatch('change'); assert.equal(confirm.disabled, false); return confirm; }
@@ -63,6 +64,45 @@ test('restore sends the inspected digest to a new instance only after a second e
   const form = body.querySelector('#restore-dialog').querySelector('form'); form.elements.backup.value = 'private.json'; form.elements.instanceId.value = 'new-instance'; await form.dispatch('submit');
   assert.equal(calls.length, 1); assert.doesNotMatch(form.textContent, /null/); await form.dispatch('submit'); assert.equal(calls.length, 1);
   await (await consent(body)).dispatch('click'); assert.deepEqual(calls[1][1], { backup: 'private.json', sha256: digest, instanceId: 'new-instance', accepted: true }); assert.deepEqual(selected, ['new-instance']); assert.ok(calls.every(([path]) => !path.endsWith('/start')));
+});
+
+test('candidate trial requires acceptance, survives refresh redraw, and keeps the return-to-old action after remount', async () => {
+  const calls = [], instances = { first: { instanceId: 'first', status: { state: 'imported' } } };
+  const candidate = { instanceId: 'first-trial', stagedFrom: 'first', status: { state: 'imported' } };
+  const preview = { instanceId: 'first', newInstanceId: candidate.instanceId,
+    current: { pack: { id: 'sample', version: '1.0.0' } }, candidate: { pack: { id: 'sample', version: '1.1.0' } },
+    backupDestination: 'private-before-trial.whbackup', snapshot: { files: 3 }, diff: { components: [], candidate: { interpreters: {} } } };
+  let scene, refreshes = 0;
+  scene = harness(async (path, request) => {
+    calls.push([path, request]);
+    if (path.endsWith('/staged-upgrade-plan')) return { previewId: 'trial-review', preview };
+    if (path.endsWith('/staged-upgrade')) { instances[candidate.instanceId] = candidate; return { operationId: 'trial-operation' }; }
+    if (path === '/api/operations/trial-operation') return { operation: { state: 'succeeded', result: { newInstanceId: candidate.instanceId, instance: candidate, startsModules: false } } };
+    throw new Error('Unexpected operation: ' + path);
+  }, {
+    refresh: async () => { refreshes++; scene.mount(scene.ui.renderStorage(instances[scene.state.selected])); },
+    selectInstance: async id => { scene.selected.push(id); scene.state.selected = id; scene.mount(scene.ui.renderStorage(instances[id])); },
+  });
+  const { body } = scene; scene.mount(scene.ui.renderStorage(instances.first));
+  const form = body.querySelector('#detail-content').querySelectorAll('form').find(row => row.elements.newInstanceId);
+  form.elements.candidate.value = 'candidate-pack'; form.elements.newInstanceId.value = candidate.instanceId;
+  form.elements.backupDestination.value = preview.backupDestination;
+  await form.dispatch('submit');
+  assert.deepEqual(calls[0], ['/api/instances/first/staged-upgrade-plan', { candidate: 'candidate-pack', newInstanceId: candidate.instanceId, backupDestination: preview.backupDestination, statePolicy: 'fresh' }]);
+  assert.match(body.querySelector('#advanced-action-dialog').textContent, /application behavior is unverified/);
+  const confirm = byText(body.querySelector('#advanced-action-dialog'), 'Confirm review and continue');
+  await confirm.dispatch('click'); assert.equal(calls.length, 1); assert.deepEqual(scene.selected, []);
+  await (await consent(body)).dispatch('click');
+  assert.deepEqual(calls.find(([path]) => path.endsWith('/staged-upgrade'))[1], { previewId: 'trial-review', accepted: true });
+  assert.deepEqual(scene.selected, [candidate.instanceId]); assert.ok(refreshes >= 2);
+  assert.ok(byText(body.querySelector('#detail-content'), 'Return to old instance'));
+  // A new UI mounting only the persisted candidate record must retain navigation.
+  scene.ui = createAdvancedUi(scene.ctx); scene.mount(scene.ui.renderStorage(candidate));
+  const returned = byText(body.querySelector('#detail-content'), 'Return to old instance'); assert.ok(returned);
+  await returned.dispatch('click'); assert.deepEqual(scene.selected, [candidate.instanceId, 'first']);
+  assert.equal(scene.state.selected, 'first');
+  assert.equal(byText(body.querySelector('#detail-content'), 'Return to old instance'), undefined);
+  assert.ok(calls.every(([path]) => !path.endsWith('/start') && !path.endsWith('/stop')));
 });
 
 test('creator derives the displayed composition against its inspected revision and preserves untrusted text', async () => {
@@ -96,6 +136,54 @@ test('replacement needs a current second preview and displays the actual candida
   assert.match(root.querySelector('.composition-graph').textContent, /new.stats/); assert.match(root.querySelector('.composition-graph').textContent, /node/);
   assert.equal(calls.filter(([path]) => path.endsWith('/preview')).length, 3);
   assert.ok(calls.every(([path]) => !path.endsWith('/derive') && !path.endsWith('/start')));
+});
+
+test('guided replacement preserves consumer code and settings without JSON editing, rechecks changed contents, and hands the new pack to import', async () => {
+  const calls = [], pack = { id: 'sample', version: '1.0.0', title: 'Statistics', components: [{ id: 'stats', module: 'old.stats', after: [], settings: { providerOption: 'unchanged' } }, { id: 'client', module: 'consumer', after: ['stats'], settings: { text: '你好 🌍' } }], bindings: [{ from: 'stats', to: 'client', contract: { id: 'text.statistics', version: '1.0.0' } }] };
+  let candidateDigest = 'candidate-1';
+  const { body, ui, imports } = harness(async (path, request) => {
+    calls.push([path, request]);
+    if (path.endsWith('/inspect')) return { authoring: { revision: 'base', pack, modules: [{ id: 'old.stats', runtime: { kind: 'node' }, provides: [{ id: 'text.statistics', version: '1.0.0' }] }, { id: 'consumer', requires: [{ id: 'text.statistics', version: '1.0.0' }] }] } };
+    if (path.endsWith('/preview')) return { preview: { compatible: true, declarationCompatible: true, businessValidated: false, sourceRevision: 'base', candidateDigest, affectedComponents: ['stats'], candidate: { directory: 'python-module', manifest: { id: 'python.stats', version: '1.0.0', runtime: { kind: 'python' }, provides: [{ id: 'text.statistics', version: '1.0.0' }] } }, differences: { runtime: { before: { kind: 'node', entry: 'program.mjs' }, after: { kind: 'python', entry: 'program.py' }, changed: true }, permissions: { before: { filesystem: 'instance-state', network: ['hub-loopback'], processes: 'none' }, after: { filesystem: 'instance-state', network: ['hub-loopback'], processes: 'none' }, changed: false }, license: { before: 'MIT', after: 'MIT', changed: false } }, diagnostics: [] } };
+    if (path.endsWith('/derive')) return { operationId: 'derive-guided' };
+    return { operation: { state: 'succeeded', result: { directory: 'new-derived' } } };
+  });
+  ui.navigate('creator'); const root = body.querySelector('#creator-content'), inspect = root.querySelector('form'); inspect.elements.directory.value = 'source-pack'; await inspect.dispatch('submit');
+  const guided = root.querySelectorAll('form').find(form => form.elements.componentId);
+  assert.deepEqual(Object.keys(guided.elements).sort(), ['componentId', 'moduleDirectory']);
+  guided.elements.moduleDirectory.value = 'python-module'; await guided.dispatch('submit');
+  assert.match(root.textContent, /Exact declarations match; business behavior unverified/);
+  assert.match(root.textContent, /Declared permissions/); assert.match(root.textContent, /Runtime entry/); assert.match(root.textContent, /License/);
+  candidateDigest = 'candidate-2'; await byText(root, 'Use this candidate module').dispatch('click');
+  assert.match(root.textContent, /Contents or environment changed/); assert.match(root.querySelector('.composition-graph').textContent, /old.stats/);
+  await guided.dispatch('submit'); await byText(root, 'Use this candidate module').dispatch('click');
+  assert.match(root.querySelector('.composition-graph').textContent, /python.stats/);
+  const derive = root.querySelectorAll('form').find(form => form.elements.packId); derive.elements.destination.value = 'new-derived'; await derive.dispatch('submit');
+  assert.equal(calls.some(([path]) => path.endsWith('/derive')), false); await (await consent(body)).dispatch('click');
+  const [, request] = calls.find(([path]) => path.endsWith('/derive'));
+  assert.deepEqual(request.pack, pack); assert.deepEqual(request.replacements, [{ componentId: 'stats', moduleDirectory: 'python-module' }]);
+  assert.match(root.textContent, /New instances use new data directories/);
+  await byText(root, 'Import and review execution').dispatch('click'); assert.equal(imports.length, 1); assert.equal(body.querySelector('#import-form').elements.directory.value, 'new-derived');
+  assert.ok(calls.every(([path]) => !path.endsWith('/start') && !path.endsWith('/upgrade') && path !== '/api/instances'));
+});
+
+test('guided mismatch explains contract and platform causes in both languages and can be abandoned without changing the draft', async () => {
+  for (const language of ['en', 'zh']) {
+    const calls = [], pack = { id: 'sample', version: '1.0.0', title: 'Statistics', components: [{ id: 'stats', module: 'old.stats' }], bindings: [] };
+    const { body, ui, state } = harness(async (path, request) => {
+      calls.push([path, request]);
+      if (path.endsWith('/inspect')) return { authoring: { revision: 'base', pack, modules: [{ id: 'old.stats', provides: [{ id: 'text.statistics', version: '1.0.0' }] }] } };
+      if (path.endsWith('/preview')) return { preview: { compatible: false, declarationCompatible: false, sourceRevision: 'base', candidateDigest: 'candidate', candidate: { directory: 'incompatible-module', manifest: { id: '<script>unsafe</script>', version: '2.0.0' } }, diagnostics: [{ code: 'CONTRACT_INCOMPATIBLE', message: 'Technical contract failure' }, { code: 'PLATFORM_UNSUPPORTED', moduleId: 'new.stats' }], differences: {} } };
+      throw new Error('Unexpected mutation: ' + path);
+    });
+    state.language = language; ui.navigate('creator'); const root = body.querySelector('#creator-content'), inspect = root.querySelector('form'); inspect.elements.directory.value = 'source-pack'; await inspect.dispatch('submit');
+    const guided = root.querySelectorAll('form').find(form => form.elements.componentId); guided.elements.moduleDirectory.value = 'incompatible-module'; await guided.dispatch('submit');
+    assert.match(root.textContent, language === 'en' ? /contract ID or exact version does not match/ : /合同 ID 或精确版本不匹配/);
+    assert.match(root.textContent, language === 'en' ? /does not declare support for this platform/ : /没有声明支持当前平台/);
+    assert.equal(byText(root, language === 'en' ? 'Use this candidate module' : '使用此候选模块'), undefined); assert.equal(root.querySelectorAll('script').length, 0);
+    await byText(root, language === 'en' ? 'Cancel candidate preview' : '取消候选预览').dispatch('click');
+    assert.match(root.querySelector('.composition-graph').textContent, /old.stats/); assert.equal(calls.length, 2);
+  }
 });
 
 test('software source network policy defaults closed and fetch uses the inspected policy receipt', async () => {

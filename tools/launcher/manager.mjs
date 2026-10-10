@@ -16,6 +16,7 @@ import { diagnose } from './diagnostics.mjs';
 import { SourceRegistry } from './source-registry.mjs';
 import { inspectTemplate, previewTemplate, instantiateTemplate, createTemplate } from '../../scripts/runtime/template.mjs';
 import { previewUpgrade, upgradeInstance, inspectUpgradeHistory, previewRollback, rollbackUpgrade, recoverUpgrade } from '../../scripts/runtime/upgrade.mjs';
+import { previewStagedUpgrade, createStagedUpgrade } from '../../scripts/runtime/staged-upgrade.mjs';
 import { probeIsolation, reviewIsolationPackage } from '../../scripts/runtime/isolation.mjs';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
@@ -23,6 +24,8 @@ export function launcherError(code, message, status = 409) { return Object.assig
 const errorOf = error => ({ code: error.code ?? 'LAUNCHER_ERROR', message: String(error.message).slice(0, 2048),
   diagnostic: diagnose(error),
   ...(error.incompleteDestination ? { incompleteDestination: error.incompleteDestination } : {}),
+  ...(error.returnToOldInstance ? { returnToOldInstance: error.returnToOldInstance, oldInstancePreserved: error.oldInstancePreserved,
+    candidateMayNeedRecovery: error.candidateMayNeedRecovery, candidateStateDir: error.candidateStateDir, backup: error.backup, rollbackBoundary: error.rollbackBoundary } : {}),
   ...(error.cleanupIncomplete ? { cleanupIncomplete: true, retainedDirectory: error.retainedDirectory } : {}) });
 const json = async path => JSON.parse((await readBounded(path)).toString('utf8'));
 const optionsFor = row => ({ root: row.root, instanceId: row.instanceId, ...row.environment });
@@ -141,6 +144,7 @@ export class LauncherManager {
   }
   async importNow(reviewId, instanceId) {
     safeId(instanceId); if (this.records.size >= 128) throw launcherError('INSTANCE_LIMIT', 'Launcher supports at most 128 tracked instances.');
+    if (this.busy.has(instanceId)) throw launcherError('INSTANCE_BUSY', 'Wait for the reserved instance operation.');
     if (this.records.has(instanceId)) throw launcherError('INSTANCE_EXISTS', 'Choose a new instance ID; existing data is retained.');
     const reviewed = this.reviewed(reviewId, null); await this.verifyReview(reviewed);
     const imported = await importPackage(reviewed.plan.directory, { root: this.root, instanceId, ...reviewed.environment });
@@ -337,6 +341,31 @@ export class LauncherManager {
     if (this.busy.has(id)) throw launcherError('INSTANCE_BUSY', 'Wait for the current instance operation.');
     const options = { ...optionsFor(row), candidate: input.candidate, statePolicies: input.statePolicies };
     return this.rememberCompletion('upgrade', options, await previewUpgrade(options), id);
+  }
+  async stagedUpgradePreview(id, input) {
+    const row = await this.maintainedRow(id);
+    if (row.detached) throw launcherError('INSTANCE_DETACHED', 'Reattach software before preparing an upgrade.');
+    if (this.busy.has(id) || this.busy.has(input.newInstanceId)) throw launcherError('INSTANCE_BUSY', 'Wait for the current instance operation.');
+    safeId(input.newInstanceId);
+    if (this.records.has(input.newInstanceId)) throw launcherError('INSTANCE_EXISTS', 'Choose a new instance ID.');
+    const options = { ...optionsFor(row), candidate: input.candidate, newInstanceId: input.newInstanceId,
+      backupDestination: input.backupDestination, statePolicy: input.statePolicy, ...(input.statePolicies ? { statePolicies: input.statePolicies } : {}) };
+    return this.rememberCompletion('staged-upgrade', options, await previewStagedUpgrade(options), id);
+  }
+  async stagedUpgradeExecute(id, input) {
+    if (input.accepted !== true) throw launcherError('TRUST_REQUIRED', 'Accept the candidate, data policy and private backup.');
+    const review = this.completionReview(input.previewId, 'staged-upgrade', id), newId = review.input.newInstanceId;
+    if (this.busy.has(newId) || this.records.has(newId) || this.records.size >= 128) throw launcherError('INSTANCE_EXISTS', 'Choose an available new instance ID within the instance limit.');
+    const operation = this.launch('staged-upgrade', id, async (_, signal) => {
+      const result = await createStagedUpgrade({ ...review.input, trust: review.preview.trustDigest, signal });
+      this.records.set(newId, { root: this.root, instanceId: newId, pack: { id: result.plan.pack.id, version: result.plan.pack.version, title: result.plan.pack.title },
+        importedAt: new Date().toISOString(), environment: this.row(id).environment, permissions: result.plan.permissions,
+        sourceReceipt: null, sourceDigest: null, stagedFrom: id, backup: { destination: result.backup.destination, sha256: result.backup.sha256 } });
+      await this.save(); return { ...result, instance: await this.instance(newId) };
+    });
+    const pending = this.operations.get(operation.operationId); this.busy.set(newId, pending);
+    pending.promise.finally(() => { if (this.busy.get(newId) === pending) this.busy.delete(newId); });
+    this.completionReviews.delete(input.previewId); return operation;
   }
   async rollbackPreview(id, input) {
     const row = this.row(id); if (this.busy.has(id)) throw launcherError('INSTANCE_BUSY', 'Wait for the current instance operation.');

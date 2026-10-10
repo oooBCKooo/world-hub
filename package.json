@@ -1,6 +1,6 @@
 {
   "name": "world-hub",
-  "version": "0.17.2",
+  "version": "0.18.0",
   "license": "MIT",
   "author": "oooBCKooo",
   "repository": {
@@ -21,6 +21,7 @@
   "bin": {
     "world-hub": "bin/world-hub.mjs",
     "world-hub-pack": "bin/world-hub-pack.mjs",
+    "world-hub-interop": "bin/world-hub-interop.mjs",
     "world-hub-workshop": "tools/workshop/cli.mjs"
   },
   "exports": {
@@ -35,6 +36,11 @@
     "README.en.md",
     "bin/world-hub.mjs",
     "bin/world-hub-pack.mjs",
+    "bin/world-hub-interop.mjs",
+    "tools/interop/**/*.mjs",
+    "tools/interop/**/*.py",
+    "tools/interop/**/*.json",
+    "tools/interop/**/*.md",
     "scripts/runtime/*.mjs",
     "scripts/runtime/templates/**/*.mjs",
     "scripts/runtime/templates/**/*.py",
@@ -102,6 +108,7 @@
     "test:demos": "node scripts/verify.mjs --suite demos",
     "test:capabilities": "node scripts/verify.mjs --suite capabilities",
     "test:ecosystem": "node scripts/verify.mjs --suite ecosystem",
+    "test:interop": "node scripts/verify.mjs --suite interop",
     "test:recovery": "node scripts/test-recovery.mjs",
     "build": "node scripts/release/build-package.mjs",
     "build:demos": "node scripts/release/build-demo-packages.mjs",

@@ -134,7 +134,7 @@ export async function createLauncherServer(options = {}) {
       else if (/^\/api\/operations\/[a-f0-9-]+$/.test(target.pathname) && request.method === 'GET') result = { operation: manager.operation(target.pathname.split('/').at(-1)) };
       else if (/^\/api\/operations\/[a-f0-9-]+\/cancel$/.test(target.pathname) && request.method === 'POST') { fields(body, []); result = { operation: await manager.cancelOperation(target.pathname.split('/').at(-2)) }; }
       else {
-        const match = /^\/api\/instances\/([a-z0-9][a-z0-9._-]{0,63})(?:\/(review|start|stop|restart|logs|export|topology|storage|backup|detach|reattach|upgrade-plan|upgrade|upgrade-history|rollback-plan|rollback-upgrade|recover-upgrade))?$/.exec(target.pathname);
+        const match = /^\/api\/instances\/([a-z0-9][a-z0-9._-]{0,63})(?:\/(review|start|stop|restart|logs|export|topology|storage|backup|detach|reattach|upgrade-plan|upgrade|upgrade-history|staged-upgrade-plan|staged-upgrade|rollback-plan|rollback-upgrade|recover-upgrade))?$/.exec(target.pathname);
         if (!match) throw launcherError('NOT_FOUND', 'Unknown Launcher operation.', 404);
         const [, id, action] = match;
         if (!action && request.method === 'GET') result = { instance: await manager.instance(id) };
@@ -145,6 +145,8 @@ export async function createLauncherServer(options = {}) {
         else if (action === 'storage' && request.method === 'GET') result = { storage: await manager.storage(id) };
         else if (action === 'upgrade-history' && request.method === 'GET') result = await manager.upgradeHistory(id);
         else if (action === 'upgrade-plan' && request.method === 'POST') { fields(body, ['candidate', 'statePolicies'], ['candidate', 'statePolicies']); result = await manager.upgradePreview(id, body); }
+        else if (action === 'staged-upgrade-plan' && request.method === 'POST') { fields(body, ['candidate', 'newInstanceId', 'backupDestination', 'statePolicy', 'statePolicies'], ['candidate', 'newInstanceId', 'backupDestination', 'statePolicy']); result = await manager.stagedUpgradePreview(id, body); }
+        else if (action === 'staged-upgrade' && request.method === 'POST') { fields(body, ['previewId', 'accepted'], ['previewId', 'accepted']); result = await manager.stagedUpgradeExecute(id, body); status = 202; }
         else if (action === 'rollback-plan' && request.method === 'POST') { fields(body, ['transactionId'], ['transactionId']); result = await manager.rollbackPreview(id, body); }
         else if (['upgrade', 'rollback-upgrade', 'recover-upgrade'].includes(action) && request.method === 'POST') { fields(body, ['previewId', 'accepted'], ['previewId', 'accepted']); result = await manager.completionExecute(id, action, body); status = 202; }
         else if (action === 'backup' && request.method === 'POST') { fields(body, ['destination', 'accepted'], ['destination', 'accepted']); result = manager.backup(id, body.destination, body.accepted); status = 202; }

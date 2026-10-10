@@ -2,6 +2,8 @@
 
 本页、[机器可读业务契约](text-statistics.contract.json)和[JavaScript SDK](../../sdk/javascript/README.md)构成编写独立 `text.statistics@1.0.0` 提供者所需的公开材料。不需要读取已有处理器、目录或组装器的实现。其他语言可以遵守同一应用层契约并使用自己的桥。
 
+Python SDK 只提供底层 `send`／`receive`，跨语言作者还应阅读[Python SDK](../../sdk/python/README.md)、[完整线协议](../specs/protocol.md)、[请求与回应](../specs/directed-and-bulk.md)及[桥互操作](../specs/bridge-interoperability.md)，以公开帧定义建立通道、订阅、配对接纳和回应、确认投递；JS 的高级方法不是所有语言 SDK 都已经实现的接口。完成提供者后可用[公开互操作基准](../ecosystem/interop.md)分别检查声明、桥行为与业务结果。
+
 能力目录和组装器是可选的外部程序。本契约规定的是这套程序如何合作，不成为接入 World Hub 的要求。Hub 只传递任意主题上的信息、校验通讯身份与权限、按提供者策略留存；它不解析清单、选择算法、授予业务权力或决定程序形态。
 
 ## 部署方交付的接线信息

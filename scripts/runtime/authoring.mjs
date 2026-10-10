@@ -1,9 +1,10 @@
 // Optional creator tooling. These operations never start a module or alter Hub Core.
-import { mkdir, writeFile, open, unlink } from 'node:fs/promises';
+import { mkdir, writeFile, open, unlink, readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { inspectPackage, createLock, validatePack, validateModule, validateLock } from './package.mjs';
 import { ordinaryPath, readBounded, collectFiles, hash, relativePath, privateJson } from './paths.mjs';
+import { doctorModule } from './developer.mjs';
 
 const copy = value => JSON.parse(JSON.stringify(value));
 const sha = /^[a-f0-9]{64}$/;
@@ -91,15 +92,35 @@ export async function previewReplacement(source, options) {
   const nextComponent = prepared.pack.components.find(c => c.id === options.componentId);
   const candidate = prepared.used.find(m => m.manifest.id === nextComponent.module);
   const after = candidate.manifest;
+  const doctor = await doctorModule({ directory: candidate.directory, nodePath: options.nodePath, pythonPath: options.pythonPath });
+  const interpreter = doctor.interpreter ? copy(doctor.interpreter) : null;
+  if (interpreter?.available) interpreter.sha256 = hash(await readFile(interpreter.executable));
+  const requirements = async directory => {
+    try { return (await readBounded(join(directory, 'requirements.txt'), 65536)).toString(); }
+    catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+  };
+  const previousModule = original.review.modules.find(m => m.manifest.id === before.id);
+  const beforeDependencies = { components: component.after, contracts: before.requires, requirements: await requirements(join(original.directory, previousModule.source)) };
+  const afterDependencies = { components: nextComponent.after, contracts: after.requires, requirements: await requirements(candidate.directory) };
+  const environment = { runtime: after.runtime.kind, interpreter, otherDependenciesChecked: doctor.otherDependenciesChecked ?? false,
+    runsFixedInterpreterProbe: true, executesModule: false };
+  const diagnosticActions = { PLATFORM_UNSUPPORTED: 'Choose a module for this platform.', BRIDGE_SLOTS_MISMATCH: 'Choose matching bridge slots or derive an adapted pack.',
+    CONTRACT_UNBOUND: 'Connect the required contract in a derived pack.', CONTRACT_INCOMPATIBLE: 'Choose the exact bound contract version or adapt the external consumer.' };
+  const diagnostics = [...prepared.diagnostics.map(d => ({ ...d, layer: d.code === 'PLATFORM_UNSUPPORTED' ? 'environment' : 'declaration', action: diagnosticActions[d.code] })),
+    ...doctor.issues.filter(d => d.code !== 'MODULE_PLATFORM_UNSUPPORTED').map(d => ({ ...d, layer: ['environment', 'dependency'].includes(d.stage) ? 'environment' : 'declaration', action: d.remedy }))];
+  const declarationCompatible = !diagnostics.some(d => d.layer === 'declaration');
+  const environmentCompatible = !diagnostics.some(d => d.layer === 'environment');
   const differences = Object.fromEntries([
     ['identity', { id: before.id, version: before.version }, { id: after.id, version: after.version }],
     ['contracts', { provides: before.provides, requires: before.requires }, { provides: after.provides, requires: after.requires }],
-    ...['bridges', 'permissions', 'platforms', 'runtime', 'license'].map(key => [key, before[key], after[key]])
+    ...['bridges', 'permissions', 'platforms', 'runtime', 'license'].map(key => [key, before[key], after[key]]),
+    ['startupDependencies', beforeDependencies, afterDependencies]
   ].map(([key, previous, next]) => [key, { before: copy(previous), after: copy(next), changed: JSON.stringify(previous) !== JSON.stringify(next) }]));
   return { sourceRevision: original.revision, candidate: { manifest: copy(after), directory: candidate.directory },
-    candidateDigest: hash(JSON.stringify(candidate.files)), compatible: prepared.diagnostics.length === 0,
+    candidateDigest: hash(JSON.stringify(candidate.files)), compatible: declarationCompatible && environmentCompatible,
+    declarationCompatible, environmentCompatible, environment,
     differences, affectedComponents: prepared.pack.components.filter(c => c.id === options.componentId || c.module === after.id).map(c => c.id),
-    diagnostics: prepared.diagnostics, businessValidated: false, stateCompatibility: 'unknown',
+    diagnostics, businessValidated: false, stateCompatibility: 'unknown',
     requiresNewExecutionReview: true, startsModules: false, writesFiles: false };
 }
 export async function derivePackage(source, options) {

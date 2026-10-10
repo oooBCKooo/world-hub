@@ -42,6 +42,8 @@ node --test ./my-statistics/logic.test.mjs
 
 软件源可持久启用、禁用和排序；相同对象身份不同摘要会明确提示冲突。创作工作台可查看实际候选的合同、桥、权限和平台差异。声明兼容仍须用真实消费者验证业务结果。完整能力与验证边界见[第十七期](docs/ecosystem/phase17.md)。
 
+Creator 的引导表单可选择组件和候选模块，无需编辑 JSON 就能预览声明／环境差异、派生新目录，再导入并重新审阅执行。自己的 `text.statistics@1.0.0` 提供者可用 `world-hub-interop verify --config private-wiring.json --report new-report.json` 检查；[公开基准](docs/ecosystem/interop.md)分开声明、桥行为和业务结果，仓库 `npm run test:interop` 可重跑 JS／Python 参考链路。[候选试用](docs/ecosystem/upgrade.md)保留旧实例和私有备份，另建新实例供审阅启动、验证成果后自行切换。[第十八期](docs/ecosystem/phase18.md)明确自动验收、真人待办及签名接口设计的范围。
+
 ## 可选托管社区
 
 [World Hub Workshop](https://peros.cn/workshop/) 提供公开的 Pack／Module 目录和下载。受邀开发者可以发布不可变版本、发表评论，并提交绑定原版摘要的改进提案；作者检查后发布新版本。将 `https://peros.cn/workshop/index.json` 加到 Launcher 的“软件源”，即可校验、缓存，再按本机审阅流程导入与启动。

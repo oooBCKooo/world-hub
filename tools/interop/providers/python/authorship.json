@@ -1,0 +1,37 @@
+{
+  "method": "integration-ai-separately-implemented-reference",
+  "accessBoundary": "Author reviewed public documentation and the existing JavaScript fixture; no independent docs-only authorship claim.",
+  "materials": [
+    {
+      "publicPath": "docs/modules/provider-contract.md",
+      "sha256": "4ad33a7cd9e5e0607ae9c76a36c3ff7214f5fef63635ab422d50de490d6bee3d"
+    },
+    {
+      "publicPath": "docs/modules/text-statistics.contract.json",
+      "sha256": "726a0a38d5cf1c7f4802d5f004e557ac81795f5b27a89163d8afd476bf9b90a1"
+    },
+    {
+      "publicPath": "sdk/python/README.md",
+      "sha256": "e799e79d9b109d11e1e99a90dcadd8ea5a2ab9c5151523f3e679978d5e1d1902"
+    },
+    {
+      "publicPath": "sdk/python/hub_bridge.py",
+      "sha256": "ae5d4ef57e4e20f739bc32fadfb6a9c8ce079462eca203f6958a9e5d6ee7f3ce"
+    },
+    {
+      "publicPath": "docs/specs/bridge-interoperability.md",
+      "sha256": "40992be549b98ca73f3a41e78106b380b43f7f6440e88c3d4b0895269fbec3df"
+    },
+    {
+      "publicPath": "docs/specs/protocol.md",
+      "sha256": "9063f136e9dc76b3bd9203a8fae2532382308fa98321b834d079365d9c946fa6"
+    },
+    {
+      "publicPath": "docs/specs/directed-and-bulk.md",
+      "sha256": "0504667001a1d133b357e4ea90c8870c89ad07d7b035d0eabf54e70aec27ef48"
+    }
+  ],
+  "implementationSha256": "a702bfe50879a35eae8e322d9b135b127927291df09d58ee2d36d6c4214176bc",
+  "humanThirdPartyAcceptance": false,
+  "secondIndependentAuthor": false
+}
