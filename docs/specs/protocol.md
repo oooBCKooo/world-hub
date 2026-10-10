@@ -16,6 +16,8 @@
 
 启用附加能力的 welcome 另含稳定 `principal`、每次认证唯一的 `session`、`features` 与 `blobLimits`。新增 API 先检查特性，不把 target 放进旧 publish 帧；否则旧枢纽可能忽略字段并广播。现有 wireHash 只是版本字符串校验，不代表具体特性存在。
 
+`features` 的线上形状是字符串数组，例如 `["directed-v1", "blob-v1"]`，不是布尔键值对象。使用定向帧前先确认该数组包含 `"directed-v1"`；使用 Blob 帧前确认包含 `"blob-v1"`。顺序没有意义，忽略不认识的特性名；字段缺失、形状错误或未包含所需特性时，不发送依赖该特性的帧。
+
 principal 的分发与核对由接入程序负责，Hub 数据面没有程序名册或业务服务发现帧。推荐由部署方将对端 endpoint、稳定 principal、主题写入各程序自己的受信配置，对端用自身 `welcome.principal` 核对配置。程序也可在自行约定的发现主题发布广告，接收方按已认可的通讯来源核对广告；body 中自报 principal 不证明身份。定向 delivery 的 `fromPrincipal` 由 Hub 确定，普通 publish 的 `from` 是连接实例身份。精确 session 是短期地址，不能作为跨重连的稳定配置。本机 `/status` 和 `/manage` 可以列出当前接入主体的 principal、通道和关系注记，但属于运维视图，不是程序业务名册，不能替代以上核对。
 
 ## 动态通道注册

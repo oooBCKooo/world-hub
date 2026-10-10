@@ -98,7 +98,7 @@
   "supportingFiles": [
     {
       "path": "README.md",
-      "sha256": "26ecf022e0353462cc7467c3b011b4732b162094cbf5f55cb3e6a363d5995513",
+      "sha256": "3d7e5a900a2fb1cbf445c2b1c53b5f8b95ba026e601e98b08dbaff5f04022cfb",
       "adaptedBy": "integration coordinator for repository-relative usage"
     }
   ],
@@ -157,5 +157,12 @@
     "businessCasesPerProvider": 13,
     "leaseRenewalBeforeApplicationInvocation": true,
     "acceptedBy": "integration coordinator, separate from author"
+  },
+  "integrationDocumentationRepair": {
+    "path": "docs/specs/protocol.md",
+    "field": "welcome.features",
+    "wireShape": "array of feature-name strings",
+    "implementationChanged": false,
+    "originalMaterialsCommitRetained": true
   }
 }

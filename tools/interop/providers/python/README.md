@@ -56,3 +56,5 @@ python -B tools/interop/providers/python/provider.py --self-check --contract-pat
 材料缺口记录：初始指定的 `docs/modules/README.md`、`docs/capabilities.md`、`docs/bridge-spec.md` 不存在。`provider-contract.md` 明确说明 Python SDK 只交付 send/receive，因此主代理另行授权读取它指向的 `docs/specs/protocol.md`、`docs/specs/directed-and-bulk.md`、`docs/specs/bridge-interoperability.md`，线帧均据此实现；没有访问参考提供者或测试。所读规范说明 welcome.features 的协商语义，但没有列出该字段的完整序列化 Schema；实现接受包含 `directed-v1` 的列表，或该键为 true 的对象。此字段形状边界已记录，不将广告或自检当作通用互操作证明。
 
 Public acceptance: run `npm run test:interop` from the repository root. The same unchanged CLI and application consumer test this Python provider and the JavaScript provider with separate declaration, protocol and business reports, including numeric type preservation and lease renewal. This is an AI docs-only experiment; independent human acceptance remains pending. The integration coordinator adapted only this README for portable paths and added acceptance metadata; provider.py retains the exact author-frozen bytes.
+
+实验当时发现的 `welcome.features` 形状缺口已由集成审阅补入当前[公开协议](../../../../docs/specs/protocol.md)：线上值为字符串数组。作者所读的旧文档摘要仍绑定 `materialsCommit`，实现保持冻结原字节；其中额外接受对象形状是该参考程序的容错，不是规范要求。
