@@ -19,6 +19,8 @@ import { previewUpgrade, upgradeInstance, inspectUpgradeHistory, previewRollback
 import { previewStagedUpgrade, createStagedUpgrade } from '../../scripts/runtime/staged-upgrade.mjs';
 import { probeIsolation, reviewIsolationPackage } from '../../scripts/runtime/isolation.mjs';
 import { verifyStoredPublisherEvidence } from '../../scripts/runtime/publisher-store.mjs';
+import { PathsService } from './paths-service.mjs';
+import { CreatorDrafts } from './creator-drafts.mjs';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
 export function launcherError(code, message, status = 409) { return Object.assign(new Error(message), { code, status }); }
@@ -42,11 +44,13 @@ export class LauncherManager {
       pythonPath: options.pythonPath ?? (process.platform === 'win32' ? 'python.exe' : 'python3') };
     this.records = new Map(); this.reviews = new Map(); this.operations = new Map(); this.sessions = new Map();
     this.sourceRegistry = new SourceRegistry(this.root); this.sourceReviews = new Map(); this.completionReviews = new Map(); this.publisherReviews = new Map();
+    this.paths = new PathsService(this.root); this.creatorDrafts = new CreatorDrafts(this.root);
     this.busy = new Map(); this.registryQueue = Promise.resolve(); this.saveQueue = Promise.resolve(); this.environmentPlans = new Map(); this.preparationOwners = new Map(); this.url = ''; this.hub = null; this.hubFailure = null; this.closing = false;
   }
   async initialize() {
     await ordinaryPath(this.root, { allowMissing: true }); await mkdir(this.root, { recursive: true, mode: 0o700 });
     await this.sourceRegistry.initialize();
+    await this.paths.initialize(); await this.creatorDrafts.initialize();
     try {
       const data = await json(join(this.root, 'launcher-instances.json'));
       if (!Array.isArray(data.instances) || data.instances.length > 128) throw new Error('Invalid Launcher instance registry');
@@ -92,6 +96,7 @@ export class LauncherManager {
   async cancelOperation(id) {
     const operation = this.operations.get(id); if (!operation) throw launcherError('OPERATION_NOT_FOUND', 'Unknown operation', 404);
     if (['stop', 'detach', 'reattach'].includes(operation.kind)) throw launcherError('CANCEL_UNAVAILABLE', 'Wait for this short consistency operation to finish.');
+    if (operation.state === 'running' || operation.error?.cleanupIncomplete) operation.cancelRequestedAt ??= new Date().toISOString();
     operation.controller.abort(); await this.clearPreparationOwner(id); return this.publicOperation(operation);
   }
   async review(directory, environment, instanceId = null) {
@@ -177,7 +182,14 @@ export class LauncherManager {
     const links = { entryUrl: status.state === 'running' ? loopbackUrl(status.entryUrl)?.href ?? null : null,
       managementUrl: hub ? managementLink({ hubUrl: hub.href, launcherUrl: this.url, instanceId: id, runId: status.runId }) : null,
       workbenchUrl: hub ? managementLink({ hubUrl: hub.href, launcherUrl: this.url, instanceId: id, runId: status.runId, workbench: true }) : null };
-    return { id, instanceId: id, directory: stateDir, packageDirectory: join(stateDir, row.detached ? 'detached-package' : 'package'), ...row, status, links,
+    const packageDirectory = join(stateDir, row.detached ? 'detached-package' : 'package');
+    let moduleCount = null;
+    try {
+      const declaration = JSON.parse((await readBounded(join(packageDirectory, 'pack.json'), 65536)).toString('utf8'));
+      if (declaration.format === 'world-hub.pack/v1' && Array.isArray(declaration.components) && declaration.components.length > 0 && declaration.components.length <= 32
+        && declaration.components.every(component => component && typeof component.id === 'string' && typeof component.module === 'string')) moduleCount = declaration.components.length;
+    } catch { /* An unavailable declaration is unknown; it is never zero. */ }
+    return { id, instanceId: id, directory: stateDir, packageDirectory, ...row, moduleCount, status, links,
       operation: this.busy.get(id) ? this.publicOperation(this.busy.get(id)) : null };
   }
   async instances() { return Promise.all([...this.records.keys()].map(id => this.instance(id))); }
@@ -187,6 +199,8 @@ export class LauncherManager {
   }
   publicOperation(operation) { const { promise, controller, ...value } = operation; return value; }
   operation(id) { const operation = this.operations.get(id); if (!operation) throw launcherError('OPERATION_NOT_FOUND', 'Unknown operation', 404); return this.publicOperation(operation); }
+  operationList() { return { operations: [...this.operations.values()].slice(-128).reverse().map(operation => this.publicOperation(operation)) }; }
+  discoverPaths(input) { return this.launch('discover-paths', '$path-discovery', (_, signal) => this.paths.discover(input, signal)); }
   launch(kind, instanceId, work) {
     if (this.closing) throw launcherError('LAUNCHER_STOPPING', 'Launcher is stopping.');
     if (kind !== 'stop' && this.busy.has(instanceId)) throw launcherError('INSTANCE_BUSY', 'Wait for this instance operation to complete.');
@@ -498,6 +512,7 @@ export class LauncherManager {
     await this.registryQueue;
     await Promise.all([...this.operations.values()].filter(op => op.state === 'running').map(op => op.promise));
     await this.saveQueue;
+    await this.paths.queue; await this.creatorDrafts.queue;
     const errors = [];
     for (const [id] of this.preparationOwners) try { await this.clearPreparationOwner(id); } catch (error) { errors.push(error); }
     for (const [id] of this.sessions) try { await this.stopNow(id); } catch (error) { errors.push(error); }

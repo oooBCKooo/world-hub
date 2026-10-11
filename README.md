@@ -27,6 +27,8 @@ world-hub ui --open
 
 Launcher 是可选的本机部署与导航工具，调用外部 Runtime。Hub Core 继续只负责通讯；独立程序、原有 `world-hub --open` 和无界面部署仍可单独使用。界面可发现已安装解释器；经用户审阅后，有限方案可为锁定的 Python 依赖准备独立环境，其余环境由用户准备。声明权限和 Python venv 都不是操作系统沙箱。软件源无需在线才可运行本地实例，生成发布目录也不代表已上传社区。详见[统一入口指南](docs/ecosystem/launcher.md)。
 
+路径字段支持直接选择本机目录／文件、最近使用与有限范围候选发现。创作工作台按“来源 → 组合配置 → 检查生成”推进，可保存并恢复私有草稿；任务中心保留本次 Launcher 进程的进度与结果，刷新页面后仍可查看。中文／英文与小屏提供相同操作入口。见[路径、草稿与任务使用说明](docs/launcher-ux.md)。
+
 ![统一入口：实际运行的跨语言整合包及其独立程序](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-launcher.jpg?v=0.16.1)
 
 ## 编写并交付独立模块

@@ -1,5 +1,7 @@
 import { initialLanguage, translate, applyLanguage } from './i18n.mjs';
 import { createAdvancedUi } from './advanced.mjs';
+import { createPathUi } from './path-ui.mjs';
+import { createTaskUi } from './task-ui.mjs';
 
 const $ = selector => document.querySelector(selector);
 const sessionKey = 'world-hub.launcher.session';
@@ -25,7 +27,8 @@ const isStale = status => status?.observation === 'stale' || status?.supervisorU
 const operationFor = instance => state.operations.get(idOf(instance)) ?? (instance?.operation?.state === 'running' ? instance.operation : null);
 const stopBlocked = instance => { const operation = operationFor(instance); return operation && !['start', 'restart'].includes(operation.kind); };
 const preparing = instance => ['start', 'restart'].includes(operationFor(instance)?.kind);
-let advanced;
+let advanced, paths, tasks, restoringHistory = false, historyReady = false;
+const say = (zh, en) => state.language === 'zh' ? zh : en;
 
 // Every remote string is inserted through textContent/text nodes. Pack content never becomes markup.
 function el(tag, attributes = {}, children = []) {
@@ -100,7 +103,9 @@ function renderError(target, error) { const node = $(target); node.className = '
 function operationError(error) {
   let dialog = $('#operation-error-dialog');
   if (!dialog) { dialog = el('dialog', { id: 'operation-error-dialog', class: 'dialog' }); document.body.append(dialog); }
-  dialog.replaceChildren(el('div', { class: 'dialog-heading' }, [el('h2', {}, t('operationFailed')), button('×', () => dialog.close(), 'icon-button')]), ...errorContents(error));
+  dialog.setAttribute('aria-labelledby', 'operation-error-title');
+  const close = button('×', () => dialog.close(), 'icon-button'); close.setAttribute('aria-label', t('close'));
+  dialog.replaceChildren(el('div', { class: 'dialog-heading' }, [el('h2', { id: 'operation-error-title' }, t('operationFailed')), close]), ...errorContents(error));
   if (!dialog.open) dialog.showModal();
 }
 function guidance(items) {
@@ -129,16 +134,17 @@ function healthBadge(value) { const fresh = freshObservation(value?.lastCheckedA
 function readinessBadge(value) { return pill(t(value === 'ready' ? 'ready' : value === 'not-ready' ? 'notReady' : 'unknown'), value === 'ready' ? 'teal' : ''); }
 
 function stats() {
-  const counts = [state.instances.length, state.instances.filter(i => i.status?.state === 'running' && !isStale(i.status)).length, state.instances.reduce((n, i) => n + (i.status?.components?.length || state.reviews.get(idOf(i))?.review?.pack?.components?.length || 0), 0), state.instances.filter(i => i.status?.state === 'failed' || isStale(i.status) || i.status?.cleanupIncomplete).length];
+  const declared = state.instances.map(i => i.moduleCount ?? state.reviews.get(idOf(i))?.review?.pack?.components?.length ?? null);
+  const counts = [state.instances.length, state.instances.filter(i => i.status?.state === 'running' && !isStale(i.status)).length, declared.some(n => n === null) ? t('unknown') : declared.reduce((a, b) => a + b, 0), state.instances.filter(i => i.status?.state === 'failed' || isStale(i.status) || i.status?.cleanupIncomplete).length];
   return [['totalInstances', 'independentlyManaged', '◇'], ['runningInstances', 'observedProcesses', '▶'], ['moduleCount', 'declaredModules', '⌘'], ['attention', 'failuresAndUnknown', '◌']].map(([label, note, icon], index) => el('div', { class: 'stat' }, [el('div', { class: 'stat-top' }, [t(label), el('span', { class: 'stat-icon', 'aria-hidden': 'true' }, icon)]), el('strong', { class: 'stat-value' }, counts[index]), el('p', { class: 'stat-note' }, t(note))]));
 }
 function renderStats() { $('#pack-stats').replaceChildren(...stats()); $('#overview-stats').replaceChildren(...stats()); }
 function packCard(instance) {
   const id = idOf(instance), status = instance.status ?? {}, busy = Boolean(operationFor(instance));
   const modules = status.components ?? [];
-  const reviewCount = state.reviews.get(id)?.review?.pack?.components?.length;
+  const reviewCount = instance.moduleCount ?? state.reviews.get(id)?.review?.pack?.components?.length;
   const [label, tone] = statusLabel(instance);
-  const facts = definition([[t('modules'), `${modules.length || reviewCount || '—'}`], [t('communication'), isStale(status) ? t('unknown') : modules.length ? `${modules.filter(c => c.communication === 'connected').length} / ${modules.length}` : '—']], 'pack-facts');
+  const facts = definition([[t('modules'), reviewCount ?? t('unknown')], [t('communication'), isStale(status) ? t('unknown') : modules.length ? `${modules.filter(c => c.communication === 'connected').length} / ${modules.length}` : t('unknown')]], 'pack-facts');
   const detached = instance.detached === true || status.state === 'detached';
   const primary = detached ? button(advanced.label('storage'), () => selectInstance(id, 'storage'), 'button button-small button-quiet') : running(instance) || exitUnconfirmed(instance) || preparing(instance) ? button(t('stop'), () => stopInstance(id), 'button button-small button-quiet', stopBlocked(instance) || status.state === 'stopping') : button(t('start'), () => reviewInstance(id, 'start'), 'button button-small button-primary', busy || isStale(status));
   return el('article', { class: 'pack-card' }, [el('div', { class: 'pack-card-top' }, [el('div', { class: 'pack-title-row' }, [el('div', { class: 'pack-symbol', 'aria-hidden': 'true' }, '◇'), el('div', {}, [el('h3', {}, instance.pack?.title ?? instance.pack?.id ?? id), el('div', { class: 'pack-version' }, `v${instance.pack?.version ?? '—'}`)]), pill(label, tone)]), el('div', { class: 'pack-id' }, id), facts]), el('div', { class: 'pack-card-footer' }, [button(`${t('viewDetails')} →`, () => selectInstance(id), 'text-link'), primary])]);
@@ -149,7 +155,7 @@ function renderPacks() {
   const instances = state.instances.filter(i => `${idOf(i)} ${i.pack?.id ?? ''} ${i.pack?.title ?? ''}`.toLocaleLowerCase().includes(search));
   $('#nav-count').textContent = String(state.instances.length);
   $('#collection-count').textContent = t('items', { count: state.instances.length });
-  $('#packs-list').replaceChildren(...(instances.length ? instances.map(packCard) : [empty(t(search ? 'noSearchResults' : 'emptyTitle'), search ? null : t('emptyDescription'), search ? null : button(t('importPack'), openImport, 'button button-primary'))]));
+  $('#packs-list').replaceChildren(...(instances.length ? instances.map(packCard) : [empty(t(search ? 'noSearchResults' : 'emptyTitle'), search ? null : t('emptyDescription'), search ? null : el('div', { class: 'result-actions' }, [button(t('importPack'), openImport, 'button button-primary'), button(say('查找本机整合包', 'Find local packs'), () => { openImport(); void paths.open($('#import-form').elements.directory, 'pack'); }, 'button'), button(say('从软件源获取', 'Fetch from sources'), () => navigate('sources'), 'button button-quiet')]))]));
 }
 function renderOverview() {
   $('#overview-content').replaceChildren(el('div', { class: 'panel' }, [el('div', { class: 'panel-heading' }, [el('h2', {}, t('instances')), el('span', { class: 'subtle' }, date(state.lastRefresh))]), ...(state.instances.length ? state.instances.map(i => el('div', { class: 'runtime-row' }, [el('div', {}, [el('h3', {}, i.pack?.title ?? idOf(i)), el('p', {}, idOf(i))]), el('div', {}, [pill(...statusLabel(i)), button(t('viewDetails'), () => selectInstance(idOf(i)), 'button button-small button-quiet')])])) : [el('p', {}, t('emptyDescription'))]), el('p', { class: 'observation-note' }, t('statusMeaning'))]));
@@ -161,10 +167,10 @@ function hubCards(workbench = false) {
     const isDefault = hub.id === 'default', busy = state.operations.has(`hub:${hub.id}`);
     const actions = [];
     const observed = state.online && !state.hubsUnavailable && freshObservation(state.hubsObservedAt);
-    if (observed && hub.managementUrl) actions.push(localLink(t('topology'), hub.managementUrl));
-    if (observed && hub.workbenchUrl) actions.push(localLink(t('openWorkbench'), hub.workbenchUrl, 'button button-primary'));
-    if (isDefault) actions.push(button(t(hub.state === 'running' ? 'stopHub' : 'startHub'), () => hubOperation(hub.state === 'running' ? 'stop' : 'start'), `button${hub.state === 'running' ? ' button-quiet' : ' button-primary'}`, busy));
-    else actions.push(button(t('viewInstance'), () => selectInstance(hub.id), 'button button-quiet'));
+    if (!workbench && observed && hub.managementUrl) actions.push(localLink(t('topology'), hub.managementUrl, 'button button-primary'));
+    if (workbench && observed && hub.workbenchUrl) actions.push(localLink(t('openWorkbench'), hub.workbenchUrl, 'button button-primary'));
+    if (isDefault && (!workbench || hub.state !== 'running')) actions.push(button(t(hub.state === 'running' ? 'stopHub' : 'startHub'), () => hubOperation(hub.state === 'running' ? 'stop' : 'start'), `button${hub.state === 'running' ? ' button-quiet' : ' button-primary'}`, busy));
+    else if (!isDefault) actions.push(button(t('viewInstance'), () => selectInstance(hub.id), 'button button-quiet'));
     return el('article', { class: 'link-card' }, [el('div', {}, [el('div', { class: 'module-header' }, [el('h3', {}, isDefault ? t('defaultHub') : currentTitle(hub.id)), pill(t(observed ? hub.state ?? 'unknown' : 'unknown'), observed && hub.state === 'running' ? 'teal' : 'amber')]), el('p', {}, isDefault ? t('defaultHubDescription') : t('independentHub')), el('p', { class: 'link-metadata' }, hub.url ?? t('hubWaiting')), el('p', { class: 'observation-note' }, `${t('observedAt')}: ${date(state.hubsObservedAt)}`)]), el('div', { class: 'link-card-actions' }, actions.filter(Boolean))]);
   });
 }
@@ -268,38 +274,65 @@ function renderLogs(instance) {
 }
 function renderDetails(instance) {
   const status = instance.status ?? {};
-  return [el('div', { class: 'panel' }, [el('h2', {}, t('instanceDetails')), definition([[t('instanceId'), idOf(instance)], [t('importedAt'), date(instance.importedAt)], [t('instanceDirectory'), instance.directory], [t('runId'), status.runId], [t('observedAt'), date(status.components?.[0]?.communicationObservedAt)], [t('stoppedAt'), date(status.stoppedAt)], [t('boundEnvironment'), instance.environment]]), el('p', { class: 'observation-note' }, t('isolationNotice'))])];
+  return [el('div', { class: 'panel' }, [el('h2', {}, t('instanceDetails')), definition([[t('instanceId'), idOf(instance)], [t('importedAt'), date(instance.importedAt)], [t('instanceDirectory'), instance.directory], [t('runId'), status.runId], [say('该次运行的执行模式', 'Execution profile for this run'), status.executionProfile ?? t('unknown')], [say('该次运行的保护参数', 'Protection parameters for this run'), status.isolation], [t('observedAt'), date(status.components?.[0]?.communicationObservedAt)], [t('stoppedAt'), date(status.stoppedAt)], [t('boundEnvironment'), instance.environment]]), el('p', { class: 'observation-note' }, t('isolationNotice'))])];
 }
+function focusedButton(root) { const active = document.activeElement; if (!root.contains(active) || !['BUTTON', 'A'].includes(active.tagName)) return null; return { tag: active.tagName, text: active.textContent, href: active.getAttribute('href') }; }
+function restoreButton(root, focus) { if (focus) [...root.querySelectorAll('button,a')].find(node => node.tagName === focus.tag && node.textContent === focus.text && node.getAttribute('href') === focus.href)?.focus({ preventScroll: true }); }
 function renderDetail(force = false) {
   if (state.view !== 'detail') return;
   const instance = current();
   if (!instance) { navigate('packs'); return; }
   const headingStamp = JSON.stringify([instance.pack, instance.links, instance.status?.state, instance.status?.observation, instance.status?.cleanupIncomplete, instance.status?.stoppedAt, instance.status?.failure, isStale(instance.status), state.language, state.operations.get(state.selected)]);
-  if (force || headingStamp !== state.headingStamp) { renderDetailHeading(instance); state.headingStamp = headingStamp; }
+  if (force || headingStamp !== state.headingStamp) { const focus = focusedButton($('#detail-actions')); renderDetailHeading(instance); restoreButton($('#detail-actions'), focus); state.headingStamp = headingStamp; }
   const content = state.tab === 'status'
     ? [instance.status?.components?.map(c => [c.id, c.module, c.pid, c.process, c.communication, c.readiness, Boolean(c.health?.lastCheckedAt), c.health?.ready]), instance.status?.runId, instance.status?.observation, state.topology]
-    : state.tab === 'logs' ? state.logs : state.tab === 'modules' ? state.reviews.get(state.selected)?.reviewId : instance;
+    : state.tab === 'logs' ? state.logs : state.tab === 'modules' ? state.reviews.get(state.selected)?.reviewId
+    : state.tab === 'storage' ? [instance.pack, instance.detached, instance.stagedFrom, instance.environment, instance.status?.state, instance.status?.runId, instance.status?.stoppedAt, instance.status?.cleanupIncomplete, operationFor(instance)]
+    : [instance.pack, instance.directory, instance.importedAt, instance.environment, instance.status?.runId, instance.status?.stoppedAt, instance.status?.executionProfile, instance.status?.isolation];
   const stamp = JSON.stringify([state.selected, content, state.tab, state.language, isStale(instance.status), state.topologyUnavailable]);
   if (!force && stamp === state.detailStamp) return;
   state.detailStamp = stamp;
+  const saved = advanced?.preserve($('#detail-content'));
   const children = state.tab === 'status' ? renderStatus(instance) : state.tab === 'modules' ? renderModules(instance) : state.tab === 'logs' ? renderLogs(instance) : state.tab === 'storage' ? advanced.renderStorage(instance) : renderDetails(instance);
   $('#detail-content').replaceChildren(...children);
+  if (saved) advanced.reinstate($('#detail-content'), saved);
 }
 function renderAll(force = false) {
-  const stamp = JSON.stringify([state.instances.map(i => [idOf(i), i.pack, i.status?.state, i.status?.observation, i.status?.cleanupIncomplete, i.status?.components?.map(c => [c.id, c.communication]), state.reviews.get(idOf(i))?.reviewId]), state.hubs, [...state.operations.entries()], state.language, observationLive(), state.hubsUnavailable, freshObservation(state.hubsObservedAt)]);
-  if (force || stamp !== state.renderStamp) { renderStats(); renderPacks(); renderOverview(); renderHubs(); state.renderStamp = stamp; }
+  const stamp = JSON.stringify([state.instances.map(i => [idOf(i), i.pack, i.moduleCount, i.status?.state, i.status?.observation, i.status?.cleanupIncomplete, i.status?.components?.map(c => [c.id, c.communication]), state.reviews.get(idOf(i))?.reviewId]), state.hubs, [...state.operations.entries()], state.language, observationLive(), state.hubsUnavailable, freshObservation(state.hubsObservedAt)]);
+  if (force || stamp !== state.renderStamp) { const root = $(`#view-${state.view}`), focus = root && focusedButton(root); renderStats(); renderPacks(); renderOverview(); renderHubs(); if (root) restoreButton(root, focus); state.renderStamp = stamp; }
   renderDetail(force);
 }
 
+function recordRoute() {
+  if (restoringHistory) return;
+  const url = `${location.pathname}${state.view === 'detail' ? `?instance=${encodeURIComponent(state.selected)}` : ''}#${state.view === 'detail' ? state.tab : state.view}`;
+  if (url === `${location.pathname}${location.search}${location.hash}` && historyReady) return;
+  history[historyReady ? 'pushState' : 'replaceState']({ view: state.view, instance: state.selected, tab: state.tab }, '', url);
+  historyReady = true;
+}
+function closeMenu() { $('.sidebar').dataset.menuOpen = 'false'; $('#sidebar-menu-toggle').setAttribute('aria-expanded', 'false'); $('#sidebar-menu-toggle').setAttribute('aria-label', t('menuOpen')); }
+function focusPage() { const heading = $(`#view-${state.view} h1`) ?? $('#main'); heading.setAttribute('tabindex', '-1'); heading.focus(); }
 function navigate(view, updateHash = true) {
   state.view = view;
   for (const section of document.querySelectorAll('.view')) section.hidden = section.id !== `view-${view}`;
   for (const item of document.querySelectorAll('[data-view]')) { const selected = item.dataset.view === (view === 'detail' ? 'packs' : view); item.classList.toggle('active', selected); if (selected) item.setAttribute('aria-current', 'page'); else item.removeAttribute('aria-current'); }
   $('#breadcrumb').textContent = view === 'detail' ? currentTitle(state.selected) : ['sources', 'creator'].includes(view) ? advanced.label(view) : t({ packs: 'myPacks', overview: 'overview', hubs: 'hubs', workbench: 'workbench', environment: 'environment' }[view]);
-  if (updateHash) history.replaceState(null, '', `${location.pathname}${view === 'detail' ? `?instance=${encodeURIComponent(state.selected)}` : ''}#${view === 'detail' ? state.tab : view}`);
+  if (updateHash) recordRoute();
+  closeMenu();
   if (view === 'environment') renderEnvironment();
   advanced?.navigate(view);
   renderAll(true);
+  if (updateHash) focusPage();
+}
+async function restoreHistory() {
+  if (restoringHistory || !state.auth?.token) return;
+  restoringHistory = true;
+  try {
+    const id = new URLSearchParams(location.search).get('instance'), hash = location.hash.slice(1);
+    if (id && state.instances.some(i => idOf(i) === id)) await selectInstance(id, ['status', 'modules', 'logs', 'storage', 'details'].includes(hash) ? hash : 'status');
+    else navigate(['packs', 'overview', 'hubs', 'workbench', 'environment', 'sources', 'creator'].includes(hash) ? hash : 'packs', false);
+    focusPage();
+  } finally { restoringHistory = false; }
 }
 async function selectInstance(id, tab = 'status', componentId = null) {
   state.selected = id; state.topology = null; state.topologyUnavailable = false; state.logs = null; state.logsRequest++; state.detailStamp = ''; state.headingStamp = ''; state.topologyStamp = '';
@@ -313,7 +346,7 @@ function changeTab(tab, updateHash = true) {
   $('#detail-content').setAttribute('aria-labelledby', `tab-${tab}`);
   for (const button of document.querySelectorAll('[data-tab]')) { const selected = button.dataset.tab === tab; button.setAttribute('aria-selected', String(selected)); button.tabIndex = selected ? 0 : -1; }
   renderDetail(true);
-  if (updateHash) { history.replaceState(null, '', `${location.pathname}?instance=${encodeURIComponent(state.selected)}#${tab}`); if (tab === 'logs') void loadLogs(state.selected, true); if (tab === 'status') void loadTopology(state.selected, true); }
+  if (updateHash) { recordRoute(); if (tab === 'logs') void loadLogs(state.selected, true); if (tab === 'status') void loadTopology(state.selected, true); }
   if (tab === 'storage') advanced?.loadStorage(state.selected);
 }
 function invalidateChangedRun(instance) {
@@ -360,7 +393,33 @@ async function loadLogs(id, explicit = false) {
   catch (error) { if (explicit) toast(error.message); }
 }
 
-function openImport() {
+function importIdentity() {
+  const original = $('#import-form').elements.instanceId;
+  let section = $('#import-identity-review');
+  if (!section) {
+    const input = el('input', { name: 'reviewInstanceId', required: true, pattern: '[a-z0-9][a-z0-9._\\-]{0,63}', maxlength: '64', autocomplete: 'off', spellcheck: 'false' });
+    section = el('label', { id: 'import-identity-review', hidden: true }, [el('span', { class: 'identity-review-label' }, t('instanceId')), input]);
+    $('#import-review').before(section);
+    input.addEventListener('input', () => { original.value = input.value; validateIdentity(); });
+  }
+  section.querySelector('input').value = original.value; section.querySelector('span').textContent = t('instanceId');
+  original.disabled = Boolean(state.importReview);
+  return section;
+}
+function validateIdentity() {
+  const input = $('#import-form').elements.instanceId, id = input.value.trim(), exists = state.instances.some(i => idOf(i) === id);
+  let note = $('#import-id-hint');
+  if (!note) { note = el('p', { id: 'import-id-hint', class: 'field-help', role: 'status' }); $('#import-error').before(note); }
+  note.textContent = exists ? say('该实例 ID 已存在。换个 ID 后可继续，已完成的来源审阅可保留。', 'This instance ID already exists. Choose another ID to continue; a completed source review can be kept.') : '';
+  input.setAttribute('aria-invalid', String(exists)); $('#import-identity-review')?.querySelector('input').setAttribute('aria-invalid', String(exists));
+  return !exists;
+}
+function suggestIdentity() {
+  const form = $('#import-form'), base = (form.elements.directory.value.split(/[/\\]/).filter(Boolean).at(-1) ?? 'pack').toLowerCase().replace(/[^a-z0-9._-]/g, '-').replace(/^[^a-z0-9]+/, '').slice(0, 50) || 'pack';
+  let id = base, count = 1; while (state.instances.some(i => idOf(i) === id)) id = `${base}-${++count}`;
+  form.elements.instanceId.value = id; return id;
+}
+function openImport(selectedDirectory) {
   state.importRequest++;
   state.importReview = null;
   $('#import-review').hidden = true; $('#import-fields').hidden = false; $('#import-error').hidden = true; $('#import-back').hidden = true;
@@ -368,7 +427,10 @@ function openImport() {
   $('#step-select').classList.add('active'); $('#step-review').classList.remove('active'); $('#step-create').classList.remove('active');
   for (const kind of ['nodePath', 'pythonPath']) $('#import-form').elements[kind].value = state.environmentSelection[kind] ?? state.session?.defaults?.[kind] ?? '';
   const directory = state.session?.defaults?.packDirectory;
+  if (typeof selectedDirectory === 'string') $('#import-form').elements.directory.value = selectedDirectory;
   if (directory && !$('#import-form').elements.directory.value) $('#import-form').elements.directory.value = directory;
+  if (!$('#import-form').elements.instanceId.value || state.instances.some(i => idOf(i) === $('#import-form').elements.instanceId.value.trim())) suggestIdentity();
+  importIdentity().hidden = true; validateIdentity();
   $('#import-dialog').showModal();
 }
 function environmentOptions(form) { return Object.fromEntries(['nodePath', 'pythonPath'].map(key => [key, form.elements[key]?.value.trim()]).filter(([, value]) => value)); }
@@ -385,19 +447,21 @@ async function importSubmit(event) {
   const request = state.importRequest;
   $('#import-error').hidden = true; submit.disabled = true;
   try {
-    if (reviewExpired(state.importReview)) { state.importReview = null; $('#import-review').hidden = true; $('#import-fields').hidden = false; $('#import-back').hidden = true; throw new Error(t('reviewExpired')); }
+    if (!validateIdentity()) { const active = state.importReview ? $('#import-identity-review input') : form.elements.instanceId; active.focus(); throw new Error(say('请先选择未使用的实例 ID。', 'Choose an unused instance ID first.')); }
+    if (reviewExpired(state.importReview)) { state.importReview = null; $('#import-review').hidden = true; $('#import-fields').hidden = false; $('#import-back').hidden = true; importIdentity().hidden = true; throw new Error(t('reviewExpired')); }
     if (!state.importReview) {
       submit.textContent = t('checking');
       const data = await api('/api/review', { directory: form.elements.directory.value.trim(), ...environmentOptions(form), ...(state.isolationSelection ? { isolation: state.isolationSelection } : {}) });
       if (request !== state.importRequest || !$('#import-dialog').open) return;
       state.importReview = data; $('#import-review').replaceChildren(...reviewView(data, 'import')); $('#import-review').hidden = false; $('#import-fields').hidden = true; $('#import-back').hidden = false;
+      importIdentity().hidden = false;
       $('#step-review').classList.add('active'); $('#step-create').classList.add('active'); submit.textContent = t('confirmImport');
     } else {
       submit.textContent = t('importing');
       const data = await api('/api/instances', { reviewId: state.importReview.reviewId, instanceId: form.elements.instanceId.value.trim() });
       const id = idOf(data.instance); state.reviews.set(id, state.importReview); replaceInstance(data.instance); $('#import-dialog').close(); state.importReview = null; renderAll(true); toast(t('importedSuccess', { id })); await selectInstance(id);
     }
-  } catch (error) { if (request === state.importRequest) { if (['REVIEW_REQUIRED', 'REVIEW_CHANGED'].includes(error.code)) { state.importReview = null; $('#import-review').hidden = true; $('#import-fields').hidden = false; $('#import-back').hidden = true; } renderError('#import-error', error); } }
+  } catch (error) { if (request === state.importRequest) { if (['REVIEW_REQUIRED', 'REVIEW_CHANGED'].includes(error.code)) { state.importReview = null; $('#import-review').hidden = true; $('#import-fields').hidden = false; $('#import-back').hidden = true; importIdentity().hidden = true; } if (error.code === 'INSTANCE_EXISTS') validateIdentity(); renderError('#import-error', error); } }
   finally { if (request === state.importRequest) { submit.disabled = false; submit.textContent = t(state.importReview ? 'confirmImport' : 'checkPackage'); } }
 }
 async function reviewInstance(id, kind) {
@@ -447,7 +511,7 @@ async function followOperation(operationId, instanceId, kind) {
       if (operation.state === 'running') { await refresh(); setTimeout(poll, 1000); return; }
       if (state.operations.get(instanceId)?.operationId === operationId) state.operations.delete(instanceId);
       if (operation.state === 'failed') operationError(Object.assign(new Error(operation.error?.message ?? t('operationFailed')), operation.error ?? {}));
-      else if (kind === 'export') toast(t('exportedSuccess', { destination: operation.result?.destination ?? state.exportDestination ?? '—' }));
+      else if (kind === 'export') { toast(t('exportedSuccess', { destination: operation.result?.destination ?? state.exportDestination ?? '—' })); void tasks?.open(); }
       else if (instanceId === 'hub:default') toast(t(kind === 'start' ? 'defaultHubStarted' : 'defaultHubStopped'));
       await refresh({ explicit: true });
       if (state.selected === instanceId) { if (state.tab === 'logs') await loadLogs(instanceId); if (state.tab === 'status') await loadTopology(instanceId); }
@@ -475,15 +539,19 @@ function languageChanged() {
   applyLanguage(state.language); $('#language').value = state.language;
   for (const item of document.querySelectorAll('[data-view]')) item.setAttribute('aria-label', ['creator', 'sources'].includes(item.dataset.view) ? advanced.label(item.dataset.view) : t({packs:'myPacks',overview:'overview',hubs:'hubs',workbench:'workbench',environment:'environment'}[item.dataset.view]));
   $('#theme').title = t('toggleTheme'); $('#theme').setAttribute('aria-label', t('toggleTheme')); $('#navigation').setAttribute('aria-label', t('useNavigation')); $('#creator-navigation').setAttribute('aria-label', t('createNavigation')); $('#system-navigation').setAttribute('aria-label', t('systemNavigation')); $('#search').setAttribute('aria-label', t('searchInstances'));
-  for (const close of document.querySelectorAll('.close-dialog')) close.setAttribute('aria-label', t('close'));
+  for (const close of document.querySelectorAll('.close-dialog.icon-button')) close.setAttribute('aria-label', t('close'));
   $('#connection-state').textContent = t(state.online ? 'online' : 'offline');
   renderAll(true); renderEnvironment();
   if (state.importReview) { $('#import-review').replaceChildren(...reviewView(state.importReview, 'import')); $('#import-submit').textContent = t('confirmImport'); }
   if (state.trustReview) { $('#trust-review').replaceChildren(...reviewView(state.trustReview)); $('#trust-submit').textContent = t(state.trustKind === 'restart' ? 'trustAndRestart' : 'trustAndStart'); }
   advanced?.languageChanged();
+  paths?.languageChanged(); tasks?.languageChanged(); importIdentity(); validateIdentity();
+  const menu = $('#sidebar-menu-toggle'); menu.setAttribute('aria-label', t(menu.getAttribute('aria-expanded') === 'true' ? 'menuClose' : 'menuOpen'));
   $('#breadcrumb').textContent = state.view === 'detail' ? currentTitle(state.selected) : ['sources', 'creator'].includes(state.view) ? advanced.label(state.view) : t({ packs: 'myPacks', overview: 'overview', hubs: 'hubs', workbench: 'workbench', environment: 'environment' }[state.view]);
 }
 function initializeEvents() {
+  $('#sidebar-menu-toggle').addEventListener('click', () => { const open = $('#sidebar-menu-toggle').getAttribute('aria-expanded') !== 'true'; $('.sidebar').dataset.menuOpen = String(open); $('#sidebar-menu-toggle').setAttribute('aria-expanded', String(open)); $('#sidebar-menu-toggle').setAttribute('aria-label', t(open ? 'menuClose' : 'menuOpen')); });
+  window.addEventListener('popstate', () => void restoreHistory());
   for (const item of document.querySelectorAll('[data-view]')) item.addEventListener('click', () => navigate(item.dataset.view));
   for (const item of document.querySelectorAll('[data-action=import]')) item.addEventListener('click', openImport);
   for (const item of document.querySelectorAll('[data-tab]')) item.addEventListener('click', () => changeTab(item.dataset.tab));
@@ -494,7 +562,8 @@ function initializeEvents() {
   $('#language').addEventListener('change', event => { state.language = event.target.value; try { localStorage.setItem('world-hub.launcher.language', state.language); } catch {} languageChanged(); });
   $('#theme').addEventListener('click', () => { const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; try { localStorage.setItem('world-hub.launcher.theme', theme); } catch {} });
   $('#refresh').addEventListener('click', () => refresh({ explicit: true })); $('#search').addEventListener('input', renderPacks); $('#back-to-packs').addEventListener('click', () => navigate('packs'));
-  $('#import-form').addEventListener('submit', importSubmit); $('#import-back').addEventListener('click', () => { state.importReview = null; $('#import-review').hidden = true; $('#import-fields').hidden = false; $('#import-back').hidden = true; $('#import-submit').textContent = t('checkPackage'); $('#import-error').hidden = true; $('#step-review').classList.remove('active'); $('#step-create').classList.remove('active'); });
+  $('#import-form').elements.instanceId.addEventListener('input', validateIdentity);
+  $('#import-form').addEventListener('submit', importSubmit); $('#import-back').addEventListener('click', () => { state.importReview = null; $('#import-review').hidden = true; $('#import-fields').hidden = false; importIdentity().hidden = true; $('#import-back').hidden = true; $('#import-submit').textContent = t('checkPackage'); $('#import-error').hidden = true; $('#step-review').classList.remove('active'); $('#step-create').classList.remove('active'); });
   $('#trust-consent').addEventListener('change', event => { if (reviewExpired(state.trustReview)) invalidateExecutionReview(); else $('#trust-submit').disabled = !event.target.checked || !state.trustReview; }); $('#trust-submit').addEventListener('click', authorizeExecution); $('#export-form').addEventListener('submit', exportSubmit); $('#environment-form').addEventListener('submit', detectEnvironment);
   $('.brand').addEventListener('click', event => { event.preventDefault(); navigate('packs'); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh(); });
@@ -516,7 +585,7 @@ async function resolveReturnHint(hints) {
       }
     } catch (error) { state.returnNotice = error.message; showNotice('#connection-notice', state.returnNotice, 'warning'); return false; }
   }
-  await selectInstance(hints.instance, ['status', 'modules', 'logs', 'details'].includes(hints.tab) ? hints.tab : 'status', componentId); return true;
+  await selectInstance(hints.instance, ['status', 'modules', 'logs', 'storage', 'details'].includes(hints.tab) ? hints.tab : 'status', componentId); return true;
 }
 
 async function boot() {
@@ -527,6 +596,8 @@ async function boot() {
   if (launchCode) history.replaceState(null, '', `${location.pathname}${location.search}`);
   try { const theme = localStorage.getItem('world-hub.launcher.theme'); if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme; } catch {}
   advanced = createAdvancedUi({ state, api, el, button, pill, t, toast, definition, display, date, guidance, errorContents, current, idOf, endpoint, operationFor, exitUnconfirmed, refresh, renderDetail, navigate, changeTab, selectInstance, openImport, replaceInstance, reviewView });
+  paths = createPathUi({ state, api, el, button, toast });
+  tasks = createTaskUi({ state, api, el, button, toast, date, selectInstance, openImport, openCreator: directory => advanced.openCreator(directory) });
   initializeEvents(); languageChanged(); navigate(initialView, false);
   try {
     if (launchCode) {
@@ -540,7 +611,7 @@ async function boot() {
     try { sessionStorage.setItem(sessionKey, JSON.stringify(state.auth)); } catch {}
     $('#version').textContent = state.session.softwareVersion ? `v${state.session.softwareVersion}` : 'LOCAL';
     for (const kind of ['nodePath', 'pythonPath']) $('#environment-form').elements[kind].value = state.session.defaults?.[kind] ?? '';
-    advanced.sessionReady();
+    advanced.sessionReady(); paths.sessionReady();
     await refresh({ explicit: true });
     if (!await resolveReturnHint(hints)) navigate(initialView);
     setInterval(() => { if (!document.hidden) { if (reviewExpired(state.trustReview)) invalidateExecutionReview(); renderAll(); if (state.auth?.token) void refresh(); } }, 1000);

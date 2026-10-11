@@ -15,6 +15,8 @@ Object.assign(messages.zh, { reviewValidUntil: '审阅有效期', sourceReceipt:
 Object.assign(messages.en, { reviewValidUntil: 'Review expires at', sourceReceipt: 'Software source provenance receipt', integrityNotIdentity: 'Digests establish content integrity. Publisher identity and code safety are unverified. You authorize execution; no OS sandbox is provided.' });
 Object.assign(messages.zh, { healthUnknown: '健康未知', mappingUnknown: '归属观察未知' });
 Object.assign(messages.en, { healthUnknown: 'Health unknown', mappingUnknown: 'Ownership observation unknown' });
+Object.assign(messages.zh, { menuNavigation: '导航', menuOpen: '展开导航', menuClose: '收起导航' });
+Object.assign(messages.en, { menuNavigation: 'Menu', menuOpen: 'Open navigation', menuClose: 'Close navigation' });
 
 export function initialLanguage() {
   try { const saved = localStorage.getItem('world-hub.launcher.language'); if (saved === 'zh' || saved === 'en') return saved; } catch {}
@@ -30,8 +32,11 @@ export function translate(language, key, variables = {}) {
 export function applyLanguage(language, root = document) {
   if (root === document) document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
   for (const element of root.querySelectorAll('[data-i18n]')) element.textContent = translate(language, element.dataset.i18n);
+  for (const element of root.querySelectorAll('[data-i18n-label]')) element.setAttribute('aria-label', translate(language, element.dataset.i18nLabel));
   for (const element of root.querySelectorAll('[data-placeholder]')) element.placeholder = translate(language, element.dataset.placeholder);
 }
 
 Object.assign(messages.zh, { noSandbox:'可信本机模式：无 OS 沙箱', sandboxNotice:'trusted-local 模式不强制限制模块的文件、网络或资源。可在环境页面明确选择 Node／Python 容器保护或已有 Linux 用户身份分离；逐包审阅展示当前选择。', codeExecutionNotice:'启动将执行下列模块。请核对本次执行模式、代码来源、权限与环境后授权。可信本机模式没有 OS 沙箱；容器模式仅在声明范围内提供隔离。', integrityNotIdentity:'摘要证明内容一致性，发布者身份与代码安全未验证。请核对本次执行保护等级后授权。' });
 Object.assign(messages.en, { noSandbox:'Trusted-local: no OS sandbox', sandboxNotice:'Trusted-local does not enforce module file, network, or resource restrictions. Select Node/Python container protection or existing Linux user identity separation on the environment page; each package review displays the current selection.', codeExecutionNotice:'Starting executes the modules below. Review this execution profile, code sources, permissions, and environment before authorizing. Trusted-local has no OS sandbox; the container profile enforces only its documented scope.', integrityNotIdentity:'Digests establish content integrity, not publisher identity or code safety. Inspect the current execution profile before authorizing.' });
+Object.assign(messages.zh, { emptyDescription: '选择本机整合包，或从软件源获取。路径选择器提供已知候选与目录发现；检查来源与环境后创建实例。', importDescription: '选择或输入本机整合包目录，可从已知候选或目录发现开始。检查通过后创建独立实例，导入不会自动启动程序。' });
+Object.assign(messages.en, { emptyDescription: 'Choose a local pack or fetch one from a software source. The path picker offers known candidates and folder discovery. Check the source and environment, then create an instance.', importDescription: 'Choose or enter a local pack folder. Start from known candidates or discover in a folder. After inspection, create an independent instance. Importing does not start programs.' });

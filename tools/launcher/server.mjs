@@ -15,9 +15,9 @@ function fields(body, allowed, required = []) {
     || required.some(k => !Object.hasOwn(body, k))) throw launcherError('INVALID_INPUT', 'Missing or unsupported request fields.', 400);
   for (const [key, value] of Object.entries(body)) {
     if (['accepted', 'redistributionAcknowledged', 'allowPrivateNetwork', 'enabled', 'observe'].includes(key)) { if (typeof value !== 'boolean') throw launcherError('INVALID_INPUT', `Invalid ${key}`, 400); }
-    else if (['priority', 'revision'].includes(key)) { if (!Number.isSafeInteger(value)) throw launcherError('INVALID_INPUT', `Invalid ${key}`, 400); }
+    else if (['priority', 'revision', 'offset'].includes(key)) { if (!Number.isSafeInteger(value)) throw launcherError('INVALID_INPUT', `Invalid ${key}`, 400); }
     else if (key === 'expectedSha256' && value === '') { /* Explicitly clear an optional source pin. */ }
-    else if (['pack', 'values', 'identity', 'template', 'isolation', 'change', 'user'].includes(key)) { if (!value || typeof value !== 'object' || Array.isArray(value)) throw launcherError('INVALID_INPUT', `Invalid ${key} object`, 400); }
+    else if (['pack', 'values', 'identity', 'template', 'isolation', 'change', 'user', 'draft'].includes(key)) { if (!value || typeof value !== 'object' || Array.isArray(value)) throw launcherError('INVALID_INPUT', `Invalid ${key} object`, 400); }
     else if (key === 'statePolicies') { if (!Array.isArray(value) || value.length > 32 || value.some(policy => !policy || typeof policy !== 'object' || Array.isArray(policy))) throw launcherError('INVALID_INPUT', 'Invalid state policies', 400); }
     else if (key === 'replacements') {
       if (!Array.isArray(value) || value.length > 32) throw launcherError('INVALID_INPUT', 'Invalid replacements', 400);
@@ -69,7 +69,7 @@ export async function createLauncherServer(options = {}) {
       if (['cross-site', 'same-site'].includes(request.headers['sec-fetch-site'])
         && !(document && request.headers['sec-fetch-mode'] === 'navigate' && request.headers['sec-fetch-dest'] === 'document'))
         throw launcherError('LOCAL_ORIGIN_REQUIRED', 'Only same-origin API and resource requests are accepted.', 403);
-      if (request.method === 'GET' && ['/', '/index.html', '/app.mjs', '/advanced.mjs', '/completion-ui.mjs', '/publisher-ui.mjs', '/isolation-ui.mjs', '/style.css', '/i18n.mjs'].includes(target.pathname)) {
+      if (request.method === 'GET' && ['/', '/index.html', '/app.mjs', '/advanced.mjs', '/completion-ui.mjs', '/publisher-ui.mjs', '/isolation-ui.mjs', '/path-ui.mjs', '/task-ui.mjs', '/style.css', '/i18n.mjs'].includes(target.pathname)) {
         const navigationKeys = document ? ['instance', 'runId', 'hubOrigin', 'bridgeId', 'session'] : [];
         if ([...target.searchParams.keys()].some(key => !navigationKeys.includes(key) || target.searchParams.getAll(key).length !== 1
           || target.searchParams.get(key).length > 4096)) throw launcherError('INVALID_INPUT', 'Unsupported navigation query.', 400);
@@ -96,6 +96,15 @@ export async function createLauncherServer(options = {}) {
       if (request.method === 'POST') body = await bodyOf(request);
       let result, status = 200;
       if (target.pathname === '/api/session' && request.method === 'GET') result = context();
+      else if (target.pathname === '/api/paths/browse' && request.method === 'POST') { fields(body, ['directory', 'purpose', 'offset']); result = await manager.paths.browse(body); }
+      else if (target.pathname === '/api/paths/check' && request.method === 'POST') { fields(body, ['path', 'purpose'], ['path']); result = await manager.paths.check(body); }
+      else if (target.pathname === '/api/paths/known' && request.method === 'GET') result = await manager.paths.known(manager);
+      else if (target.pathname === '/api/paths/remember' && request.method === 'POST') { fields(body, ['path', 'purpose'], ['path']); result = await manager.paths.remember(body); }
+      else if (target.pathname === '/api/paths/discover' && request.method === 'POST') { fields(body, ['directory'], ['directory']); result = manager.discoverPaths(body); status = 202; }
+      else if (target.pathname === '/api/creator-drafts' && request.method === 'GET') result = await manager.creatorDrafts.list();
+      else if (target.pathname === '/api/creator-drafts/save' && request.method === 'POST') { fields(body, ['draft'], ['draft']); result = await manager.creatorDrafts.save(body.draft); }
+      else if (target.pathname === '/api/creator-drafts/delete' && request.method === 'POST') { fields(body, ['directory'], ['directory']); result = await manager.creatorDrafts.delete(body.directory); }
+      else if (target.pathname === '/api/operations' && request.method === 'GET') result = manager.operationList();
       else if (target.pathname === '/api/environment' && request.method === 'POST') { fields(body, ['nodePath', 'pythonPath']); result = await manager.detect(body); }
       else if (target.pathname === '/api/isolation/probe' && request.method === 'POST') { fields(body, ['profile', 'dockerPath', 'endpoint', 'setprivPath', 'user']); result = await manager.isolationProbe(body); }
       else if (target.pathname === '/api/environment/plan' && request.method === 'POST') { fields(body, ['directory', 'nodePath', 'pythonPath'], ['directory']); directory = body.directory; result = await manager.environmentPlan(body); }

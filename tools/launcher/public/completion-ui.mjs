@@ -1,7 +1,7 @@
 // Optional static templates and reviewed instance transactions. No Core business.
 export function createCompletionUi(ctx) {
   const { api, el, button, say, panel, note, field, form, value, jsonView, reviewAction, operation, refresh, openImport, endpoint, selectInstance } = ctx;
-  let templateDirectory = '';
+  let templateDirectory = '', templateInspection = null;
   const inputJson = (f, key) => JSON.parse(value(f, key));
   const completed = async result => { await refresh({ explicit: true }); return result; };
   function candidateSummary(preview) {
@@ -28,16 +28,18 @@ export function createCompletionUi(ctx) {
   }
   function templatePanel() {
     const results = el('div');
+    if (templateInspection) results.append(note(`${templateInspection.manifest.title} · ${templateInspection.manifest.id}@${templateInspection.manifest.version}`), jsonView(say('模板与参数', 'Template and parameters'), templateInspection), instantiateForm(templateDirectory, templateInspection));
     const inspect = form([field('directory', say('模板目录', 'Template directory'), templateDirectory)], say('检查模板', 'Inspect template'), async f => {
       templateDirectory = value(f, 'directory'); const data = await api('/api/templates/inspect', { directory: templateDirectory });
+      templateInspection = data.inspection;
       results.replaceChildren(note(`${data.inspection.manifest.title} · ${data.inspection.manifest.id}@${data.inspection.manifest.version} · Hub ${data.inspection.lock.hubVersion}`), jsonView(say('模板与参数', 'Template and parameters'), data.inspection), instantiateForm(templateDirectory, data.inspection));
-    });
+    }, '', 'template-inspect');
     const create = form([field('directory', say('完整锁定基包目录', 'Complete locked base pack directory')), field('template', say('模板声明 JSON', 'Template declaration JSON'), '', { multiline: true }), field('destination', say('新的模板目录', 'New template directory'))], say('审阅并创建模板', 'Review and create template'), async f => {
       const body = { directory: value(f, 'directory'), template: inputJson(f, 'template'), destination: value(f, 'destination'), redistributionAcknowledged: true };
       reviewAction(say('创建可分发模板', 'Create distributable template'), [note(say('模板包含完整基包与锁。仅公开声明允许调整的业务设置或具体主题；不执行模块。', 'Templates contain a complete base pack and lock. Only declared business settings or concrete topics can vary; modules are not executed.')), jsonView(say('模板声明', 'Template declaration'), body.template, true)], say('我已审阅公开内容、参数范围和再分发许可。', 'I reviewed the public contents, parameter scope, and redistribution licenses.'), async () => {
         await operation(await api('/api/templates/create', body), 'create-template', result => { templateDirectory = result.directory; results.replaceChildren(note(say(`已创建模板：${result.directory}`, `Template created: ${result.directory}`))); });
       });
-    });
+    }, '', 'template-create');
     return panel(say('可分发模板', 'Distributable templates'), [note(say('填入参数生成新的锁定包，再导入、审阅和启动。模板本身不启动程序。', 'Fill in parameters to create a new locked pack, then import, review, and start it. Templates do not start programs.')), inspect, results,
       el('details', { class: 'json-details' }, [el('summary', {}, say('从基包创建模板', 'Create template from a base pack')), create])]);
   }
@@ -69,12 +71,13 @@ export function createCompletionUi(ctx) {
           f.after(notice);
         });
       });
-    });
+    }, '', `template-instantiate-${directory}`);
   }
   async function openTemplate(directory) {
     const data = await api('/api/templates/inspect', { directory });
-    const dialog = el('dialog', { class: 'dialog' }); document.body.append(dialog);
-    dialog.append(el('div', { class: 'dialog-heading' }, [el('h2', {}, say('实例化共享模板', 'Instantiate shared template')), button('×', () => dialog.close(), 'icon-button')]), jsonView(say('模板声明', 'Template declaration'), data.inspection.manifest), instantiateForm(directory, data.inspection));
+    const title = say('实例化共享模板', 'Instantiate shared template'), dialog = el('dialog', { class: 'dialog', 'aria-label': title }); document.body.append(dialog);
+    const close = button('×', () => dialog.close(), 'icon-button'); close.setAttribute('aria-label', say('关闭', 'Close'));
+    dialog.append(el('div', { class: 'dialog-heading' }, [el('h2', {}, title), close]), jsonView(say('模板声明', 'Template declaration'), data.inspection.manifest), instantiateForm(directory, data.inspection));
     dialog.addEventListener('close', () => dialog.remove(), { once: true }); dialog.showModal();
   }
   function maintenance(instance) {

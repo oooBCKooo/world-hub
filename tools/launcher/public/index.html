@@ -16,10 +16,12 @@
         <span class="brand-mark" aria-hidden="true"><span></span></span>
         <span>World Hub<small data-i18n="localWorkspace">本地工作空间</small></span>
       </a>
+      <button id="sidebar-menu-toggle" class="button sidebar-menu-toggle" type="button" aria-controls="sidebar-navigation" aria-expanded="false" data-i18n-label="menuOpen"><span aria-hidden="true">☰</span><span data-i18n="menuNavigation">导航</span></button>
+      <div id="sidebar-navigation" class="sidebar-navigation">
       <div class="nav-caption" data-i18n="useNavigation">使用</div>
       <nav id="navigation" aria-label="主导航">
-        <button class="nav-item" data-view="overview"><span class="nav-icon" aria-hidden="true">◫</span><span data-i18n="overview">状态总览</span></button>
         <button class="nav-item active" data-view="packs" aria-current="page"><span class="nav-icon" aria-hidden="true">◇</span><span data-i18n="myPacks">我的整合包</span><span id="nav-count" class="nav-count">0</span></button>
+        <button class="nav-item" data-view="overview"><span class="nav-icon" aria-hidden="true">◫</span><span data-i18n="overview">状态总览</span></button>
         <button class="nav-item" data-view="hubs"><span class="nav-icon" aria-hidden="true">◎</span><span data-i18n="hubs">枢纽管理</span></button>
         <button class="nav-item" data-view="workbench"><span class="nav-icon" aria-hidden="true">⌘</span><span data-i18n="workbench">通信工作台</span></button>
       </nav>
@@ -32,11 +34,12 @@
       <nav id="system-navigation" aria-label="系统导航">
         <button class="nav-item" data-view="environment"><span class="nav-icon" aria-hidden="true">⚙</span><span data-i18n="environment">环境与诊断</span></button>
       </nav>
+      </div>
       <div class="sidebar-bottom">
         <div class="local-indicator"><span class="status-dot"></span><span data-i18n="localRuntime">本机 Runtime</span><span id="connection-state" class="subtle"></span></div>
         <p data-i18n="offlineLocal">本地管理无需社区服务。</p>
         <div class="sidebar-controls">
-          <select id="language" aria-label="Language"><option value="zh">简体中文</option><option value="en">English</option></select>
+          <select id="language" aria-label="语言 / Language"><option value="zh">简体中文</option><option value="en">English</option></select>
           <button id="theme" class="icon-button" title="切换主题" aria-label="切换主题">☼</button>
         </div>
         <div class="version"><span>WORLD HUB</span><span id="version">LOCAL</span></div>
@@ -67,16 +70,16 @@
       <footer><span data-i18n="footer">独立程序，共同协作。</span><span>World Hub · <span data-i18n="localWorkspace">本地工作空间</span></span></footer>
     </div>
   </div>
-  <dialog id="import-dialog" class="dialog">
+  <dialog id="import-dialog" class="dialog" aria-labelledby="import-dialog-title">
     <form id="import-form">
-      <div class="dialog-heading"><div><div class="eyebrow" data-i18n="localPackage">LOCAL PACKAGE</div><h2 data-i18n="importPack">导入整合包</h2></div><button class="icon-button close-dialog" type="button" data-dialog="import-dialog" aria-label="关闭">×</button></div>
+      <div class="dialog-heading"><div><div class="eyebrow" data-i18n="localPackage">LOCAL PACKAGE</div><h2 id="import-dialog-title" data-i18n="importPack">导入整合包</h2></div><button class="icon-button close-dialog" type="button" data-dialog="import-dialog" aria-label="关闭">×</button></div>
       <div class="step-strip"><span id="step-select" class="active"><b>1</b><span data-i18n="selectSource">选择来源</span></span><i></i><span id="step-review"><b>2</b><span data-i18n="reviewPackage">审阅整合包</span></span><i></i><span id="step-create"><b>3</b><span data-i18n="createInstance">创建实例</span></span></div>
       <div id="import-fields"><p class="dialog-description" data-i18n="importDescription">输入本机整合包目录。检查通过后可创建独立实例，导入不会自动启动程序。</p><label><span data-i18n="packageDirectory">整合包目录</span><input name="directory" required autocomplete="off" spellcheck="false" placeholder="F:\packs\text-desk"></label><div class="field-grid"><label><span data-i18n="instanceId">实例 ID</span><input name="instanceId" required pattern="[a-z0-9][a-z0-9._\-]{0,63}" maxlength="64" autocomplete="off" spellcheck="false" placeholder="text-desk-01"></label><label><span data-i18n="environmentChoice">运行环境</span><span class="static-field" data-i18n="selectedInterpreters">使用下方选择的解释器</span></label></div><details class="advanced-fields"><summary data-i18n="chooseInterpreters">选择已安装的解释器（可选）</summary><div class="field-grid"><label><span data-i18n="nodePath">Node.js 路径（可选）</span><input name="nodePath" autocomplete="off" spellcheck="false" data-placeholder="nodePlaceholder"></label><label><span data-i18n="pythonPath">Python 路径（可选）</span><input name="pythonPath" autocomplete="off" spellcheck="false" data-placeholder="pythonPlaceholder"></label></div></details><p class="field-help" data-i18n="probeNotice">检测会运行所选解释器的固定版本与依赖探针，不执行整合包入口或安装脚本。</p></div>
       <div id="import-review" hidden></div><div id="import-error" class="notice notice-error" role="alert" hidden></div><div class="dialog-footer"><button class="button button-quiet close-dialog" type="button" data-dialog="import-dialog" data-i18n="cancel">取消</button><button id="import-back" class="button" type="button" hidden data-i18n="modifySource">修改来源</button><button id="import-submit" class="button button-primary" type="submit" data-i18n="checkPackage">检查整合包</button></div>
     </form>
   </dialog>
-  <dialog id="trust-dialog" class="dialog"><div class="dialog-heading"><div><div class="eyebrow" data-i18n="executionReview">EXECUTION REVIEW</div><h2 data-i18n="reviewAndTrust">审阅并授权运行</h2></div><button class="icon-button close-dialog" data-dialog="trust-dialog" aria-label="关闭">×</button></div><div id="trust-review"></div><label class="consent"><input id="trust-consent" type="checkbox"><span data-i18n="trustConsent">我已审阅当前代码来源、权限与运行环境，信任这些代码在本机执行。</span></label><div id="trust-error" class="notice notice-error" role="alert" hidden></div><div class="dialog-footer"><button class="button button-quiet close-dialog" data-dialog="trust-dialog" data-i18n="cancel">取消</button><button id="trust-submit" class="button button-primary" disabled data-i18n="authorizeCurrent">授权当前审阅内容</button></div></dialog>
-  <dialog id="export-dialog" class="dialog dialog-small"><form id="export-form"><div class="dialog-heading"><div><div class="eyebrow">SHARE YOUR PACKAGE</div><h2 data-i18n="exportPackage">导出整合包</h2></div><button class="icon-button close-dialog" type="button" data-dialog="export-dialog" aria-label="关闭">×</button></div><p class="dialog-description" data-i18n="exportNotice">导出锁定整合包到一个新的本机目录，不包括实例数据、日志或 Runtime 凭据。公开 settings 会包含在内，请先确认其中没有秘密。</p><label><span data-i18n="destination">新的目标目录</span><input name="destination" required autocomplete="off" spellcheck="false" placeholder="F:\shared\text-desk"></label><div id="export-error" class="notice notice-error" role="alert" hidden></div><div class="dialog-footer"><button type="button" class="button button-quiet close-dialog" data-dialog="export-dialog" data-i18n="cancel">取消</button><button class="button button-primary" type="submit" data-i18n="exportPackage">导出整合包</button></div></form></dialog>
+  <dialog id="trust-dialog" class="dialog" aria-labelledby="trust-dialog-title"><div class="dialog-heading"><div><div class="eyebrow" data-i18n="executionReview">EXECUTION REVIEW</div><h2 id="trust-dialog-title" data-i18n="reviewAndTrust">审阅并授权运行</h2></div><button class="icon-button close-dialog" data-dialog="trust-dialog" aria-label="关闭">×</button></div><div id="trust-review"></div><label class="consent"><input id="trust-consent" type="checkbox"><span data-i18n="trustConsent">我已审阅当前代码来源、权限与运行环境，信任这些代码在本机执行。</span></label><div id="trust-error" class="notice notice-error" role="alert" hidden></div><div class="dialog-footer"><button class="button button-quiet close-dialog" data-dialog="trust-dialog" data-i18n="cancel">取消</button><button id="trust-submit" class="button button-primary" disabled data-i18n="authorizeCurrent">授权当前审阅内容</button></div></dialog>
+  <dialog id="export-dialog" class="dialog dialog-small" aria-labelledby="export-dialog-title"><form id="export-form"><div class="dialog-heading"><div><div class="eyebrow">SHARE YOUR PACKAGE</div><h2 id="export-dialog-title" data-i18n="exportPackage">导出整合包</h2></div><button class="icon-button close-dialog" type="button" data-dialog="export-dialog" aria-label="关闭">×</button></div><p class="dialog-description" data-i18n="exportNotice">导出锁定整合包到一个新的本机目录，不包括实例数据、日志或 Runtime 凭据。公开 settings 会包含在内，请先确认其中没有秘密。</p><label><span data-i18n="destination">新的目标目录</span><input name="destination" required autocomplete="off" spellcheck="false" placeholder="F:\shared\text-desk"></label><div id="export-error" class="notice notice-error" role="alert" hidden></div><div class="dialog-footer"><button type="button" class="button button-quiet close-dialog" data-dialog="export-dialog" data-i18n="cancel">取消</button><button class="button button-primary" type="submit" data-i18n="exportPackage">导出整合包</button></div></form></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <script type="module" src="/app.mjs"></script>
 </body>
