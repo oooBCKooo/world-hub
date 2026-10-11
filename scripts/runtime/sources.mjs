@@ -8,13 +8,16 @@ import { randomUUID } from 'node:crypto';
 import { inspectPackage, validatePack, validateModule, validateLock } from './package.mjs';
 import { ordinaryPath, readBounded, collectFiles, hash, relativePath, privateJson } from './paths.mjs';
 import { inspectTemplate, validateTemplateFiles } from './template.mjs';
+import { parsePublisherEvidence, verifyPublisherEvidence } from './publisher-trust.mjs';
+import { verifyStoredPublisherEvidence } from './publisher-store.mjs';
 
 const sha = /^[a-f0-9]{64}$/;
 const semver = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/;
 const maximumArtifact = 96 * 1024 * 1024;
+export const maximumPublisherEvidence = 256 * 1024;
 function cancelled(options) { if (options.signal?.aborted) throw options.signal.reason ?? new Error('Operation cancelled'); }
-function exact(value, keys, name) {
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !keys.includes(k)) || keys.some(k => !Object.hasOwn(value, k))) throw new Error(`Invalid ${name}`);
+function exact(value, keys, name, optional = []) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !keys.includes(k) && !optional.includes(k)) || keys.some(k => !Object.hasOwn(value, k))) throw new Error(`Invalid ${name}`);
 }
 function publicAddress(address) {
   if (isIP(address) === 4) {
@@ -83,7 +86,7 @@ export function validateSourceIndex(index, options = {}) {
       || !Array.isArray(index.entries) || index.entries.length > 4096) throw new Error('Invalid source index identity or entries');
   const ids = new Set();
   for (const entry of index.entries) {
-    exact(entry, ['entryId', 'kind', 'id', 'version', 'title', 'license', 'platforms', 'provides', 'requires', 'source', 'sha256'], 'source entry');
+    exact(entry, ['entryId', 'kind', 'id', 'version', 'title', 'license', 'platforms', 'provides', 'requires', 'source', 'sha256'], 'source entry', ['publisherEvidence']);
     if (typeof entry.entryId !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,127}$/.test(entry.entryId) || ids.has(entry.entryId)
         || !['pack', 'module', 'template'].includes(entry.kind) || typeof entry.id !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(entry.id)
         || typeof entry.version !== 'string' || entry.version.length > 128 || !semver.test(entry.version)
@@ -103,6 +106,12 @@ export function validateSourceIndex(index, options = {}) {
     }
     if (Object.hasOwn(entry.source ?? {}, 'path')) { exact(entry.source, ['path'], 'local artifact source'); relativePath(entry.source.path); }
     else { exact(entry.source, ['url'], 'remote artifact source'); sourceUrl(entry.source.url, options); }
+    if (entry.publisherEvidence !== undefined) {
+      exact(entry.publisherEvidence, ['source', 'sha256'], 'publisher evidence reference');
+      if (!sha.test(entry.publisherEvidence.sha256)) throw new Error('Invalid publisher evidence digest');
+      if (Object.hasOwn(entry.publisherEvidence.source ?? {}, 'path')) { exact(entry.publisherEvidence.source, ['path'], 'local publisher evidence source'); relativePath(entry.publisherEvidence.source.path); }
+      else { exact(entry.publisherEvidence.source, ['url'], 'remote publisher evidence source'); sourceUrl(entry.publisherEvidence.source.url, options); }
+    }
   }
   return index;
 }
@@ -114,7 +123,7 @@ export async function readSourceIndex(source, options = {}) {
   const digest = hash(bytes);
   if (options.expectedSha256 !== undefined && (!sha.test(options.expectedSha256) || digest !== options.expectedSha256)) throw new Error('Source index hash mismatch');
   const index = validateSourceIndex(JSON.parse(bytes.toString()), options);
-  if (remote && index.entries.some(e => e.source.path)) throw new Error('Remote indices cannot refer to local filesystem artifacts');
+  if (remote && index.entries.some(e => e.source.path || e.publisherEvidence?.source.path)) throw new Error('Remote indices cannot refer to local filesystem artifacts or publisher evidence');
   const result = { source: remote ? sourceUrl(source, options).href : await ordinaryPath(source), digest, index, networkPolicy: policy(options), startsModules: false };
   Object.defineProperty(result, 'indexBytes', { value: bytes });
   return result;
@@ -235,6 +244,87 @@ async function removeOwnedStage(cache, path) {
   }
   await inspect(actual); await rm(actual, { recursive: true, force: false });
 }
+const publisherArtifact = entry => ({ kind: entry.kind, id: entry.id, version: entry.version, sha256: entry.sha256 });
+export function unavailablePublisherEvidence(status = 'unsigned', digest = null, sourceStatus = 'online') {
+  return { present: status !== 'unsigned', status, evidenceSha256: digest, integrityVerified: false,
+    signatureVerified: false, publisherIdentityVerified: false, sourceStatus,
+    executionAuthorized: false, codeSafetyVerified: false, sandbox: false, startsModules: false, grantsExecution: false };
+}
+// Evidence is optional, separately content addressed public data. A failure to
+// obtain it cannot silently become verified identity or prevent ordinary data acquisition.
+export async function readSourcePublisherEvidence(current, entry, options = {}) {
+  const reference = entry.publisherEvidence;
+  if (!reference) return unavailablePublisherEvidence('unsigned', null, options.offline ? 'offline' : 'online');
+  const sourceStatus = options.offline ? 'offline' : 'online', cache = await ordinaryPath(options.cacheRoot, { allowMissing: true });
+  const cachedPath = join(cache, `${reference.sha256}.publisher.json`);
+  let bytes, fromCache = false;
+  try {
+    cancelled(options);
+    if (!options.offline) {
+      try { bytes = reference.source.path ? await readBounded(join(dirname(current.source), reference.source.path), maximumPublisherEvidence) : await download(reference.source.url, maximumPublisherEvidence, options); }
+      catch (error) {
+        if (!['ENOENT', 'SOURCE_UNAVAILABLE'].includes(error.code)) throw error;
+        bytes = await readBounded(cachedPath, maximumPublisherEvidence); fromCache = true;
+      }
+    } else { bytes = await readBounded(cachedPath, maximumPublisherEvidence); fromCache = true; }
+    if (hash(bytes) !== reference.sha256) return { ...unavailablePublisherEvidence('evidence-digest-mismatch', reference.sha256, sourceStatus), diagnostic: 'PUBLISHER_EVIDENCE_DIGEST_MISMATCH' };
+    const evidence = parsePublisherEvidence(bytes), artifact = publisherArtifact(entry);
+    if (evidence.payload.type !== 'artifact' || ['kind', 'id', 'version', 'sha256'].some(key => evidence.payload.subject[key] !== artifact[key])) {
+      throw Object.assign(new Error('Source publisher evidence must bind this exact artifact'), { code: 'PUBLISHER_ARTIFACT_MISMATCH' });
+    }
+    if (!fromCache) {
+      await mkdir(cache, { recursive: true, mode: 0o700 });
+      const temporary = join(cache, `${reference.sha256}.publisher.${randomUUID()}.tmp`);
+      try {
+        await writeFile(temporary, bytes, { flag: 'wx', mode: 0o600 });
+        try { await link(temporary, cachedPath); }
+        catch (error) { if (error.code !== 'EEXIST') throw error; if (!bytes.equals(await readBounded(cachedPath, maximumPublisherEvidence))) throw new Error('Publisher evidence cache changed'); }
+      } finally { await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
+    }
+    const verificationOptions = { artifact: publisherArtifact(entry), evidenceBytes: bytes, sourceStatus: fromCache ? 'offline' : sourceStatus, now: options.now };
+    const { proposedState, ...verification } = options.publisherTrustRoot ? await verifyStoredPublisherEvidence({ ...verificationOptions, root: options.publisherTrustRoot, observe: options.observe !== false }) : await verifyPublisherEvidence(verificationOptions);
+    return { ...verification, present: true, evidenceSha256: reference.sha256, integrityVerified: true,
+      signatureVerified: verification.signatureStatus === 'verified', publisherIdentityVerified: verification.accepted === true && verification.publisherIdentity === 'anchored-key',
+      cachedEvidence: fromCache, sourceStatus: verificationOptions.sourceStatus, executionAuthorized: false, codeSafetyVerified: false,
+      sandbox: false, startsModules: false, grantsExecution: false };
+  } catch (error) {
+    cancelled(options);
+    return { ...unavailablePublisherEvidence(error.code === 'ENOENT' || error.code === 'SOURCE_UNAVAILABLE' ? 'evidence-unavailable' : 'evidence-invalid', reference.sha256, sourceStatus),
+      diagnostic: typeof error.code === 'string' && /^[A-Z0-9_]{1,80}$/.test(error.code) ? error.code : 'PUBLISHER_EVIDENCE_INVALID' };
+  }
+}
+export function validateArtifactPublisherEvidence(bytes, entry) {
+  const evidence = parsePublisherEvidence(bytes), artifact = publisherArtifact(entry);
+  if (evidence.payload.type !== 'artifact' || ['kind', 'id', 'version', 'sha256'].some(key => evidence.payload.subject[key] !== artifact[key])) {
+    throw Object.assign(new Error('Publisher evidence must bind this exact artifact identity and digest'), { code: 'PUBLISHER_ARTIFACT_MISMATCH' });
+  }
+  const verification = verifyPublisherEvidence({ artifact, evidenceBytes: bytes, sourceStatus: 'online' });
+  if (verification.signatureStatus !== 'verified') throw Object.assign(new Error('Publisher evidence signature could not be verified with public data'), { code: verification.error?.code ?? 'PUBLISHER_SIGNATURE_INVALID' });
+  return { evidence, verification };
+}
+// Attach an already signed public sidecar to a local publication. Artifact
+// bytes are read and verified, never rewritten or signed by a distribution service.
+export async function attachPublisherEvidence(directory, options = {}) {
+  exact(options, [], 'publisher attachment options', ['evidencePath', 'evidenceBytes']);
+  if ((options.evidencePath === undefined) === (options.evidenceBytes === undefined)) throw new Error('Provide exactly one public evidence path or byte buffer');
+  const root = await ordinaryPath(directory), indexPath = join(root, 'index.json'), artifactPath = join(root, 'artifact.json');
+  const index = validateSourceIndex(JSON.parse((await readBounded(indexPath, 4 * 1024 * 1024)).toString('utf8')));
+  if (index.entries.length !== 1 || index.entries[0].source.path !== 'artifact.json') throw new Error('Use a single local publication with artifact.json');
+  const entry = index.entries[0], checked = validateArtifactBytes(await readBounded(artifactPath, maximumArtifact));
+  if (checked.entry.sha256 !== entry.sha256) throw new Error('Publication artifact digest changed');
+  checkEntry(checked, entry);
+  const bytes = options.evidencePath !== undefined ? await readBounded(options.evidencePath, maximumPublisherEvidence) : Buffer.from(options.evidenceBytes);
+  if (bytes.length > maximumPublisherEvidence) throw new Error('Publisher evidence exceeds its size bound');
+  const { verification } = validateArtifactPublisherEvidence(bytes, entry);
+  const digest = hash(bytes), evidencePath = join(root, `${digest}.publisher.json`);
+  await ordinaryPath(evidencePath, { allowMissing: true });
+  try { await writeFile(evidencePath, bytes, { flag: 'wx', mode: 0o600 }); }
+  catch (error) { if (error.code !== 'EEXIST') throw error; if (!(await readBounded(evidencePath, maximumPublisherEvidence)).equals(bytes)) throw new Error('Existing publisher evidence changed'); }
+  entry.publisherEvidence = { source: { path: `${digest}.publisher.json` }, sha256: digest };
+  validateSourceIndex(index); await privateJson(indexPath, index);
+  return { directory: root, artifactPath, indexPath, evidencePath, evidenceSha256: digest, artifactSha256: entry.sha256, index,
+    publisherEvidence: verification, startsModules: false, grantsExecution: false, publishedRemotely: false };
+}
 export async function fetchSourceArtifact(source, indexDigest, entryId, options) {
   cancelled(options); if (!sha.test(indexDigest)) throw new Error('Invalid reviewed source index digest');
   const cache = await ordinaryPath(options.cacheRoot, { allowMissing: true }); await mkdir(cache, { recursive: true, mode: 0o700 });
@@ -255,11 +345,14 @@ export async function fetchSourceArtifact(source, indexDigest, entryId, options)
     const original = Buffer.from(current.indexBase64, 'base64');
     if (original.length > 4 * 1024 * 1024 || hash(original) !== indexDigest) throw new Error('Offline source index hash mismatch');
     current.index = JSON.parse(original.toString());
-    validateSourceIndex(current.index, options); offline = true;
+    validateSourceIndex(current.index, options);
+    if (/^https:/i.test(current.source) && current.index.entries.some(e => e.source.path || e.publisherEvidence?.source.path)) throw new Error('Remote indices cannot refer to local filesystem artifacts or publisher evidence');
+    offline = true;
   }
   const entry = current.index.entries.find(e => e.entryId === entryId); if (!entry) throw new Error('Source entry not found');
   const directory = join(cache, entry.sha256), artifactFile = join(cache, `${entry.sha256}.artifact.json`);
-  const result = cached => ({ directory, kind: entry.kind, entry, cached, offline, networkPolicy: policy(options), startsModules: false, requiresExecutionReview: true });
+  const result = async cached => ({ directory, kind: entry.kind, entry, cached, offline, networkPolicy: policy(options),
+    publisherEvidence: await readSourcePublisherEvidence(current, entry, { ...options, offline }), startsModules: false, requiresExecutionReview: true });
   const cachedArtifact = async () => {
     if (!await present(artifactFile)) return null;
     const bytes = await readBounded(artifactFile, maximumArtifact);

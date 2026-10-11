@@ -18,6 +18,7 @@ import { inspectTemplate, previewTemplate, instantiateTemplate, createTemplate }
 import { previewUpgrade, upgradeInstance, inspectUpgradeHistory, previewRollback, rollbackUpgrade, recoverUpgrade } from '../../scripts/runtime/upgrade.mjs';
 import { previewStagedUpgrade, createStagedUpgrade } from '../../scripts/runtime/staged-upgrade.mjs';
 import { probeIsolation, reviewIsolationPackage } from '../../scripts/runtime/isolation.mjs';
+import { verifyStoredPublisherEvidence } from '../../scripts/runtime/publisher-store.mjs';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
 export function launcherError(code, message, status = 409) { return Object.assign(new Error(message), { code, status }); }
@@ -40,7 +41,7 @@ export class LauncherManager {
     this.root = resolve(options.root); this.defaults = { nodePath: options.nodePath ?? process.execPath,
       pythonPath: options.pythonPath ?? (process.platform === 'win32' ? 'python.exe' : 'python3') };
     this.records = new Map(); this.reviews = new Map(); this.operations = new Map(); this.sessions = new Map();
-    this.sourceRegistry = new SourceRegistry(this.root); this.sourceReviews = new Map(); this.completionReviews = new Map();
+    this.sourceRegistry = new SourceRegistry(this.root); this.sourceReviews = new Map(); this.completionReviews = new Map(); this.publisherReviews = new Map();
     this.busy = new Map(); this.registryQueue = Promise.resolve(); this.saveQueue = Promise.resolve(); this.environmentPlans = new Map(); this.preparationOwners = new Map(); this.url = ''; this.hub = null; this.hubFailure = null; this.closing = false;
   }
   async initialize() {
@@ -101,7 +102,8 @@ export class LauncherManager {
     const permissionDiff = [...names].map(module => ({ module, before: old.find(p => p.module === module)?.declared ?? null,
       after: plan.permissions.find(p => p.module === module)?.declared ?? null })).filter(p => JSON.stringify(p.before) !== JSON.stringify(p.after));
     const row = instanceId ? this.records.get(instanceId) : null;
-    const sourceReceipt = row?.sourceDigest === plan.digest ? row.sourceReceipt ?? null : await this.sourceRegistry.recognize(plan.directory);
+    const sourceReceipt = row?.sourceDigest === plan.digest && row.sourceReceipt
+      ? await this.sourceRegistry.recognize(plan.directory, row.sourceReceipt) : await this.sourceRegistry.recognize(plan.directory);
     const reviewId = randomUUID(), created = Date.now();
     this.reviews.set(reviewId, { reviewId, plan, environment: chosen, isolation, instanceId, createdAt: created, sourceReceipt });
     while (this.reviews.size > 64) this.reviews.delete(this.reviews.keys().next().value);
@@ -117,6 +119,11 @@ export class LauncherManager {
     const actual = await inspectPackage(review.plan.directory, review.environment);
     if (actual.digest !== review.plan.digest) throw launcherError('REVIEW_CHANGED', 'Package, permissions or interpreter changed after review. Inspect again.');
     if (review.isolation && (await reviewIsolationPackage(actual, review.isolation.policy)).digest !== review.isolation.digest) throw launcherError('REVIEW_CHANGED', 'Isolation provider or image changed after review. Inspect again.');
+    if (review.sourceReceipt) {
+      const current = await this.sourceRegistry.refreshPublisherReceipt(review.sourceReceipt);
+      const evidence = receipt => { const p = receipt?.publisherEvidence ?? {}; return JSON.stringify([receipt?.publisherIdentityVerified, p.signatureStatus, p.signatureVerified, p.publisherIdentity, p.keyStatus, p.advisoryStatus, p.error?.code, p.notices, p.identityBasis]); };
+      if (evidence(current) !== evidence(review.sourceReceipt)) throw launcherError('PUBLISHER_REVIEW_CHANGED', 'Publisher identity, revocation or risk evidence changed after review. Inspect the current package again.');
+    }
     return actual;
   }
   row(id) { safeId(id); const row = this.records.get(id); if (!row) throw launcherError('INSTANCE_NOT_FOUND', 'Unknown Launcher instance', 404); return row; }
@@ -279,6 +286,34 @@ export class LauncherManager {
   }
   async comments(input) { return readComments(await this.commentDirectory(input.directory)); }
   sources() { return this.sourceRegistry.list(); }
+  publisherTrustState() { return this.sourceRegistry.publisherTrustState(); }
+  publisherTrustPreview(change) { return this.sourceRegistry.previewPublisherTrust(change); }
+  async publisherTrustApply(input) {
+    if (input.accepted !== true) throw launcherError('TRUST_REQUIRED', 'Explicitly review the public key fingerprint and identity basis before changing publisher trust.');
+    const result = await this.sourceRegistry.applyPublisherTrust(input); this.reviews.clear(); return result;
+  }
+  async publisherEvidencePreview(input) {
+    const selection = { ...input, observe: false }, result = await this.sourceRegistry.publisherEvidence(selection);
+    const trust = await this.sourceRegistry.publisherTrustState(), previewId = randomUUID();
+    const fingerprint = value => createHash('sha256').update(JSON.stringify([value.evidenceSha256, value.report?.evidenceSha256, value.report?.statementDigest, value.artifact?.sha256, value.evidence])).digest('hex');
+    this.publisherReviews.set(previewId, { selection, fingerprint: fingerprint(result), revision: trust.revision, createdAt: Date.now() });
+    while (this.publisherReviews.size > 64) this.publisherReviews.delete(this.publisherReviews.keys().next().value);
+    return { ...result, previewId, stateRevision: trust.revision };
+  }
+  async publisherEvidenceObserve(input) {
+    if (input.accepted !== true) throw launcherError('TRUST_REQUIRED', 'Review this public signature, rotation, revocation or risk statement before recording it.');
+    const preview = this.publisherReviews.get(input.previewId);
+    if (!preview || Date.now() - preview.createdAt > 10 * 60000) throw launcherError('PUBLISHER_REVIEW_REQUIRED', 'Inspect the current evidence again.');
+    const current = await this.sourceRegistry.publisherEvidence(preview.selection), trust = await this.sourceRegistry.publisherTrustState();
+    const fingerprint = createHash('sha256').update(JSON.stringify([current.evidenceSha256, current.report?.evidenceSha256, current.report?.statementDigest, current.artifact?.sha256, current.evidence])).digest('hex');
+    if (fingerprint !== preview.fingerprint || trust.revision !== preview.revision) throw launcherError('PUBLISHER_REVIEW_CHANGED', 'Public evidence or local trust changed after review. Inspect it again.');
+    if (current.report?.accepted !== true) throw launcherError(current.report?.error?.code ?? 'PUBLISHER_EVIDENCE_REJECTED', current.report?.error?.message ?? 'This evidence cannot update trusted publisher state.');
+    const artifact = current.artifact && Object.fromEntries(['kind', 'id', 'version', 'sha256'].map(key => [key, current.artifact[key]]));
+    const report = await verifyStoredPublisherEvidence({ root: this.root, artifact, evidenceBytes: Buffer.from(JSON.stringify(current.evidence)), observe: true, sourceStatus: 'offline', expectedRevision: preview.revision });
+    const result = { ...current, report };
+    if (report.accepted !== true) throw launcherError(report.error?.code ?? 'PUBLISHER_EVIDENCE_REJECTED', 'Publisher evidence was rejected during observation.');
+    this.publisherReviews.delete(input.previewId); this.reviews.clear(); return result;
+  }
   saveSource(input) { return this.sourceRegistry.save(input); }
   deleteSource(id) { return this.sourceRegistry.delete(id); }
   async source(input) {
@@ -399,7 +434,7 @@ export class LauncherManager {
           || receipt.chosen.expectedSha256 !== chosen.expectedSha256) throw launcherError('SOURCE_REVIEW_REQUIRED', 'Inspect this current source configuration again.');
         indexDigest = receipt.result.digest;
       } else if (input.sourceId) throw launcherError('SOURCE_REVIEW_REQUIRED', 'Inspect the registered source and supply its current receiptId.');
-      const result = await fetchSourceArtifact(chosen.source, indexDigest, input.entryId, { cacheRoot: join(this.root, 'source-cache'), allowPrivateNetwork: chosen.allowPrivateNetwork, signal });
+      const result = await fetchSourceArtifact(chosen.source, indexDigest, input.entryId, { cacheRoot: join(this.root, 'source-cache'), publisherTrustRoot: this.root, allowPrivateNetwork: chosen.allowPrivateNetwork, signal });
       await this.sourceRegistry.assertCurrent(chosen);
       return { ...result, sourceReceipt: await this.sourceRegistry.recordFetch(chosen, { ...result, indexDigest }) };
     });

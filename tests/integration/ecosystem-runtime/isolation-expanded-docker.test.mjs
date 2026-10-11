@@ -1,0 +1,50 @@
+// Explicit real Linux gate. No skips or mocked container acceptance.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile, rename } from 'node:fs/promises';
+import { createServer, request as httpRequest } from 'node:http';
+import { join, dirname, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { createLock, importPackage, inspectPackage, startInstance, reviewIsolationPackage } from '../../../scripts/runtime/index.mjs';
+const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
+const dockerPath = process.env.WORLD_HUB_TEST_DOCKER, image = process.env.WORLD_HUB_TEST_IMAGE, pythonImage = process.env.WORLD_HUB_TEST_PYTHON_IMAGE, pythonPath = process.env.WORLD_HUB_TEST_PYTHON;
+const json = async file => JSON.parse(await readFile(file, 'utf8'));
+const save = (file, value) => writeFile(file, JSON.stringify(value, null, 2) + '\n');
+test('ISOLATION-EXPANDED pinned Node HTTP and Python communicate in real network-none containers; hostile attempts are denied', { timeout: 150000 }, async t => {
+  assert.equal(process.platform, 'linux'); assert.ok(dockerPath && image && pythonImage && pythonPath, 'Explicit Node and Python digest images, Docker and host Python are required');
+  const directory = await mkdtemp(join(tmpdir(), 'world-hub-isolation-expanded-')), pack = join(directory, 'pack'), root = join(directory, 'root'); let session;
+  const canary = join(directory, 'host-secret.txt'), other = join(directory, 'other-instance'); await writeFile(canary, 'host-only-canary'); await mkdir(other); await writeFile(join(other, 'secret'), 'other-instance-canary');
+  let canaryCalls = 0; const hostServer = createServer((_request, response) => { canaryCalls++; response.end('host canary'); }); await new Promise(resolve => hostServer.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { if (session) { const stopped = await session.close(); assert.equal(stopped.cleanupIncomplete, undefined); assert.ok(stopped.stoppedAt); }
+    hostServer.closeAllConnections(); await new Promise(resolve => hostServer.close(resolve)); assert.equal(dirname(resolve(directory)), resolve(tmpdir())); assert.ok(directory.split('/').at(-1).startsWith('world-hub-isolation-expanded-')); await rm(directory, { recursive: true, force: true }); });
+  await cp(join(ROOT, 'examples/ecosystem-pack'), pack, { recursive: true });
+  const settings = { hostPrivatePaths: [canary], otherInstancePaths: [join(other, 'secret')], hostPort: hostServer.address().port };
+  await rename(join(pack, 'modules/stats/program.py'), join(pack, 'modules/stats/business.py')); await cp(join(ROOT, 'tests/integration/ecosystem-runtime/fixtures/isolation-malicious.py'), join(pack, 'modules/stats/program.py'));
+  const probe = join(pack, 'modules/probe'); await mkdir(probe);
+  await cp(join(ROOT, 'tests/integration/ecosystem-runtime/fixtures/isolation-malicious.mjs'), join(probe, 'program.mjs'));
+  for (const name of ['bridge-kit.mjs', 'blob-client.mjs']) await cp(join(ROOT, 'sdk/javascript', name), join(probe, name));
+  await save(join(probe, 'package.json'), { type: 'module', imports: { '#bridge': './bridge-kit.mjs' } });
+  await save(join(probe, 'module.json'), { format: 'world-hub.module/v1', id: 'isolation.probe', version: '1.0.0', license: 'MIT', platforms: ['linux-x64'], runtime: { kind: 'node', entry: 'program.mjs' }, bridges: ['main'], provides: [], requires: [], permissions: { filesystem: 'instance-state', network: ['hub-loopback'], processes: 'none' } });
+  const manifest = await json(join(pack, 'pack.json')); manifest.id = 'isolation.expanded'; manifest.topics.result = 'isolation/result'; manifest.components.find(c => c.id === 'stats').settings = settings;
+  manifest.components.push({ id: 'probe', module: 'isolation.probe', after: [], settings, bridges: { main: { publish: ['result'], subscribe: [] } } });
+  manifest.startupTimeoutMs = 30000; manifest.healthTimeoutMs = 5000; manifest.stopTimeoutMs = 1000; await save(join(pack, 'pack.json'), manifest);
+  await createLock(pack, { nodePath: process.execPath, pythonPath }); const imported = await importPackage(pack, { root, instanceId: 'test', nodePath: process.execPath, pythonPath });
+  const plan = await inspectPackage(join(imported.stateDir, 'package'), { nodePath: process.execPath, pythonPath });
+  const policy = { profile: 'docker-runtime/v1', dockerPath, endpoint: 'unix:///var/run/docker.sock', images: { node: image, python: pythonImage }, http: { components: ['desk'] }, limits: { memoryMiB: 256, pids: 64, cpus: 1, user: process.getuid() } };
+  await assert.rejects(reviewIsolationPackage(plan, { ...policy, http: { components: [] } }), { code: 'ISOLATION_HTTP_POLICY_INVALID' });
+  await assert.rejects(reviewIsolationPackage(plan, { ...policy, images: { node: image, python: 'python:latest' } }), { code: 'ISOLATION_IMAGE_UNPINNED' });
+  const review = await reviewIsolationPackage(plan, policy);
+  session = await startInstance({ root, instanceId: 'test', nodePath: process.execPath, pythonPath, trust: plan.digest, isolation: policy, isolationTrust: review.digest });
+  const state = await session.status(); assert.equal(state.sandbox, true); assert.equal(state.executionProfile, 'docker-runtime/v1'); assert.ok(state.components.every(c => c.communication === 'connected' && c.isolation.auditedBeforeStart));
+  const html = await fetch(state.entryUrl); assert.equal(html.status, 200); assert.match(html.headers.get('content-security-policy'), /default-src 'self'/); assert.match(await html.text(), /<html/);
+  const url = new URL(state.entryUrl); assert.equal(url.hostname, '127.0.0.1'); assert.equal(state.components.find(c => c.id === 'desk').isolation.http.arbitraryDestinations, false);
+  const text = 'Node → Python 🌍\n有限 HTTP'; const response = await fetch(new URL('/analyze', url), { method: 'POST', headers: { 'content-type': 'application/json', origin: url.origin }, body: JSON.stringify({ text }) });
+  assert.equal(response.status, 200); const result = await response.json(); assert.equal(result.ok, true); assert.equal(result.result.text, text); assert.equal(result.result.output.codePoints, [...text].length); assert.equal(result.result.output.utf8Bytes, Buffer.byteLength(text)); assert.equal(result.result.receipts.length, 3);
+  const refused = await fetch(new URL('/analyze', url), { method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://malicious.invalid' }, body: JSON.stringify({ text: 'must not execute' }) }); assert.equal(refused.status, 403);
+  const oversized = await fetch(new URL('/analyze', url), { method: 'POST', body: 'x'.repeat(1048577) }); assert.equal(oversized.status, 413);
+  const absolute = await new Promise((resolve, reject) => { const req = httpRequest({ hostname: url.hostname, port: url.port, path: 'http://127.0.0.1:' + hostServer.address().port + '/secret', method: 'GET' }, res => { res.resume(); res.once('end', () => resolve(res.statusCode)); }); req.once('error', reject); req.end(); }); assert.equal(absolute, 403);
+  for (const component of ['probe', 'stats']) { const checks = await json(join(imported.stateDir, 'programs', component, 'allowed-output.json')); for (const [name, value] of Object.entries(checks)) { if (name === 'childFailure') assert.equal(value, 'EPERM'); else assert.equal(value, true, component + ':' + name); } }
+  assert.equal(canaryCalls, 0); assert.equal(await readFile(canary, 'utf8'), 'host-only-canary');
+  t.diagnostic(JSON.stringify({ profile: review.profile, images: policy.images, runtimeVersions: review.expectedRuntimes, result: result.result.output, limits: policy.limits, hostCanaryRequests: canaryCalls }));
+});

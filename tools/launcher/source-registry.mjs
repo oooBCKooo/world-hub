@@ -1,10 +1,13 @@
 // Optional Launcher source configuration and observed provenance. This does
-// not grant execution, identify publishers, or provide an operating-system sandbox.
+// not grant execution or provide an operating-system sandbox. Publisher evidence
+// is checked against explicitly configured local anchors, separately from acquisition.
 import { mkdir, readdir, unlink, lstat } from 'node:fs/promises';
 import { join, resolve, dirname, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ordinaryPath, readBounded, privateJson, collectFiles, hash } from '../../scripts/runtime/paths.mjs';
-import { validateSourceIndex, validateArtifactBytes } from '../../scripts/runtime/sources.mjs';
+import { validateSourceIndex, validateArtifactBytes, readSourceIndex, readSourcePublisherEvidence, unavailablePublisherEvidence, maximumPublisherEvidence } from '../../scripts/runtime/sources.mjs';
+import { parsePublisherEvidence } from '../../scripts/runtime/publisher-trust.mjs';
+import { readPublisherTrust, previewPublisherTrustChange, applyPublisherTrustChange, verifyStoredPublisherEvidence } from '../../scripts/runtime/publisher-store.mjs';
 
 const sha = /^[a-f0-9]{64}$/;
 const id = /^[a-z0-9][a-z0-9._-]{0,63}$/;
@@ -47,6 +50,88 @@ export class SourceRegistry {
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
   transaction(action) { const operation = this.queue.then(action); this.queue = operation.catch(() => {}); return operation; }
+  publisherTrustState() { return readPublisherTrust({ root: this.root }); }
+  previewPublisherTrust(change) { return previewPublisherTrustChange({ root: this.root, change }); }
+  applyPublisherTrust({ change, reviewDigest }) { return applyPublisherTrustChange({ root: this.root, change, reviewDigest }); }
+  async cachedPublicEvidence(digest) {
+    if (!sha.test(digest)) throw fault('SOURCE_RECEIPT_INVALID', 'Malformed publisher evidence digest.');
+    const bytes = await readBounded(join(this.cacheRoot, `${digest}.publisher.json`), maximumPublisherEvidence);
+    if (hash(bytes) !== digest) throw fault('PUBLISHER_EVIDENCE_CHANGED', 'Cached public evidence changed during the review.');
+    return parsePublisherEvidence(bytes);
+  }
+  async refreshPublisherReceipt(receipt) {
+    if (!receipt || !uuid.test(receipt.receiptId)) throw fault('SOURCE_RECEIPT_INVALID', 'Invalid stored provenance receipt.');
+    const stored = await json(join(this.receiptsRoot, receipt.receiptId + '.json'), 2 * 1024 * 1024);
+    if (stored.format !== 'world-hub.source-receipt-record/v1' || stored.receipt?.receiptId !== receipt.receiptId
+      || stored.receipt.artifactSha256 !== receipt.artifactSha256 || !sha.test(stored.receipt.artifactSha256)) throw fault('SOURCE_RECEIPT_INVALID', 'Stored provenance receipt changed.');
+    const checked = validateArtifactBytes(await readBounded(join(this.cacheRoot, `${stored.receipt.artifactSha256}.artifact.json`), 96 * 1024 * 1024));
+    if (checked.entry.sha256 !== receipt.artifactSha256 || ['kind', 'id', 'version'].some(key => checked.entry[key] !== stored.receipt.artifact?.[key])) throw fault('SOURCE_RECEIPT_INVALID', 'Cached artifact identity changed.');
+    const publisherEvidence = await this.verifyReceiptPublisher(stored.receipt);
+    return { ...stored.receipt, publisherEvidence, integrityVerified: true, publisherIdentityVerified: publisherEvidence.publisherIdentityVerified,
+      codeSafetyVerified: false, executionAuthorized: false, sandbox: false };
+  }
+  async verifyReceiptPublisher(receipt, { observe = false, now } = {}) {
+    const reference = receipt.publisherEvidenceReference;
+    if (!reference) return unavailablePublisherEvidence('unsigned', null, 'offline');
+    if (!closed(reference, ['sha256']) || !sha.test(reference.sha256)) throw fault('SOURCE_RECEIPT_INVALID', 'Malformed stored publisher evidence reference.');
+    let bytes;
+    try { bytes = await readBounded(join(this.cacheRoot, `${reference.sha256}.publisher.json`), maximumPublisherEvidence); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; return unavailablePublisherEvidence('evidence-unavailable', reference.sha256, 'offline'); }
+    if (hash(bytes) !== reference.sha256) return { ...unavailablePublisherEvidence('evidence-digest-mismatch', reference.sha256, 'offline'), diagnostic: 'PUBLISHER_EVIDENCE_DIGEST_MISMATCH' };
+    const evidence = parsePublisherEvidence(bytes), artifact = { ...receipt.artifact, sha256: receipt.artifactSha256 };
+    if (evidence.payload.type !== 'artifact' || ['kind', 'id', 'version', 'sha256'].some(key => evidence.payload.subject[key] !== artifact[key])) {
+      return { ...unavailablePublisherEvidence('evidence-invalid', reference.sha256, 'offline'), diagnostic: 'PUBLISHER_ARTIFACT_MISMATCH' };
+    }
+    const report = await verifyStoredPublisherEvidence({ root: this.root, artifact, evidenceBytes: bytes, observe, now, sourceStatus: 'offline' });
+    const { proposedState, ...verification } = report;
+    const acquisition = receipt.publisherEvidenceAcquisition;
+    if (acquisition?.status) {
+      verification.accepted = false;
+      verification.status = acquisition.status;
+      verification.acquisition = acquisition;
+      verification.warnings = [...(verification.warnings ?? []), acquisition.diagnostic ?? 'PUBLISHER_EVIDENCE_ACQUISITION_FAILED'];
+    }
+    return { ...verification, present: true, evidenceSha256: reference.sha256, integrityVerified: !acquisition?.status, sourceStatus: 'offline',
+      signatureVerified: verification.signatureStatus === 'verified', publisherIdentityVerified: verification.accepted === true && verification.publisherIdentity === 'anchored-key',
+      executionAuthorized: false, codeSafetyVerified: false, sandbox: false, startsModules: false, grantsExecution: false };
+  }
+  async publisherEvidence(input) {
+    if (!closed(input, ['receiptId', 'evidencePath', 'artifactPath', 'sourceId', 'source', 'indexDigest', 'entryId', 'observe'])) throw fault('SOURCE_INPUT', 'Unsupported publisher evidence input.', 400);
+    if (input.observe !== undefined && typeof input.observe !== 'boolean') throw fault('SOURCE_INPUT', 'observe must be a boolean.', 400);
+    const selectors = [input.receiptId !== undefined, input.evidencePath !== undefined, input.entryId !== undefined];
+    if (selectors.filter(Boolean).length !== 1) throw fault('SOURCE_INPUT', 'Choose one stored receipt, local public evidence path, or source entry.', 400);
+    if (input.receiptId !== undefined) {
+      if (!uuid.test(input.receiptId)) throw fault('SOURCE_RECEIPT_INVALID', 'Invalid stored provenance receipt.');
+      const stored = await json(join(this.receiptsRoot, input.receiptId + '.json'), 2 * 1024 * 1024);
+      if (stored.format !== 'world-hub.source-receipt-record/v1' || stored.receipt?.receiptId !== input.receiptId || !sha.test(stored.receipt.artifactSha256)) throw fault('SOURCE_RECEIPT_INVALID', 'Malformed stored provenance receipt.');
+      const checked = validateArtifactBytes(await readBounded(join(this.cacheRoot, `${stored.receipt.artifactSha256}.artifact.json`), 96 * 1024 * 1024));
+      if (checked.entry.sha256 !== stored.receipt.artifactSha256) throw fault('SOURCE_RECEIPT_INVALID', 'Cached artifact digest changed.');
+      const report = await this.verifyReceiptPublisher(stored.receipt, { observe: input.observe === true });
+      const evidence = stored.receipt.publisherEvidenceReference && report.integrityVerified ? await this.cachedPublicEvidence(stored.receipt.publisherEvidenceReference.sha256) : null;
+      return { report, evidence, artifact: { kind: checked.entry.kind, id: checked.entry.id, version: checked.entry.version, sha256: checked.entry.sha256 }, startsModules: false, grantsExecution: false };
+    }
+    if (input.evidencePath !== undefined) {
+      const bytes = await readBounded(input.evidencePath, maximumPublisherEvidence), evidence = parsePublisherEvidence(bytes);
+      const artifact = input.artifactPath === undefined ? undefined : validateArtifactBytes(await readBounded(input.artifactPath, 96 * 1024 * 1024)).entry;
+      const { proposedState, ...report } = await verifyStoredPublisherEvidence({ root: this.root, artifact: artifact && { kind: artifact.kind, id: artifact.id, version: artifact.version, sha256: artifact.sha256 }, evidenceBytes: bytes, sourceStatus: 'offline', observe: input.observe === true });
+      return { report, evidence, artifact: artifact ? { kind: artifact.kind, id: artifact.id, version: artifact.version, sha256: artifact.sha256 } : undefined,
+        evidenceSha256: hash(bytes), startsModules: false, grantsExecution: false };
+    }
+    if (!sha.test(input.indexDigest)) throw fault('SOURCE_INPUT', 'Inspect and supply the current source index digest.', 400);
+    const chosen = await this.resolve(input), current = await readSourceIndex(chosen.source, { allowPrivateNetwork: chosen.allowPrivateNetwork, expectedSha256: chosen.expectedSha256 });
+    await this.assertCurrent(chosen);
+    if (current.digest !== input.indexDigest) throw fault('SOURCE_CHANGED', 'Source index changed; inspect and select again.');
+    const entry = current.index.entries.find(value => value.entryId === input.entryId);
+    if (!entry) throw fault('SOURCE_NOT_FOUND', 'Source entry not found.', 404);
+    const report = await readSourcePublisherEvidence(current, entry, { cacheRoot: this.cacheRoot, publisherTrustRoot: this.root, allowPrivateNetwork: chosen.allowPrivateNetwork, observe: input.observe === true });
+    // This view observes an index declaration; downloading and checking the
+    // actual artifact remains a separate operation.
+    report.artifactBytesVerified = false;
+    if (report.contentIntegrity === 'verified') report.contentIntegrity = 'not-checked';
+    await this.assertCurrent(chosen);
+    const evidence = entry.publisherEvidence && report.integrityVerified ? await this.cachedPublicEvidence(entry.publisherEvidence.sha256) : null;
+    return { report, evidence, artifact: { kind: entry.kind, id: entry.id, version: entry.version, sha256: entry.sha256 }, startsModules: false, grantsExecution: false };
+  }
   async save(input) {
     if (!closed(input, ['id', 'name', 'source', 'enabled', 'priority', 'expectedSha256', 'allowPrivateNetwork', 'revision'])) throw fault('SOURCE_INPUT', 'Unsupported source configuration.', 400);
     return this.transaction(async () => {
@@ -179,7 +264,12 @@ export class SourceRegistry {
       source: chosen.source, indexDigest: result.indexDigest, artifactSha256: result.entry.sha256, entryId: result.entry.entryId,
       artifact: { kind: checked.artifact.kind, id: checked.artifact.id, version: checked.artifact.version },
       networkPolicy: result.networkPolicy, fetchedAt: new Date().toISOString(), integrityVerified: true,
+      publisherEvidenceReference: result.entry.publisherEvidence ? { sha256: result.entry.publisherEvidence.sha256 } : null,
+      publisherEvidenceAcquisition: result.publisherEvidence?.present && result.publisherEvidence.integrityVerified === false
+        ? { status: result.publisherEvidence.status, diagnostic: result.publisherEvidence.diagnostic ?? 'PUBLISHER_EVIDENCE_ACQUISITION_FAILED' } : null,
       publisherIdentityVerified: false, codeSafetyVerified: false, executionAuthorized: false, sandbox: false };
+    receipt.publisherEvidence = await this.verifyReceiptPublisher(receipt, { observe: true });
+    receipt.publisherIdentityVerified = receipt.publisherEvidence.publisherIdentityVerified;
     await ordinaryPath(this.receiptsRoot, { allowMissing: true }); await mkdir(join(this.receiptsRoot, 'by-digest'), { recursive: true, mode: 0o700 });
     await privateJson(join(this.receiptsRoot, `${receipt.receiptId}.json`), { format: 'world-hub.source-receipt-record/v1', receipt,
       files: checked.artifact.files.map(({ path, sha256 }) => ({ path, sha256 })) }, { exclusive: true });
@@ -201,6 +291,8 @@ export class SourceRegistry {
       || !sha.test(stored.receipt.indexDigest) || !Array.isArray(stored.files) || stored.files.length > 8192) throw fault('SOURCE_RECEIPT_INVALID', 'Malformed stored provenance receipt.');
     const actual = await collectFiles(canonical);
     if (actual.length !== stored.files.length || actual.some(file => stored.files.find(entry => entry.path === file.path)?.sha256 !== file.sha256)) return null;
-    return { ...stored.receipt, integrityVerified: true, publisherIdentityVerified: false, codeSafetyVerified: false, executionAuthorized: false, sandbox: false };
+    const publisherEvidence = await this.verifyReceiptPublisher(stored.receipt);
+    return { ...stored.receipt, publisherEvidence, integrityVerified: true, publisherIdentityVerified: publisherEvidence.publisherIdentityVerified,
+      codeSafetyVerified: false, executionAuthorized: false, sandbox: false };
   }
 }

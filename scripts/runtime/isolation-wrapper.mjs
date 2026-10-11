@@ -7,13 +7,17 @@ import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { attachWebSocketServer } from '../../src/hub/ws-server.mjs';
 import { ISOLATION_EVENT, channelChunks, collectChannelChunk } from './isolation-channel.mjs';
+import { ISOLATION_HTTP_EVENT, httpFrames, containerHttpRequest, internalHttpUrl } from './isolation-http.mjs';
 
-const [entry, configPath] = process.argv.slice(2);
+const [entry, configPath, optionsText] = process.argv.slice(2);
+const options = JSON.parse(optionsText);
+if (process.getuid() < 1 || options.expectedRuntime.version !== process.versions.node) throw new Error('ISOLATION_ENVIRONMENT_MISMATCH');
 const config = JSON.parse(await readFile(configPath, 'utf8'));
 const emit = frame => process.stdout.write(JSON.stringify(frame) + '\n');
 const server = createServer((request, response) => { response.writeHead(404); response.end(); });
 const ws = attachWebSocketServer(server, { maxPayload: 4 * 1024 * 1024, maxBufferedBytes: 8 * 1024 * 1024 });
 const connections = new Map(), incoming = new Map();
+let httpTarget = null; const httpIncoming = new Map(), httpRequests = new Set();
 ws.on('connection', connection => {
   if (connections.size >= config.bridges.length) { connection.close(1008, 'Connection limit'); return; }
   const id = randomUUID(); connections.set(id, connection); connection.isolationId = id;
@@ -35,6 +39,22 @@ const input = createInterface({ input: process.stdin });
 input.on('line', line => {
   if (line.length > 131072) return;
   let frame; try { frame = JSON.parse(line); } catch { return; }
+  if (frame.event === ISOLATION_HTTP_EVENT && options.httpAllowed) {
+    if (frame.operation === 'setup') { if (!httpTarget) httpTarget = internalHttpUrl(frame.target).href; return; }
+    if (!httpTarget || typeof frame.connection !== 'string' || !/^[a-f0-9-]{36}$/.test(frame.connection) || httpIncoming.size >= 16 && !httpIncoming.has(frame.connection)) return;
+    try {
+      const result = collectChannelChunk(httpIncoming.get(frame.connection), frame);
+      if (result.pending) httpIncoming.set(frame.connection, result.pending); else httpIncoming.delete(frame.connection);
+      if (result.text !== null) {
+        if (httpRequests.size >= 16 || httpRequests.has(frame.connection)) return;
+        httpRequests.add(frame.connection);
+        void containerHttpRequest(httpTarget, JSON.parse(result.text)).catch(() => ({ operation: 'response', status: 502, headers: {}, body: '' })).then(response => {
+          for (const value of httpFrames(frame.connection, response)) emit(value);
+        }).finally(() => httpRequests.delete(frame.connection));
+      }
+    } catch { httpIncoming.delete(frame.connection); }
+    return;
+  }
   if (frame.event === ISOLATION_EVENT) {
     const connection = connections.get(frame.connection); if (!connection) return;
     if (frame.operation === 'close') { connection.close(1001, 'Host channel closed'); return; }
@@ -52,5 +72,5 @@ input.on('line', line => {
 });
 input.on('close', () => { ws.closeAll(); server.closeAllConnections(); server.close(); });
 process.argv = [process.execPath, entry, '--runtime-config', '/tmp/runtime-config.json'];
-emit({ event: 'isolation-ready', nodeVersion: process.versions.node, user: process.getuid(), profile: 'docker-node-headless/v1' });
+emit({ event: 'isolation-ready', nodeVersion: process.versions.node, runtime: 'node', runtimeVersion: process.versions.node, packages: {}, user: process.getuid(), profile: options.profile });
 await import(pathToFileURL(entry).href);

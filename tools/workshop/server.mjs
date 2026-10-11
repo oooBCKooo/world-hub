@@ -93,6 +93,20 @@ export async function createWorkshopServer(options = {}) {
         } finally { await handle?.close(); downloads--; }
         return;
       }
+      const publisherMatch = /^\/workshop\/publisher-evidence\/([a-f0-9]{64})\.json$/.exec(path);
+      if (request.method === 'GET' && publisherMatch) {
+        const digest = publisherMatch[1];
+        const visible = store.state.publications.some(p => !p.hidden && (p.entry.publisherEvidence?.sha256 === digest || p.proposals.some(q => q.publisherEvidence?.sha256 === digest)));
+        if (!visible) throw workshopError('NOT_FOUND', 'Publisher evidence not found.', 404);
+        if (downloads >= 8) throw workshopError('DOWNLOAD_BUSY', 'Download capacity reached; retry shortly.', 503);
+        downloads++;
+        try {
+          const bytes = await store.publisherBytes(digest);
+          response.writeHead(200, { ...securityHeaders, 'content-type': 'application/json; charset=utf-8', 'content-length': bytes.length,
+            etag: `"${digest}"`, 'cache-control': 'public, max-age=31536000, immutable' }); response.end(bytes);
+        } finally { downloads--; }
+        return;
+      }
       if (request.method === 'GET' && path === '/workshop/api/me') { send(response, 200, { user, ...(user ? { csrfToken: store.csrfForSession(rawToken) } : {}) }); return; }
       if (request.method === 'GET' && path === '/workshop/api/catalog') {
         const parameters = Object.fromEntries(target.searchParams); for (const field of ['offset', 'limit']) if (Object.hasOwn(parameters, field)) { if (!/^\d+$/.test(parameters[field])) throw workshopError('INVALID_INPUT', 'Invalid pagination.'); parameters[field] = Number(parameters[field]); }
@@ -119,9 +133,9 @@ export async function createWorkshopServer(options = {}) {
       else if (path === '/workshop/api/register') { fields(body, ['username', 'password', 'invitation'], ['username', 'password', 'invitation']); result = await store.register(body.username, body.password, body.invitation); status = 201; }
       else if (path === '/workshop/api/logout') { fields(body, []); result = await store.logout(rawToken); headers['set-cookie'] = cookie('', true); }
       else if (path === '/workshop/api/invitations') { fields(body, []); result = await store.invite(user); status = 201; }
-      else if (path === '/workshop/api/publications') { fields(body, ['artifact', 'redistributionAcknowledged', 'title'], ['artifact', 'redistributionAcknowledged']); result = await store.publish(user, body); status = result.duplicate ? 200 : 201; }
+      else if (path === '/workshop/api/publications') { fields(body, ['artifact', 'redistributionAcknowledged', 'title', 'publisherEvidence'], ['artifact', 'redistributionAcknowledged']); result = await store.publish(user, body); status = result.duplicate ? 200 : 201; }
       else if (publicationMatch?.[2] === 'comments' && !publicationMatch[3]) { fields(body, ['text'], ['text']); rate(`comment:${user.id}`, 20); result = await store.comment(user, publicationMatch[1], body.text); status = 201; }
-      else if (publicationMatch?.[2] === 'proposals' && !publicationMatch[3]) { fields(body, ['artifact', 'baseSha256', 'redistributionAcknowledged', 'title'], ['artifact', 'baseSha256', 'redistributionAcknowledged']); result = await store.propose(user, publicationMatch[1], body); status = 201; }
+      else if (publicationMatch?.[2] === 'proposals' && !publicationMatch[3]) { fields(body, ['artifact', 'baseSha256', 'redistributionAcknowledged', 'title', 'publisherEvidence'], ['artifact', 'baseSha256', 'redistributionAcknowledged']); result = await store.propose(user, publicationMatch[1], body); status = 201; }
       else if (publicationMatch?.[2] === 'visibility' && !publicationMatch[3]) { fields(body, ['hidden'], ['hidden']); result = await store.visibility(user, publicationMatch[1], body.hidden); }
       else if (/^\/workshop\/api\/users\/[a-z0-9][a-z0-9._-]{0,127}\/status$/.test(path)) { fields(body, ['disabled'], ['disabled']); result = await store.setUserStatus(user, path.split('/')[4], body.disabled); }
       else throw workshopError('NOT_FOUND', 'Route not found.', 404);

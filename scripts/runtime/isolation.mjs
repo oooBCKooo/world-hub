@@ -10,6 +10,13 @@ import { ownProcess } from './process.mjs';
 import { filteredEnv } from './package.mjs';
 import { ordinaryPath, collectFiles, hash, relativePath, readBounded } from './paths.mjs';
 import { ISOLATION_EVENT, channelChunks, collectChannelChunk } from './isolation-channel.mjs';
+import { ISOLATION_HTTP_EVENT, createHttpTunnel, internalHttpUrl } from './isolation-http.mjs';
+import { probeExistingUser, reviewExistingUserPackage, planExistingUser, ownExistingUserProcess } from './isolation-user.mjs';
+
+export const ISOLATION_PROFILES = ['docker-node-headless/v1', 'docker-runtime/v1', 'linux-existing-user/v1'];
+const dockerProfiles = ISOLATION_PROFILES.slice(0, 2);
+const profileOf = options => options.profile ?? 'docker-node-headless/v1';
+const adapterFiles = ['isolation-wrapper.mjs', 'isolation-wrapper.py', 'isolation-channel.mjs', 'isolation-http.mjs'];
 
 const execute = promisify(execFile), here = dirname(fileURLToPath(import.meta.url));
 const failure = (code, message) => Object.assign(new Error(message), { code });
@@ -32,8 +39,10 @@ async function docker(p, argv, { timeout = 15000, maxBuffer = 1024 * 1024 } = {}
   return execute(p.executable, ['--host', p.endpoint, ...argv], { windowsHide: true, shell: false, timeout, maxBuffer, encoding: 'utf8', env: filteredEnv(p.executable) });
 }
 export async function probeIsolation(options = {}) {
+  if (profileOf(options) === 'linux-existing-user/v1') return probeExistingUser(options);
   const result = { format: 'world-hub.isolation-probe/v1', provider: 'docker-linux', available: false, startsContainers: false, installsProvider: false, observedAt: new Date().toISOString() };
   try {
+    if (!dockerProfiles.includes(profileOf(options))) throw failure('ISOLATION_PROFILE_INVALID', 'Unknown isolation profile');
     const p = await provider(options); result.executable = p.executable; result.executableSha256 = p.executableSha256; result.endpoint = p.endpoint;
     const info = JSON.parse((await docker(p, ['info', '--format', '{{json .}}'], { timeout: 10000 })).stdout);
     if (info.OSType !== 'linux' || !['x86_64', 'aarch64', 'amd64', 'arm64'].includes(info.Architecture)) throw failure('ISOLATION_PROVIDER_UNSUPPORTED', 'Only Linux amd64/arm64 engines are supported');
@@ -44,25 +53,37 @@ export async function probeIsolation(options = {}) {
 }
 export async function reviewIsolationPackage(plan, options = {}) {
   if (!plan?.digest || !Array.isArray(plan.modules)) throw failure('ISOLATION_REVIEW_REQUIRED', 'Inspect a locked package first');
-  if (Object.keys(options).some(key => !['dockerPath', 'endpoint', 'image', 'architecture', 'limits'].includes(key))) throw failure('ISOLATION_PROFILE_INVALID', 'Unknown isolation policy field');
+  if (profileOf(options) === 'linux-existing-user/v1') return reviewExistingUserPackage(plan, options);
+  const profile = profileOf(options), modern = profile === 'docker-runtime/v1';
+  if (!dockerProfiles.includes(profile) || Object.keys(options).some(key => !['profile', 'dockerPath', 'endpoint', 'image', 'images', 'http', 'architecture', 'limits'].includes(key))) throw failure('ISOLATION_PROFILE_INVALID', 'Unknown isolation policy field or profile');
+  if (!modern && (options.images !== undefined || options.http !== undefined)) throw failure('ISOLATION_PROFILE_INVALID', 'Use the explicit docker-runtime/v1 profile for multiple runtimes or HTTP');
+  const images = modern ? options.images : { node: options.image }, http = modern ? options.http ?? { components: [] } : { components: [] };
+  if (!images || typeof images !== 'object' || Array.isArray(images) || Object.keys(images).some(kind => !['node', 'python'].includes(kind)) || Object.values(images).some(value => !imagePattern.test(value))) throw failure('ISOLATION_IMAGE_UNPINNED', 'Explicit per-runtime repository@sha256 images are required');
+  if (!http || typeof http !== 'object' || Array.isArray(http) || Object.keys(http).some(key => key !== 'components') || !Array.isArray(http.components) || new Set(http.components).size !== http.components.length || http.components.some(id => !plan.pack.components.some(c => c.id === id))) throw failure('ISOLATION_HTTP_POLICY_INVALID', 'HTTP components must be an explicit unique list of this package components');
   for (const module of plan.modules) {
-    if (module.manifest.runtime.kind !== 'node' || module.manifest.permissions.processes !== 'none' || module.manifest.permissions.network.some(kind => kind !== 'hub-loopback'))
-      throw failure('ISOLATION_RUNTIME_UNSUPPORTED', 'The fixed profile accepts Node headless modules with no declared child processes and only Hub communication');
+    if ((!modern && module.manifest.runtime.kind !== 'node') || !images[module.manifest.runtime.kind] || module.manifest.permissions.processes !== 'none' || module.manifest.permissions.network.some(kind => kind !== 'hub-loopback' && !(modern && kind === 'loopback-listen')))
+      throw failure('ISOLATION_RUNTIME_UNSUPPORTED', 'The selected profile requires a pinned runtime image, no declared child processes and only Hub or explicitly reviewed HTTP loopback communication');
   }
-  if (!imagePattern.test(options.image ?? '')) throw failure('ISOLATION_IMAGE_UNPINNED', 'An explicit repository@sha256 image is required');
+  for (const c of plan.pack.components) {
+    const module = plan.modules.find(m => m.manifest.id === c.module), listens = module.manifest.permissions.network.includes('loopback-listen');
+    if (listens !== http.components.includes(c.id) || listens && c.id !== plan.pack.entry.component) throw failure('ISOLATION_HTTP_POLICY_INVALID', 'Only the declared pack entry component may expose an explicitly reviewed HTTP tunnel');
+  }
   const p = await provider(options), probe = await probeIsolation(options);
   if (!probe.available) throw failure(probe.error.code, probe.error.message);
   const architecture = options.architecture ?? (process.arch === 'arm64' ? 'arm64' : 'amd64');
   const seccomp = isolationSeccomp(architecture), limits = { memoryMiB: 256, pids: 64, cpus: 1, user: process.platform !== 'win32' && process.getuid?.() > 0 ? process.getuid() : 1000, ...options.limits };
   if (Object.keys(limits).some(key => !Object.hasOwn(bounds, key))) throw failure('ISOLATION_LIMITS_INVALID', 'Unknown resource limit');
   for (const [key, value] of Object.entries(limits)) if (!Number.isFinite(value) || value < bounds[key][0] || value > bounds[key][1] || key !== 'cpus' && !Number.isInteger(value)) throw failure('ISOLATION_LIMITS_INVALID', `Invalid ${key}`);
-  const image = JSON.parse((await docker(p, ['image', 'inspect', options.image])).stdout)[0];
-  if (image.Os !== 'linux' || image.Architecture !== architecture || !(image.RepoDigests ?? []).some(value => value.endsWith('@' + options.image.split('@')[1]))) throw failure('ISOLATION_IMAGE_MISMATCH', 'Select an already available matching Linux image; no image is pulled automatically');
-  const adapterHashes = Object.fromEntries(await Promise.all(['isolation-wrapper.mjs', 'isolation-channel.mjs', '../../src/hub/ws-server.mjs'].map(async file => [file, hash(await readBounded(join(here, file)))])));
-  const review = { format: 'world-hub.isolation-review/v1', profile: 'docker-node-headless/v1', packageDigest: plan.digest, provider: p, image: options.image,
-    imageId: image.Id, architecture, limits, expectedNodeVersion: plan.environment.node.version, adapterHashes, seccompSha256: hash(JSON.stringify(seccomp)),
-    components: plan.pack.components.map(component => component.id), network: 'none', communication: 'stdio-to-own-instance-hub-only', startsPrograms: false, sandbox: false,
-    policy: { dockerPath: p.executable, endpoint: p.endpoint, image: options.image, architecture, limits } };
+  const imageIds = {};
+  for (const [kind, pinned] of Object.entries(images)) { const image = JSON.parse((await docker(p, ['image', 'inspect', pinned])).stdout)[0];
+    if (image.Os !== 'linux' || image.Architecture !== architecture || !(image.RepoDigests ?? []).some(value => value.endsWith('@' + pinned.split('@')[1]))) throw failure('ISOLATION_IMAGE_MISMATCH', 'Select already available matching Linux images; no image is pulled automatically'); imageIds[kind] = image.Id; }
+  const expectedRuntimes = Object.fromEntries([...new Set(plan.modules.map(m => m.manifest.runtime.kind))].map(kind => [kind, { version: plan.environment[kind].version, packages: plan.environment[kind].packages }]));
+  if (expectedRuntimes.python && typeof expectedRuntimes.python.packages.websockets !== 'string') throw failure('ISOLATION_DEPENDENCY_REQUIRED', 'Python isolation requires an exactly locked installed websockets dependency');
+  const adapterHashes = Object.fromEntries(await Promise.all([...adapterFiles, '../../src/hub/ws-server.mjs'].map(async file => [file, hash(await readBounded(join(here, file)))])));
+  const policy = { profile, dockerPath: p.executable, endpoint: p.endpoint, ...(modern ? { images, http } : { image: options.image }), architecture, limits };
+  const review = { format: 'world-hub.isolation-review/v1', profile, packageDigest: plan.digest, provider: p, image: options.image ?? null, images, imageIds, architecture, limits,
+    expectedNodeVersion: plan.environment.node.version, expectedRuntimes, adapterHashes, seccompSha256: hash(JSON.stringify(seccomp)),
+    components: plan.pack.components.map(component => component.id), http, network: 'none', communication: http.components.length ? 'stdio-to-own-instance-hub-and-reviewed-http-only' : 'stdio-to-own-instance-hub-only', startsPrograms: false, sandbox: false, policy };
   review.digest = hash(JSON.stringify(review)); return review;
 }
 
@@ -80,9 +101,13 @@ export function isolationSeccomp(architecture = 'amd64') {
 }
 
 export async function planIsolation(options = {}) {
+  if (profileOf(options) === 'linux-existing-user/v1') return planExistingUser(options);
+  const profile = profileOf(options), modern = profile === 'docker-runtime/v1', runtime = options.runtime ?? 'node';
+  if (!dockerProfiles.includes(profile)) throw failure('ISOLATION_PROFILE_INVALID', 'Unknown isolation profile');
   const p = await provider(options);
-  if (!imagePattern.test(options.image ?? '')) throw failure('ISOLATION_IMAGE_UNPINNED', 'An explicit repository@sha256 image is required; tags are not executable reviews');
-  if (options.runtime !== undefined && options.runtime !== 'node') throw failure('ISOLATION_RUNTIME_UNSUPPORTED', 'The docker-node-headless/v1 profile supports Node modules only');
+  const image = modern ? options.images?.[runtime] : options.image;
+  if (!imagePattern.test(image ?? '')) throw failure('ISOLATION_IMAGE_UNPINNED', 'An explicit repository@sha256 image is required; tags are not executable reviews');
+  if (!['node', 'python'].includes(runtime) || !modern && runtime !== 'node') throw failure('ISOLATION_RUNTIME_UNSUPPORTED', 'The docker-node-headless/v1 profile supports Node modules only');
   if (options.network !== undefined && options.network !== 'none' || options.entryUrl !== undefined) throw failure('ISOLATION_NETWORK_UNSUPPORTED', 'This profile has no network interface and no UI HTTP tunnel; it cannot expose an entry URL');
   const limits = { memoryMiB: 256, pids: 64, cpus: 1, user: process.platform !== 'win32' && process.getuid?.() > 0 ? process.getuid() : 1000, ...options.limits };
   if (Object.keys(limits).some(k => !Object.hasOwn(bounds, k))) throw failure('ISOLATION_LIMITS_INVALID', 'Unknown isolation resource limit');
@@ -98,22 +123,26 @@ export async function planIsolation(options = {}) {
   const endpoints = new Set(configuration.bridges.map(bridge => bridge.endpoint));
   for (const endpoint of endpoints) { const url = new URL(endpoint); if (url.protocol !== 'ws:' || url.hostname !== '127.0.0.1' || !url.port || url.pathname !== '/bridge' || url.username || url.password || url.search || url.hash) throw failure('ISOLATION_DESTINATION_INVALID', 'The broker can contact only an explicit local instance Hub /bridge endpoint'); }
   if (endpoints.size !== 1) throw failure('ISOLATION_DESTINATION_INVALID', 'All component bridges must target the same instance Hub');
+  const httpAllowed = modern && (options.http?.components ?? []).includes(configuration.componentId);
+  const expectedRuntime = options.expectedRuntime ?? (runtime === 'node' ? { version: process.versions.node, packages: {} } : null);
+  if (!expectedRuntime || !/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(expectedRuntime.version) || !expectedRuntime.packages || typeof expectedRuntime.packages !== 'object' || runtime === 'python' && typeof expectedRuntime.packages.websockets !== 'string') throw failure('ISOLATION_ENVIRONMENT_REQUIRED', 'An exactly locked runtime version and Python websockets version are required');
   const architecture = options.architecture ?? (process.arch === 'arm64' ? 'arm64' : 'amd64');
   const seccomp = isolationSeccomp(architecture);
-  const adapterFiles = ['isolation-wrapper.mjs', 'isolation-channel.mjs'];
   const adapterHashes = Object.fromEntries(await Promise.all(adapterFiles.map(async file => [file, hash(await readBounded(join(here, file)))])));
   adapterHashes['ws-server.mjs'] = hash(await readBounded(join(here, '../../src/hub/ws-server.mjs')));
-  const value = { format: 'world-hub.isolation-plan/v1', profile: 'docker-node-headless/v1', provider: p, image: options.image,
+  const value = { format: 'world-hub.isolation-plan/v1', profile, runtime, expectedRuntime, httpAllowed, provider: p, image,
     architecture, entry, source, state, config, adapter, files, configSha256: hash(await readBounded(config)), adapterHashes, seccompSha256: hash(JSON.stringify(seccomp)),
     limits, network: 'none', filesystem: { source: 'read-only', componentState: 'read-write', otherHostFiles: 'not-mounted', root: 'read-only', temporary: '64MiB-tmpfs' },
-    processes: 'no-new-child-processes; Node threads allowed and PID-limited', communication: 'stdio-to-own-instance-hub-only', startsPrograms: false, sandbox: false };
+    processes: 'no-new-child-processes; runtime threads allowed and PID-limited', communication: httpAllowed ? 'stdio-to-own-instance-hub-and-reviewed-http-only' : 'stdio-to-own-instance-hub-only', startsPrograms: false, sandbox: false };
   value.digest = hash(JSON.stringify(value));
   return value;
 }
 
 export async function ownIsolatedProcess(plan, { trust, temporary, secrets, onFailure, onEvent, signal } = {}) {
   if (!plan || plan.format !== 'world-hub.isolation-plan/v1' || trust !== plan.digest) throw failure('ISOLATION_REVIEW_REQUIRED', 'The current executable/image/mount/network isolation plan must be explicitly reviewed');
-  const checked = await planIsolation({ dockerPath: plan.provider.executable, endpoint: plan.provider.endpoint, image: plan.image, architecture: plan.architecture, entry: plan.entry, sourceDirectory: plan.source, stateDirectory: plan.state, configPath: plan.config, adapterDirectory: plan.adapter, limits: plan.limits });
+  if (plan.profile === 'linux-existing-user/v1') return ownExistingUserProcess(plan, { trust, temporary, secrets, onFailure, onEvent, signal });
+  const configuration = JSON.parse((await readBounded(plan.config)).toString('utf8'));
+  const checked = await planIsolation({ profile: plan.profile, dockerPath: plan.provider.executable, endpoint: plan.provider.endpoint, image: plan.image, images: { [plan.runtime]: plan.image }, http: { components: plan.httpAllowed ? [configuration.componentId] : [] }, runtime: plan.runtime, expectedRuntime: plan.expectedRuntime, architecture: plan.architecture, entry: plan.entry, sourceDirectory: plan.source, stateDirectory: plan.state, configPath: plan.config, adapterDirectory: plan.adapter, limits: plan.limits });
   if (checked.digest !== plan.digest) throw failure('ISOLATION_REVIEW_CHANGED', 'Isolation code, executable, configuration or source changed after review');
   const probe = await probeIsolation({ dockerPath: plan.provider.executable, endpoint: plan.provider.endpoint });
   if (!probe.available) throw failure(probe.error.code, probe.error.message);
@@ -121,23 +150,23 @@ export async function ownIsolatedProcess(plan, { trust, temporary, secrets, onFa
   if (image.Os !== 'linux' || image.Architecture !== plan.architecture || !(image.RepoDigests ?? []).some(value => value.endsWith('@' + plan.image.split('@')[1]))) throw failure('ISOLATION_IMAGE_MISMATCH', 'The already available image must match its reviewed Linux architecture and digest; images are not pulled automatically');
   await mkdir(plan.adapter, { mode: 0o700 });
   await mkdir(join(plan.adapter, 'scripts/runtime'), { recursive: true }); await mkdir(join(plan.adapter, 'src/hub'), { recursive: true });
-  for (const file of ['isolation-wrapper.mjs', 'isolation-channel.mjs']) await copyFile(join(here, file), join(plan.adapter, 'scripts/runtime', file));
+  for (const file of adapterFiles) await copyFile(join(here, file), join(plan.adapter, 'scripts/runtime', file));
   await copyFile(join(here, '../../src/hub/ws-server.mjs'), join(plan.adapter, 'src/hub/ws-server.mjs'));
   const seccompPath = join(plan.adapter, 'seccomp.json'); await writeFile(seccompPath, JSON.stringify(isolationSeccomp(plan.architecture)));
   const owner = randomUUID(), name = 'world-hub-' + owner;
   const mounts = [[plan.source, '/source', true], [plan.state, '/state', false], [plan.config, '/configuration.json', true], [plan.adapter, '/adapter', true]];
   const argv = ['create', '--name', name, '--label', 'world-hub.owner=' + owner, '--pull', 'never', '--interactive', '--network', 'none', '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges=true', '--security-opt', 'seccomp=' + seccompPath,
     '--user', String(plan.limits.user), '--pids-limit', String(plan.limits.pids), '--memory', plan.limits.memoryMiB + 'm', '--memory-swap', plan.limits.memoryMiB + 'm', '--cpus', String(plan.limits.cpus), '--ipc', 'none', '--no-healthcheck', '--log-driver', 'none',
-    '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,size=67108864,mode=1777', '--workdir', '/state', '--entrypoint', '/usr/local/bin/node'];
+    '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,size=67108864,mode=1777', '--workdir', '/state', '--entrypoint', plan.runtime === 'python' ? '/usr/local/bin/python3' : '/usr/local/bin/node'];
   for (const [source, target, readonly] of mounts) argv.push('--mount', `type=bind,source=${source},target=${target}${readonly ? ',readonly' : ''}`);
-  argv.push(plan.image, '/adapter/scripts/runtime/isolation-wrapper.mjs', '/source/' + plan.entry, '/configuration.json');
-  let cid, h, cleanup = null; const channels = new Map();
+  argv.push(plan.image, ...(plan.runtime === 'python' ? ['-I', '-B', '/adapter/scripts/runtime/isolation-wrapper.py'] : ['/adapter/scripts/runtime/isolation-wrapper.mjs']), '/source/' + plan.entry, '/configuration.json', JSON.stringify({ profile: plan.profile, expectedRuntime: plan.expectedRuntime, httpAllowed: plan.httpAllowed }));
+  let cid, h, cleanup = null, httpTunnel = null; const channels = new Map();
   const inspectOwned = async () => {
     const container = JSON.parse((await docker(plan.provider, ['inspect', cid])).stdout)[0];
     if (container.Id !== cid || container.Config.Labels?.['world-hub.owner'] !== owner) throw failure('ISOLATION_OWNER_CHANGED', 'Container ownership changed; no foreign container was controlled');
     return container;
   };
-  const clean = () => cleanup ??= (async () => { for (const c of channels.values()) c.ws?.close(); channels.clear(); if (cid) { await inspectOwned(); await docker(plan.provider, ['rm', '--force', cid]); } })().catch(error => { cleanup = null; throw error; });
+  const clean = () => cleanup ??= (async () => { for (const c of channels.values()) c.ws?.close(); channels.clear(); if (httpTunnel) { await httpTunnel.close(); httpTunnel = null; } if (cid) { await inspectOwned(); await docker(plan.provider, ['rm', '--force', cid]); } })().catch(error => { cleanup = null; throw error; });
   try {
     cid = (await docker(plan.provider, argv)).stdout.trim(); if (!/^[a-f0-9]{64}$/.test(cid)) throw failure('ISOLATION_CONTAINER_INVALID', 'Docker did not return a complete container identity');
     const actual = await inspectOwned(), config = actual.HostConfig;
@@ -152,8 +181,9 @@ export async function ownIsolatedProcess(plan, { trust, temporary, secrets, onFa
       && actualMounts.length === mounts.length && actual.Mounts.every(mount => mount.Type === 'bind' || mount.Type === 'tmpfs' && mount.Destination === '/tmp')
       && mounts.every(([source, target, readonly]) => actualMounts.some(mount => same(hostSource(mount.Source), source) && mount.Destination === target && mount.RW === !readonly));
     if (!audited) throw failure('ISOLATION_AUDIT_FAILED', 'The created container does not match the reviewed confinement; its entry was never started');
-    const configuration = JSON.parse((await readBounded(plan.config)).toString('utf8')), endpoint = configuration.bridges[0].endpoint;
+    const endpoint = configuration.bridges[0].endpoint;
     const receive = frame => {
+      if (frame.event === ISOLATION_HTTP_EVENT) { httpTunnel?.receive(frame); return; }
       if (frame.event !== ISOLATION_EVENT) { onEvent?.(frame); return; }
       try {
         if (typeof frame.connection !== 'string' || !/^[a-f0-9-]{36}$/.test(frame.connection)) throw new Error('Invalid isolation connection');
@@ -184,6 +214,12 @@ export async function ownIsolatedProcess(plan, { trust, temporary, secrets, onFa
       receive(frame);
     }, signal });
     h.isolation = { profile: plan.profile, sandbox: true, containerId: cid, reviewDigest: plan.digest, image: plan.image, auditedBeforeStart: true, network: 'none', processes: plan.processes };
+    h.exposeHttp = async value => {
+      if (!plan.httpAllowed || httpTunnel) throw failure('ISOLATION_HTTP_POLICY_INVALID', 'Only one explicitly reviewed HTTP entry tunnel may be opened');
+      const target = internalHttpUrl(value); httpTunnel = await createHttpTunnel(frame => h.send(frame), target.href);
+      h.send({ event: ISOLATION_HTTP_EVENT, operation: 'setup', target: target.href }); h.isolation.http = { endpoint: 'loopback', methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], maxBodyBytes: 1048576, redirectsFollowed: false, arbitraryDestinations: false, upgrades: false };
+      return httpTunnel.url;
+    };
     h.stop = async timeoutMs => {
       if (cleanup) { await cleanup; return h.exit; }
       h.stopping = true; h.send({ command: 'stop' });

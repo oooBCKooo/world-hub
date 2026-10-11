@@ -95,6 +95,7 @@ try {
       'tests/integration/ecosystem-runtime/upgrade.test.mjs',
       'tests/integration/ecosystem-runtime/staged-upgrade.test.mjs',
       'tests/integration/ecosystem-runtime/isolation.test.mjs',
+      'tests/integration/ecosystem-runtime/publisher-trust.test.mjs',
     ]), { test: true });
   } else if (suite === 'launcher') {
     const cases = (await readdir(join(root, 'tests/integration/launcher'))).filter(name => name.endsWith('.test.mjs')).sort().map(name => `tests/integration/launcher/${name}`);

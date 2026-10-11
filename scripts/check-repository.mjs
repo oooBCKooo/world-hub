@@ -104,7 +104,7 @@ for (const path of paths) {
       || /(?:^|\/)(?:\.env(?:\..*)?|smoke-results\.json|self-check-result\.json|local[^/]*\.json)$/i.test(path)) reject(path, 'Local, generated or private file');
   if (path.startsWith('config/') && path !== 'config/hub.json') reject(path, 'Only the reference configuration can be published');
   const screenshot = screenshotPath.test(path);
-  if (!rootFiles.includes(path) && !extensions.has(extname(path)) && !screenshot
+  if (!rootFiles.includes(path) && !extensions.has(extname(path)) && path !== 'scripts/release/prepare-isolation-ci.sh' && !screenshot
       && path !== ecosystemLock && !ecosystemLicenses.has(path)) reject(path, 'Unexpected source file type');
   const key = path.toLowerCase();
   if (cases.has(key)) reject(path, 'Filename conflicts on case-insensitive filesystems');

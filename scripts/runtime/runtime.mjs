@@ -8,6 +8,7 @@ import { hash, ordinaryPath, privateJson, readBounded } from './paths.mjs';
 import { ownProcess } from './process.mjs';
 import { assertNoIncompleteUpgrades } from './upgrade.mjs';
 import { reviewIsolationPackage, planIsolation, ownIsolatedProcess } from './isolation.mjs';
+import { writeExistingUserConfiguration } from './isolation-user.mjs';
 export { inspectPackage, importPackage, createLock } from './package.mjs';
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -40,6 +41,7 @@ export async function startInstance(options) {
   if (options.signal?.aborted) throw new Error('Runtime startup aborted');
   if (options.trust !== plan.digest) throw new Error(`Local executable code and declared permissions must be explicitly trusted with current review digest: ${plan.digest}`);
   const isolation = options.isolation ? await reviewIsolationPackage(plan, options.isolation) : null;
+  const userExecution = isolation?.profile === 'linux-existing-user/v1';
   if (isolation && options.isolationTrust !== isolation.digest) throw Object.assign(new Error('Review the current package isolation policy, Docker executable and image before starting'), { code: 'ISOLATION_REVIEW_REQUIRED' });
   if (!isolation && options.isolationTrust !== undefined) throw Object.assign(new Error('An isolation review cannot be used for trusted-local execution'), { code: 'ISOLATION_REVIEW_REQUIRED' });
   const recorded = await json(join(stateDir, 'instance.json'));
@@ -51,7 +53,7 @@ export async function startInstance(options) {
   catch (error) { if (error.code === 'EEXIST') throw new Error(`Instance locked: ${lockFile}; stop its supervisor or inspect an abandoned lock manually. Stored PIDs are never killed.`); throw error; }
   await lock.writeFile(JSON.stringify({ nonce, pid: process.pid, startedAt: new Date().toISOString() }) + '\n'); await lock.close();
   const runDir = join(stateDir, 'runs', nonce);
-  const children = [], components = [], tokens = new Map(), peers = {};
+  const children = [], components = [], userConfigurationFiles = [], tokens = new Map(), peers = {};
   const controlToken = randomUUID(); const secrets = [controlToken];
   for (const c of plan.pack.components) { const token = randomUUID(); tokens.set(c.id, token); secrets.push(token); peers[c.id] = { principal: identity(`runtime.${c.id}`) }; }
   let hub, control, monitoring, closing = null, startupDone = false, persistQueue = Promise.resolve();
@@ -60,7 +62,7 @@ export async function startInstance(options) {
   let resolveClosed; const closed = new Promise(resolve => { resolveClosed = resolve; });
   const state = { format: 'world-hub.runtime-status/v1', instanceId: options.instanceId, state: 'starting', runId: nonce,
     pack: { id: plan.pack.id, version: plan.pack.version }, reviewDigest: plan.digest, components, hub: null, sandbox: false,
-    executionProfile: isolation?.profile ?? 'trusted-local', ...(isolation ? { isolation: { profile: isolation.profile, image: isolation.image, limits: isolation.limits, reviewDigest: isolation.digest, appliesTo: 'components', hubOnHost: true } } : {}), startedAt: new Date().toISOString() };
+    executionProfile: isolation?.profile ?? 'trusted-local', ...(isolation ? { isolation: { profile: isolation.profile, image: isolation.image ?? null, images: isolation.images ?? null, limits: isolation.limits ?? null, identitySeparation: userExecution, reviewDigest: isolation.digest, appliesTo: 'components', hubOnHost: true } } : {}), startedAt: new Date().toISOString() };
   const statusFile = join(stateDir, 'status.json');
   const snapshot = () => JSON.parse(JSON.stringify(state));
   const persist = () => { const value = snapshot(); persistQueue = persistQueue.catch(() => {}).then(() => privateJson(statusFile, value)); return persistQueue; };
@@ -80,7 +82,7 @@ export async function startInstance(options) {
       if (c) { c.process = h.exit ? 'exited' : 'failed'; c.communication = h.exit ? 'disconnected' : 'unknown'; c.readiness = 'not-ready'; c.health.ready = false; c.exit = h.exit; c.forcedStop = h.forced === true; }
     }
     if (state.hub) state.hub.exit = hub?.exit;
-    const allExited = children.every(h => h.exit);
+    const allExited = children.every(h => h.exit && !h.cleanupIncomplete);
     if (!allExited) { state.cleanupIncomplete = true; failures.push({ code: 'CLEANUP_INCOMPLETE', message: 'Some owned process exits are unconfirmed; ownership lock and supervisor retained' }); }
     if (allExited) { delete state.cleanupIncomplete; state.stoppedAt = new Date().toISOString(); }
     await attempt(() => privateJson(join(runDir, 'logs.json'), logs()));
@@ -89,6 +91,7 @@ export async function startInstance(options) {
     await attempt(() => privateJson(join(runDir, 'status.json'), snapshot()));
     await attempt(persist);
     if (allExited) {
+      for (const file of userConfigurationFiles) await attempt(async () => { try { await unlink(file); } catch (error) { if (error.code !== 'ENOENT') throw error; } });
       if (control) await attempt(() => new Promise(resolve => { control.close(resolve); control.closeAllConnections(); }));
       await attempt(async () => { if ((await json(lockFile)).nonce === nonce) await unlink(lockFile); });
     }
@@ -171,13 +174,15 @@ export async function startInstance(options) {
       if (state.failure) throw new Error(state.failure.message);
       const c = plan.pack.components.find(c => c.id === id), m = plan.modules.find(m => m.manifest.id === c.module);
       const componentState = join(stateDir, 'programs', c.id); await ordinaryPath(join(stateDir, 'programs', c.id), { allowMissing: true });
-      await mkdir(componentState, { recursive: true, mode: 0o700 }); await mkdir(join(componentState, 'tmp'), { recursive: true, mode: 0o700 });
+      if (!userExecution) { await mkdir(componentState, { recursive: true, mode: 0o700 }); await mkdir(join(componentState, 'tmp'), { recursive: true, mode: 0o700 }); }
       const principal = peers[c.id].principal;
       const bridges = Object.entries(c.bridges).map(([slot, acl]) => ({ slot, endpoint, bridgeId: identity(`runtime.${c.id}.${slot}`),
         credential: principal, principal, token: tokens.get(c.id), publish: acl.publish.map(k => plan.pack.topics[k]), subscribe: acl.subscribe.map(k => plan.pack.topics[k]) }));
-      const config = join(runDir, `${c.id}.json`);
-      await privateJson(config, { format: 'world-hub.run/v1', instanceId: options.instanceId, componentId: c.id,
-        module: { id: m.manifest.id, version: m.manifest.version }, stateDir: componentState, settings: c.settings, topics: plan.pack.topics, peers, bridges });
+      const config = userExecution ? join(componentState, `.runtime-${nonce}.json`) : join(runDir, `${c.id}.json`);
+      const configuration = { format: 'world-hub.run/v1', instanceId: options.instanceId, componentId: c.id,
+        module: { id: m.manifest.id, version: m.manifest.version }, stateDir: componentState, settings: c.settings, topics: plan.pack.topics, peers, bridges };
+      if (userExecution) { await writeExistingUserConfiguration(isolation.policy, config, configuration, plan.environment.node.executable); userConfigurationFiles.push(config); }
+      else await privateJson(config, configuration);
       checkCancelled();
       const row = { id: c.id, module: c.module, pid: null, process: 'starting', principal, expectedBridges: bridges.map(b => b.bridgeId),
         communication: 'unknown', readiness: 'not-ready', health: { ready: false, lastCheckedAt: null }, bridges: [] };
@@ -191,22 +196,24 @@ export async function startInstance(options) {
           ? ['-c', longPythonEntry] : [])] : [];
       const processOptions = { cwd: componentState, temporary: join(componentState, 'tmp'), secrets, onFailure: fail, signal: startupController.signal };
       const isolatedPlan = isolation ? await planIsolation({ ...isolation.policy, sourceDirectory: join(stateDir, 'package', m.source), stateDirectory: componentState,
-        configPath: config, adapterDirectory: join(runDir, c.id + '-isolation'), entry: m.manifest.runtime.entry, runtime: 'node' }) : null;
+        configPath: config, adapterDirectory: join(runDir, c.id + '-isolation'), entry: m.manifest.runtime.entry, runtime: m.manifest.runtime.kind,
+        expectedRuntime: { version: plan.environment[m.manifest.runtime.kind].version, packages: plan.environment[m.manifest.runtime.kind].packages }, runtimeExecutable: executable, nodeExecutable: plan.environment.node.executable }) : null;
       const h = isolatedPlan ? await ownIsolatedProcess(isolatedPlan, { ...processOptions, trust: isolatedPlan.digest })
         : ownProcess(executable, [...pythonArgs, entry, '--runtime-config', config], processOptions);
       h.id = c.id; children.push(h); row.pid = h.pid; row.process = 'running';
       if (isolation) {
         const actual = await h.waitFor(event => event.event === 'isolation-ready', plan.pack.startupTimeoutMs);
-        if (actual.nodeVersion !== isolation.expectedNodeVersion || actual.user !== isolation.limits.user) throw Object.assign(new Error('Container Node version or user differs from the reviewed locked environment'), { code: 'ISOLATION_ENVIRONMENT_MISMATCH' });
+        const expected = isolation.expectedRuntimes[m.manifest.runtime.kind], user = userExecution ? isolation.provider.user.uid : isolation.limits.user;
+        if (actual.runtime !== m.manifest.runtime.kind || actual.runtimeVersion !== expected.version || actual.user !== user || JSON.stringify(actual.packages) !== JSON.stringify(expected.packages)) throw Object.assign(new Error('Actual runtime, dependency version or UID differs from the reviewed locked environment'), { code: 'ISOLATION_ENVIRONMENT_MISMATCH' });
         row.isolation = h.isolation;
       }
       const application = await h.waitFor(e => e.event === 'module-ready', plan.pack.startupTimeoutMs); row.readiness = 'ready';
       if (application.entryUrl !== undefined) {
-        if (isolation) throw Object.assign(new Error('The headless isolation profile cannot expose an HTTP entry URL'), { code: 'ISOLATION_NETWORK_UNSUPPORTED' });
         const url = new URL(application.entryUrl);
         if (c.id !== plan.pack.entry.component || !m.manifest.permissions.network.includes('loopback-listen') || url.protocol !== 'http:'
             || url.hostname !== '127.0.0.1' || !url.port || url.username || url.password || url.search || url.hash) throw new Error('Module reported an undeclared or invalid loopback entry URL');
-        row.entryUrl = url.href;
+        if (isolation && !userExecution) row.entryUrl = await h.exposeHttp(url.href);
+        else row.entryUrl = url.href;
       }
       await probe(h);
       const deadline = Date.now() + plan.pack.startupTimeoutMs;
@@ -221,7 +228,7 @@ export async function startInstance(options) {
     const entryUrl = components.find(c => c.id === plan.pack.entry.component)?.entryUrl ?? null;
     checkCancelled();
     if (state.failure || children.some(h => h.exit)) throw new Error(state.failure?.message ?? 'Program exited during startup');
-    state.state = 'running'; state.sandbox = Boolean(isolation); state.entryUrl = entryUrl; state.controlUrl = controlUrl; startupDone = true; await persist();
+    state.state = 'running'; state.sandbox = Boolean(isolation && !userExecution); state.identitySeparation = userExecution; state.entryUrl = entryUrl; state.controlUrl = controlUrl; startupDone = true; await persist();
     let checking = false;
     monitoring = setInterval(async () => {
       if (checking || closing) return; checking = true;

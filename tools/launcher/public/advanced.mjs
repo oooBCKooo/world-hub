@@ -1,5 +1,7 @@
 // Optional maintenance, source distribution and creator tools. Remote content is always text.
 import { createCompletionUi } from './completion-ui.mjs';
+import { createPublisherUi } from './publisher-ui.mjs';
+import { createIsolationPanel } from './isolation-ui.mjs';
 export function createAdvancedUi(ctx) {
   const { state, api, el, button: baseButton, pill, t, toast, definition, display, date, errorContents, current, idOf, endpoint, operationFor, exitUnconfirmed, refresh, renderDetail, navigate, selectInstance, openImport, replaceInstance } = ctx;
   const $ = selector => document.querySelector(selector);
@@ -35,6 +37,7 @@ export function createAdvancedUi(ctx) {
   const value = (form, key) => form.elements[key]?.value.trim() ?? '';
   const jsonView = (title, object, open = false) => el('details', { class: 'json-details', ...(open ? { open: true } : {}) }, [el('summary', {}, title), el('pre', {}, JSON.stringify(object, null, 2))]);
   const completion = createCompletionUi({ ...ctx, button, say, panel, note, field, form, value, env, jsonView, reviewAction, operation });
+  const publisher = createPublisherUi({ ...ctx, button, say, panel, note, field, form, value, jsonView, reviewAction });
   const heading = (title, subtitle, eyebrow) => el('div', { class: 'page-heading' }, el('div', {}, [el('div', { class: 'eyebrow' }, eyebrow), el('h1', {}, title), el('p', {}, subtitle)]));
 
   const actionDialog = el('dialog', { class: 'dialog', id: 'advanced-action-dialog' });
@@ -176,6 +179,7 @@ export function createAdvancedUi(ctx) {
     if (extra.catalog?.conflicts?.length) sourcesList.prepend(note(say('相同对象身份存在不同摘要，请明确选择来源与内容。优先级不会自动解决冲突。', 'The same artifact identity has different digests. Select its source and contents explicitly; priority does not resolve conflicts.'), true), jsonView(say('内容冲突', 'Content conflicts'), extra.catalog.conflicts, true));
     root.replaceChildren(heading(label('sources'), say('按合同、平台和许可查找模块与整合包，验证内容后缓存到本机。', 'Find modules and packs by contract, platform, and license, then verify and cache them locally.'), 'OPTIONAL DISTRIBUTION'), note(say('软件源是可选的。浏览和获取不会执行模块，不替代代码审阅或授权。摘要核对证明内容一致性，不证明代码安全；本地实例无需社区在线。', 'Sources are optional. Browsing and fetching do not execute modules or replace code review and authorization. Hashes establish content integrity, not code safety. Local instances work without community services.')), panel(say('托管社区（可选）', 'Hosted community (optional)'), [community]), panel(say('我的软件源', 'My sources'), [sourcesList, el('details', { class: 'json-details' }, [el('summary', {}, say('添加来源', 'Add a source')), add])]), panel(say('发现模块与整合包', 'Discover modules & packs'), [browse, result]));
     if (extra.index) renderSourceEntries(result);
+    root.append(publisher.trustPanel());
   }
   function renderSourceEntries(target) {
     const data = extra.index, index = data.index ?? {}, entries = index.entries ?? [], allowPrivateNetwork = data.networkPolicy === 'trusted-private-ipv4';
@@ -189,7 +193,8 @@ export function createAdvancedUi(ctx) {
       const matches = entries.filter(entry => entry && (!kind.value || entry.kind === kind.value) && (!os || entry.platforms?.some(item => String(item).toLowerCase().includes(os))) && (!permission || String(entry.license).toLowerCase().includes(permission)) && JSON.stringify([entry.id, entry.title, entry.provides, entry.requires]).toLowerCase().includes(query));
       cards.replaceChildren(...matches.map(entry => el('article', { class: 'panel source-card' }, [el('div', { class: 'panel-heading' }, [el('h3', {}, entry.title ?? entry.id), pill(entry.kind)]), el('p', { class: 'mono subtle' }, `${entry.id} · ${entry.version}`), el('p', { class: 'field-help' }, `${entry.license ?? '—'} · ${(entry.platforms ?? []).join(', ')}`), jsonView(say('来源、摘要与合同', 'Source, digest & contracts'), { source: entry.source, sha256: entry.sha256, provides: entry.provides, requires: entry.requires }), button(say('验证并获取到缓存', 'Verify and fetch to cache'), () => reviewAction(say('获取软件制品', 'Fetch software artifact'), [note(say('内容会验证摘要后保存到新的本机缓存目录，不安装依赖、不导入实例、不启动程序。', 'Contents are hash-verified into a new local cache directory. This does not install dependencies, import an instance, or execute programs.')), definition([[say('来源索引', 'Source index'), extra.source], ['ID', entry.id], [say('许可', 'License'), entry.license], ['SHA-256', entry.sha256], [say('网络策略', 'Network policy'), allowPrivateNetwork ? say('可信私网／DNS 代理', 'Trusted private network / DNS proxy') : say('公共网络', 'Public network')]])], say('我已检查来源、网络策略和摘要，允许下载或复制该制品到本机缓存。', 'I reviewed the source, network policy, and digest and authorize downloading or copying this artifact to the local cache.'), async () => {
         const fetched = await operation(await api('/api/sources/fetch', { ...(data.sourceId && data.receiptId ? { sourceId: data.sourceId, receiptId: data.receiptId } : { source: extra.source, indexDigest: data.digest, ...(allowPrivateNetwork ? { allowPrivateNetwork: true } : {}) }), entryId: entry.entryId }), 'fetch');
-        if (fetched.sourceReceipt) target.append(jsonView(say('后台核对的来源收据（不证明代码安全）', 'Backend-verified source receipt (does not establish code safety)'), fetched.sourceReceipt, true));
+        if (fetched.sourceReceipt?.publisherEvidence) target.append(publisher.reportView(fetched.sourceReceipt.publisherEvidence));
+        if (fetched.sourceReceipt) target.append(jsonView(say('后台核对的来源收据（不证明代码安全）', 'Backend-verified source receipt (does not establish code safety)'), fetched.sourceReceipt));
         const fetchedView = el('div', { class: 'notice' }, [el('p', {}, `${say('已获取', 'Fetched')}: ${fetched.directory}`), fetched.kind === 'pack' ? button(t('importPack'), () => { openImport(); $('#import-form').elements.directory.value = fetched.directory; }, 'button button-small button-primary') : fetched.kind === 'template' ? button(say('填写参数生成包', 'Instantiate template'), () => completion.openTemplate(fetched.directory), 'button button-small button-primary') : button(say('在创作工作台使用', 'Use in creator workspace'), () => { extra.moduleCandidate = fetched.directory; extra.moduleCandidateReceipt = fetched.sourceReceipt ?? null; navigate('creator'); }, 'button button-small button-quiet')]); target.append(fetchedView);
       }), 'button button-small button-primary')])));
       if (!matches.length) cards.append(el('p', { class: 'field-help' }, say('没有匹配的制品。', 'No matching artifacts.')));
@@ -407,16 +412,7 @@ export function createAdvancedUi(ctx) {
   }
 
   function isolationPanel() {
-    const result = el('div');
-    const selection = form([field('policy', say('Docker Node 无界面执行策略 JSON', 'Docker Node headless execution policy JSON'), JSON.stringify(state.isolationSelection ?? { dockerPath: '', endpoint: 'unix:///var/run/docker.sock', image: '', limits: { memoryMiB: 256, pids: 64, cpus: 1, user: 1000 } }, null, 2), { multiline: true, rows: 8 })], say('检查并选择严格隔离', 'Probe and select strict isolation'), async f => {
-      const policy = JSON.parse(value(f, 'policy'));
-      const data = await api('/api/isolation/probe', { dockerPath: policy.dockerPath, endpoint: policy.endpoint });
-      result.replaceChildren(jsonView(say('实际提供者状态', 'Actual provider status'), data.probe, true));
-      if (!data.probe.available) throw new Error(say('隔离提供者不可用，未改变执行选择。', 'Isolation provider is unavailable; execution selection was not changed.'));
-      state.isolationSelection = policy; state.reviews.clear(); state.trustReview = null;
-      result.append(note(say('已选择严格模式。下次逐包审阅仍会检查镜像摘要和程序形态；失败时拒绝启动。', 'Strict mode selected. Each package review still checks the image digest and program shape; failure refuses execution.')));
-    });
-    return panel(say('选择执行保护等级', 'Select execution protection'), [note(say('默认 trusted-local。可选 docker-node-headless/v1：只支持 Node 无界面模块、无子进程、仅经桥访问实例 Hub。需要已运行的 Linux Docker 与已拉取的摘要镜像；不自动安装、拉取或回退。', 'Default: trusted-local. Optional docker-node-headless/v1 supports Node headless modules, no child processes, and bridge access to the instance Hub only. Requires a running Linux Docker engine and an already pulled digest image. No automatic installation, pull, or fallback.')), selection, result, button(say('明确选择可信本机模式', 'Explicitly select trusted-local mode'), () => { state.isolationSelection = null; state.reviews.clear(); state.trustReview = null; result.replaceChildren(note(say('已选择 trusted-local；启动仍须审阅，权限声明不受 OS 强制执行。', 'Selected trusted-local. Execution still requires review; declared permissions are not OS-enforced.'))); }, 'button button-quiet')]);
+    return createIsolationPanel({ ...ctx, button, say, panel, note, field, form, value, jsonView });
   }
   function renderEnvironmentTools() {
     let mount = $('#advanced-environment');
@@ -457,5 +453,5 @@ export function createAdvancedUi(ctx) {
     const restore = button(say('从私有备份恢复', 'Restore a private backup'), openRestore, 'button button-quiet'); restore.id = 'restore-entry'; $('#view-packs .page-heading').append(restore);
     renderEnvironmentTools(); void loadSources();
   }
-  return { label, languageChanged, sessionReady, renderStorage, loadStorage, openCreator(directory) { extra.directory = directory; extra.authoring = null; extra.edited = null; extra.replacements.clear(); extra.derived = null; navigate('creator'); }, navigate(view) { if (view === 'sources') { renderSources(); void loadSources(); } if (view === 'creator') renderCreator(); if (view === 'environment') renderEnvironmentTools(); } };
+  return { label, languageChanged, sessionReady, renderStorage, loadStorage, publisherReport: publisher.reportView, openCreator(directory) { extra.directory = directory; extra.authoring = null; extra.edited = null; extra.replacements.clear(); extra.derived = null; navigate('creator'); }, navigate(view) { if (view === 'sources') { renderSources(); void loadSources(); } if (view === 'creator') renderCreator(); if (view === 'environment') renderEnvironmentTools(); } };
 }

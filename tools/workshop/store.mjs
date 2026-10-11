@@ -5,7 +5,7 @@ import { resolve, join, dirname } from 'node:path';
 import { randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual, createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 import { ordinaryPath, readBounded, hash } from '../../scripts/runtime/paths.mjs';
-import { validateArtifactBytes, validateSourceIndex } from '../../scripts/runtime/sources.mjs';
+import { validateArtifactBytes, validateSourceIndex, validateArtifactPublisherEvidence, maximumPublisherEvidence } from '../../scripts/runtime/sources.mjs';
 
 const scrypt = promisify(scryptCallback);
 const token = () => randomBytes(32).toString('base64url');
@@ -73,7 +73,12 @@ function assertState(state) {
     publications.add(p.entryId); versions.add(`${key}@${p.version}`); identities.set(key, p.ownerId);
     requireValue(p.entry?.sha256 === p.sha256 && p.entry.entryId === p.entryId && p.entry.kind === p.kind && p.entry.id === p.id && p.entry.version === p.version, 'INVALID_STORE', 'Publication and source entry disagree.', 500);
     for (const c of p.comments) requireValue(identifier.test(c.id) && users.has(c.authorId) && typeof c.text === 'string' && c.text.length <= 4000, 'INVALID_STORE', 'Invalid comment metadata.', 500);
-    for (const q of p.proposals) requireValue(identifier.test(q.id) && users.has(q.authorId) && shaPattern.test(q.sha256) && q.baseSha256 === p.sha256, 'INVALID_STORE', 'Invalid proposal metadata.', 500);
+    for (const q of p.proposals) {
+      requireValue(identifier.test(q.id) && users.has(q.authorId) && shaPattern.test(q.sha256) && q.baseSha256 === p.sha256, 'INVALID_STORE', 'Invalid proposal metadata.', 500);
+      if (q.publisherEvidence !== undefined) requireValue(q.publisherEvidence && Object.keys(q.publisherEvidence).every(k => ['source', 'sha256'].includes(k))
+        && shaPattern.test(q.publisherEvidence.sha256) && q.publisherEvidence.source?.path === `publisher-evidence/${q.publisherEvidence.sha256}.json`
+        && Object.keys(q.publisherEvidence.source).length === 1, 'INVALID_STORE', 'Invalid proposal evidence reference.', 500);
+    }
   }
   validateSourceIndex({ format: 'world-hub.source-index/v1', id: 'world-hub-workshop', title: 'World Hub Workshop', entries: state.publications.map(p => p.entry) });
 }
@@ -97,10 +102,11 @@ export class WorkshopStore {
     } catch (error) { if (error.code === 'EEXIST') throw workshopError('WORKSHOP_LOCKED', 'This data root already has an owner. Inspect an abandoned lock manually; recorded PIDs are never killed.', 409); throw error; }
     try {
       store.artifactRoot = join(root, 'artifacts'); await ordinaryPath(store.artifactRoot, { allowMissing: true }); await mkdir(store.artifactRoot, { recursive: true, mode: 0o700 });
+      store.publisherRoot = join(root, 'publisher-evidence'); await ordinaryPath(store.publisherRoot, { allowMissing: true }); await mkdir(store.publisherRoot, { recursive: true, mode: 0o700 });
       store.metadataPath = join(root, 'metadata.json');
       try { store.state = JSON.parse((await readBounded(store.metadataPath, MAX_METADATA)).toString('utf8')); }
       catch (error) { if (error.code !== 'ENOENT') throw error; store.state = { format: 'world-hub.workshop-state/v1', revision: 0, users: [], sessions: [], invitations: [], publications: [] }; await atomicJson(store.metadataPath, store.state); }
-      assertState(store.state); cleanExpired(store.state); store.totalArtifactBytes = 0; store.artifacts = new Map();
+      assertState(store.state); cleanExpired(store.state); store.totalArtifactBytes = 0; store.artifacts = new Map(); store.publisherEvidence = new Map();
       const files = await readdir(store.artifactRoot);
       requireValue(files.length <= 8192, 'ARTIFACT_QUOTA', 'Too many stored artifacts.', 507);
       for (const name of files) {
@@ -115,8 +121,27 @@ export class WorkshopStore {
         requireValue(hash(bytes) === name.slice(0, 64), 'INVALID_STORE', 'Stored distribution artifact hash mismatch.', 500);
         store.artifacts.set(name.slice(0, 64), bytes.length); store.totalArtifactBytes += bytes.length;
       }
+      const publicFiles = await readdir(store.publisherRoot);
+      requireValue(publicFiles.length <= 8192, 'EVIDENCE_QUOTA', 'Too many stored publisher evidence files.', 507);
+      for (const name of publicFiles) {
+        if (/^[a-f0-9]{64}\.[a-f0-9-]{36}\.tmp$/.test(name)) {
+          const temporary = join(store.publisherRoot, name); await ordinaryPath(temporary); const info = await lstat(temporary);
+          requireValue(info.isFile() && info.size <= maximumPublisherEvidence, 'INVALID_STORE', 'Unsafe interrupted evidence staging file.', 500); await unlink(temporary); continue;
+        }
+        requireValue(/^[a-f0-9]{64}\.json$/.test(name), 'INVALID_STORE', 'Unexpected material in the Workshop public evidence directory.', 500);
+        const bytes = await readBounded(join(store.publisherRoot, name), maximumPublisherEvidence);
+        requireValue(hash(bytes) === name.slice(0, 64), 'INVALID_STORE', 'Stored publisher evidence hash mismatch.', 500);
+        store.publisherEvidence.set(name.slice(0, 64), bytes.length); store.totalArtifactBytes += bytes.length;
+      }
       requireValue(store.totalArtifactBytes <= store.diskQuota, 'ARTIFACT_QUOTA', 'Stored artifacts exceed the configured disk quota.', 507);
       for (const p of store.state.publications) for (const digest of [p.sha256, ...p.proposals.map(q => q.sha256)]) requireValue(store.artifacts.has(digest), 'INVALID_STORE', 'Publication artifact is missing.', 500);
+      for (const p of store.state.publications) for (const record of [p, ...p.proposals]) {
+        const reference = record === p ? p.entry.publisherEvidence : record.publisherEvidence;
+        if (!reference) continue;
+        requireValue(store.publisherEvidence.has(reference.sha256) && reference.source?.path === `publisher-evidence/${reference.sha256}.json`, 'INVALID_STORE', 'Publication evidence is missing or malformed.', 500);
+        try { validateArtifactPublisherEvidence(await store.publisherBytes(reference.sha256), { kind: record.kind, id: record === p ? p.id : record.artifactId, version: record.version, sha256: record.sha256 }); }
+        catch { throw workshopError('INVALID_STORE', 'Stored publisher evidence does not bind the publication.', 500); }
+      }
       return store;
     } catch (error) { await store.close(); throw error; }
   }
@@ -206,7 +231,8 @@ export class WorkshopStore {
     const owner = this.state.users.find(v => v.id === p.ownerId);
     return { entryId: p.entryId, kind: p.kind, id: p.id, version: p.version, title: p.title, sha256: p.sha256, license: p.entry.license,
       platforms: p.entry.platforms, provides: p.entry.provides, requires: p.entry.requires, owner: { id: owner.id, username: owner.username },
-      createdAt: p.createdAt, hidden: p.hidden, commentsCount: p.comments.length, proposalsCount: p.proposals.length };
+      createdAt: p.createdAt, hidden: p.hidden, commentsCount: p.comments.length, proposalsCount: p.proposals.length,
+      publisherEvidence: p.entry.publisherEvidence ? { sha256: p.entry.publisherEvidence.sha256, status: 'public-evidence-user-verification-required', publisherIdentityVerified: false, codeSafetyVerified: false, grantsExecution: false } : null };
   }
   catalog({ search = '', kind = '', contract = '', offset = 0, limit = 40 } = {}, user = null) {
     requireValue(typeof search === 'string' && search.length <= 128 && ['', 'module', 'pack', 'template'].includes(kind) && typeof contract === 'string' && contract.length <= 128
@@ -222,9 +248,34 @@ export class WorkshopStore {
     requireValue(p && (!p.hidden || user?.role === 'admin' || user?.id === p.ownerId), 'NOT_FOUND', 'Publication not found.', 404); return p;
   }
   commentSummary(c) { const author = this.state.users.find(v => v.id === c.authorId); return { id: c.id, text: c.text, author: { id: author.id, username: author.username }, createdAt: c.createdAt }; }
-  proposalSummary(q) { const author = this.state.users.find(v => v.id === q.authorId); return { id: q.id, title: q.title, baseSha256: q.baseSha256, sha256: q.sha256, kind: q.kind, artifactId: q.artifactId, version: q.version, author: { id: author.id, username: author.username }, createdAt: q.createdAt }; }
+  proposalSummary(q) { const author = this.state.users.find(v => v.id === q.authorId); return { id: q.id, title: q.title, baseSha256: q.baseSha256, sha256: q.sha256, kind: q.kind, artifactId: q.artifactId, version: q.version, author: { id: author.id, username: author.username }, createdAt: q.createdAt,
+    publisherEvidence: q.publisherEvidence ? { sha256: q.publisherEvidence.sha256, status: 'public-evidence-user-verification-required', publisherIdentityVerified: false, grantsExecution: false } : null }; }
   detail(entryId, user = null) { const p = this.publication(entryId, user); return { publication: this.summary(p), entry: p.entry, comments: p.comments.map(c => this.commentSummary(c)), proposals: p.proposals.map(q => this.proposalSummary(q)) }; }
-  index(baseURL) { return { format: 'world-hub.source-index/v1', id: 'world-hub-workshop', title: 'World Hub Workshop', entries: this.state.publications.filter(p => !p.hidden).map(p => ({ ...p.entry, source: { url: `${baseURL}/artifacts/${p.sha256}.json` } })) }; }
+  index(baseURL) { return { format: 'world-hub.source-index/v1', id: 'world-hub-workshop', title: 'World Hub Workshop', entries: this.state.publications.filter(p => !p.hidden).map(p => ({ ...p.entry, source: { url: `${baseURL}/artifacts/${p.sha256}.json` },
+    ...(p.entry.publisherEvidence ? { publisherEvidence: { source: { url: `${baseURL}/publisher-evidence/${p.entry.publisherEvidence.sha256}.json` }, sha256: p.entry.publisherEvidence.sha256 } } : {}) })) }; }
+  async publisherBytes(digest) {
+    requireValue(shaPattern.test(digest) && this.publisherEvidence.has(digest), 'NOT_FOUND', 'Publisher evidence not found.', 404);
+    const bytes = await readBounded(join(this.publisherRoot, `${digest}.json`), maximumPublisherEvidence);
+    requireValue(hash(bytes) === digest && bytes.length === this.publisherEvidence.get(digest), 'PUBLISHER_EVIDENCE_CORRUPT', 'Stored publisher evidence failed integrity verification.', 500);
+    return bytes;
+  }
+  validatePublisherUpload(input, validated) {
+    if (input === undefined) return null;
+    requireValue(typeof input === 'string' && Buffer.byteLength(input, 'utf8') <= maximumPublisherEvidence, 'PUBLISHER_EVIDENCE_INVALID', 'Provide an already signed public JSON sidecar, at most 256 KiB.');
+    const bytes = Buffer.from(input, 'utf8');
+    try { validateArtifactPublisherEvidence(bytes, validated.entry); }
+    catch { throw workshopError('PUBLISHER_EVIDENCE_INVALID', 'Public evidence format, signature or exact artifact binding failed. Private keys are never accepted.'); }
+    return { bytes, sha256: hash(bytes) };
+  }
+  async storePublisherEvidence({ bytes, sha256: digest }) {
+    if (this.publisherEvidence.has(digest)) { requireValue((await this.publisherBytes(digest)).equals(bytes), 'PUBLISHER_EVIDENCE_CORRUPT', 'Stored publisher evidence changed.', 500); return; }
+    requireValue(this.publisherEvidence.size < 8192 && this.totalArtifactBytes + bytes.length <= this.diskQuota, 'EVIDENCE_QUOTA', 'Workshop publisher evidence storage quota reached.', 507);
+    const file = join(this.publisherRoot, `${digest}.json`), temporary = join(this.publisherRoot, `${digest}.${randomUUID()}.tmp`);
+    await ordinaryPath(file, { allowMissing: true }); const handle = await open(temporary, 'wx', 0o600);
+    try { await handle.writeFile(bytes); await handle.sync(); await handle.close(); await link(temporary, file); await unlink(temporary); await syncDirectory(this.publisherRoot); }
+    finally { await handle.close(); await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
+    this.publisherEvidence.set(digest, bytes.length); this.totalArtifactBytes += bytes.length;
+  }
   async artifactBytes(digest) { requireValue(shaPattern.test(digest) && this.artifacts.has(digest), 'NOT_FOUND', 'Artifact not found.', 404); const bytes = await readBounded(join(this.artifactRoot, `${digest}.json`), MAX_UPLOAD); requireValue(hash(bytes) === digest, 'ARTIFACT_CORRUPT', 'Stored artifact failed integrity verification.', 500); return bytes; }
   async artifactHandle(digest) {
     requireValue(shaPattern.test(digest) && this.artifacts.has(digest), 'NOT_FOUND', 'Artifact not found.', 404);
@@ -255,16 +306,21 @@ export class WorkshopStore {
     let validated; try { validated = validateArtifactBytes(bytes); } catch { throw workshopError('INVALID_ARTIFACT', 'Artifact manifest, file set, contract or digest validation failed.'); }
     return { bytes, validated, digest: hash(bytes) };
   }
-  publish(user, { artifact, redistributionAcknowledged, title }) {
-    const { bytes, validated, digest } = this.validatedArtifact(artifact, redistributionAcknowledged); const displayTitle = textInput(title ?? artifact.id, 256, 'publication title');
+  publish(user, { artifact, redistributionAcknowledged, title, publisherEvidence }) {
+    const { bytes, validated, digest } = this.validatedArtifact(artifact, redistributionAcknowledged); const publicEvidence = this.validatePublisherUpload(publisherEvidence, validated); const displayTitle = textInput(title ?? artifact.id, 256, 'publication title');
     return this.transaction(async state => {
       requireValue(state.users.some(v => v.id === user.id && !v.disabled), 'AUTH_REQUIRED', 'Active account required.', 401);
       const identity = state.publications.find(p => p.kind === artifact.kind && p.id === artifact.id);
       requireValue(!identity || identity.ownerId === user.id, 'IDENTITY_OWNED', 'This package identity belongs to another account.', 409);
       const existing = state.publications.find(p => p.kind === artifact.kind && p.id === artifact.id && p.version === artifact.version);
-      if (existing) { requireValue(existing.sha256 === digest, 'IMMUTABLE_VERSION', 'A published version cannot be overwritten. Publish a new version.', 409); return { publication: this.summary(existing), entry: existing.entry, duplicate: true }; }
+      if (existing) { requireValue(existing.sha256 === digest, 'IMMUTABLE_VERSION', 'A published version cannot be overwritten. Publish a new version.', 409);
+        requireValue((existing.entry.publisherEvidence?.sha256 ?? null) === (publicEvidence?.sha256 ?? null), 'IMMUTABLE_EVIDENCE', 'Published version evidence cannot be replaced. Keep the original sidecar or publish a new version.', 409);
+        return { publication: this.summary(existing), entry: existing.entry, duplicate: true }; }
       requireValue(state.publications.length < 4096 && state.publications.filter(p => p.ownerId === user.id).length < 256, 'PUBLICATION_QUOTA', 'Publication quota reached.', 429);
+      const newBytes = (this.artifacts.has(digest) ? 0 : bytes.length) + (publicEvidence && !this.publisherEvidence.has(publicEvidence.sha256) ? publicEvidence.bytes.length : 0);
+      requireValue(this.totalArtifactBytes + newBytes <= this.diskQuota, 'ARTIFACT_QUOTA', 'Workshop artifact and public evidence storage quota reached.', 507);
       await this.storeArtifact(bytes); const entryId = `pub.${digest.slice(0, 40)}`; const entry = { ...validated.entry, entryId, title: displayTitle, sha256: digest, source: { path: `artifacts/${digest}.json` } };
+      if (publicEvidence) { await this.storePublisherEvidence(publicEvidence); entry.publisherEvidence = { source: { path: `publisher-evidence/${publicEvidence.sha256}.json` }, sha256: publicEvidence.sha256 }; }
       const p = { entryId, kind: artifact.kind, id: artifact.id, version: artifact.version, title: displayTitle, sha256: digest, ownerId: user.id, createdAt: now(), hidden: false, entry, comments: [], proposals: [] }; state.publications.push(p);
       return { publication: this.summary(p), entry, duplicate: false };
     });
@@ -277,8 +333,8 @@ export class WorkshopStore {
       const c = { id: randomUUID(), text, authorId: user.id, createdAt: now() }; p.comments.push(c); return { comment: this.commentSummary(c) };
     });
   }
-  propose(user, entryId, { artifact, baseSha256, redistributionAcknowledged, title }) {
-    const { bytes, digest } = this.validatedArtifact(artifact, redistributionAcknowledged); const displayTitle = textInput(title ?? `Proposal for ${artifact.id}`, 256, 'proposal title');
+  propose(user, entryId, { artifact, baseSha256, redistributionAcknowledged, title, publisherEvidence }) {
+    const { bytes, validated, digest } = this.validatedArtifact(artifact, redistributionAcknowledged); const publicEvidence = this.validatePublisherUpload(publisherEvidence, validated); const displayTitle = textInput(title ?? `Proposal for ${artifact.id}`, 256, 'proposal title');
     return this.transaction(async state => {
       this.requireActive(state, user);
       const p = state.publications.find(v => v.entryId === entryId && !v.hidden); requireValue(p, 'NOT_FOUND', 'Publication not found.', 404);
@@ -287,7 +343,11 @@ export class WorkshopStore {
       requireValue(artifact.id === p.id, 'PROPOSAL_IDENTITY', 'A proposal must preserve its baseline package identity. Publish a fork as a new publication.');
       requireValue(digest !== p.sha256, 'PROPOSAL_UNCHANGED', 'Proposal must contain a changed distribution artifact.');
       requireValue(p.proposals.length < 32 && state.publications.reduce((count, publication) => count + publication.proposals.filter(q => q.authorId === user.id).length, 0) < 256, 'PROPOSAL_QUOTA', 'Proposal quota reached.', 429);
-      await this.storeArtifact(bytes); const q = { id: randomUUID(), title: displayTitle, baseSha256, sha256: digest, kind: artifact.kind, artifactId: artifact.id, version: artifact.version, authorId: user.id, createdAt: now() }; p.proposals.push(q); return { proposal: this.proposalSummary(q) };
+      const newBytes = (this.artifacts.has(digest) ? 0 : bytes.length) + (publicEvidence && !this.publisherEvidence.has(publicEvidence.sha256) ? publicEvidence.bytes.length : 0);
+      requireValue(this.totalArtifactBytes + newBytes <= this.diskQuota, 'ARTIFACT_QUOTA', 'Workshop artifact and public evidence storage quota reached.', 507);
+      await this.storeArtifact(bytes); const q = { id: randomUUID(), title: displayTitle, baseSha256, sha256: digest, kind: artifact.kind, artifactId: artifact.id, version: artifact.version, authorId: user.id, createdAt: now() };
+      if (publicEvidence) { await this.storePublisherEvidence(publicEvidence); q.publisherEvidence = { source: { path: `publisher-evidence/${publicEvidence.sha256}.json` }, sha256: publicEvidence.sha256 }; }
+      p.proposals.push(q); return { proposal: this.proposalSummary(q) };
     });
   }
   async proposal(entryId, proposalId, user) { const p = this.publication(entryId, user); const q = p.proposals.find(v => v.id === proposalId); requireValue(q, 'NOT_FOUND', 'Proposal not found.', 404); return { proposal: this.proposalSummary(q), artifact: JSON.parse((await this.artifactBytes(q.sha256)).toString('utf8')) }; }
@@ -297,10 +357,11 @@ export class WorkshopStore {
   async exportTo(destination) {
     await this.queue; const target = await ordinaryPath(resolve(destination), { allowMissing: true });
     requireValue(target !== this.root && !target.startsWith(this.root + '/') && !target.startsWith(this.root + '\\'), 'INVALID_EXPORT', 'Export destination must be outside the data root.');
-    await mkdir(target, { mode: 0o700 }); await mkdir(join(target, 'artifacts'), { mode: 0o700 });
+    await mkdir(target, { mode: 0o700 }); await mkdir(join(target, 'artifacts'), { mode: 0o700 }); await mkdir(join(target, 'publisher-evidence'), { mode: 0o700 });
     await atomicJson(join(target, 'metadata.json'), this.state);
     for (const digest of this.artifacts.keys()) { const bytes = await this.artifactBytes(digest); const handle = await open(join(target, 'artifacts', `${digest}.json`), 'wx', 0o600); try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); } }
-    return { format: 'world-hub.workshop-export/v1', artifacts: this.artifacts.size, bytes: this.totalArtifactBytes, revision: this.state.revision, containsCredentials: true };
+    for (const digest of this.publisherEvidence.keys()) { const bytes = await this.publisherBytes(digest); const handle = await open(join(target, 'publisher-evidence', `${digest}.json`), 'wx', 0o600); try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); } }
+    return { format: 'world-hub.workshop-export/v1', artifacts: this.artifacts.size, publisherEvidence: this.publisherEvidence.size, bytes: this.totalArtifactBytes, revision: this.state.revision, containsCredentials: true };
   }
   async close() {
     if (this.closed) return; this.closed = true; await this.authQueue; await this.queue;

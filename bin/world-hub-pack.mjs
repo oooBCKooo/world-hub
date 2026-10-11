@@ -3,11 +3,12 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inspectPackage, createLock, importPackage, startInstance, statusInstance, logsInstance, stopInstance, exportInstance,
   backupInstance, inspectBackup, restoreInstance, storageInstance, detachInstance, reattachInstance,
-  inspectAuthoring, previewReplacement, derivePackage, rebuildPackage, exportProposal, applyProposal, readSourceIndex, fetchSourceArtifact, publishArtifact } from '../scripts/runtime/index.mjs';
+  inspectAuthoring, previewReplacement, derivePackage, rebuildPackage, exportProposal, applyProposal, readSourceIndex, fetchSourceArtifact, publishArtifact, attachPublisherEvidence } from '../scripts/runtime/index.mjs';
 import { readBounded } from '../scripts/runtime/paths.mjs';
 import { completionCommands, completionHelp, parseCompletionArgs, runCompletion } from '../scripts/runtime/completion-cli.mjs';
+import { publisherCommands, publisherHelp, parsePublisherArgs, runPublisher } from '../scripts/runtime/publisher-cli.mjs';
 
-export const HELP = `World Hub optional pack Runtime (default trusted-local; optional Docker Node headless isolation)
+export const HELP = `World Hub optional pack Runtime (default trusted-local; optional Docker Node/Python/HTTP and Linux user profiles)
 
   world-hub-pack plan <pack-directory> [--node executable] [--python executable]
   world-hub-pack lock <pack-directory> [--node executable] [--python executable]
@@ -29,8 +30,9 @@ export const HELP = `World Hub optional pack Runtime (default trusted-local; opt
   world-hub-pack derive|proposal <pack-directory> --destination new-directory --manifest edited-pack.json --revision inspected-revision --acknowledge-licenses true [--replacements replacements.json] [--node executable] [--python executable]
   world-hub-pack apply-proposal <pack-directory> --proposal proposal-directory --destination new-directory --acknowledge-licenses true [--node executable] [--python executable]
   world-hub-pack source <index-path-or-https-url> [--sha256 index-digest]
-  world-hub-pack fetch-source <index-path-or-https-url> --index-digest reviewed-index-digest --entry entry-id --cache directory
+  world-hub-pack fetch-source <index-path-or-https-url> --index-digest reviewed-index-digest --entry entry-id --cache directory [--publisher-trust-root directory]
   world-hub-pack publish <source-directory> --destination new-directory --kind pack|module --acknowledge-licenses true [--node executable] [--python executable]
+  world-hub-pack attach-publisher-evidence <publication-directory> --evidence signed-public-evidence.json
   world-hub-pack completion powershell|bash|zsh|fish
   world-hub-pack --version
 
@@ -43,10 +45,12 @@ init-module generates an optional text.statistics author sample, not a universal
 validate-module checks declarations/files; doctor-module additionally probes the selected interpreter and dependency.
 These checks and replacement previews do not establish business correctness or operating-system isolation.
 ${completionHelp}
+${publisherHelp}
 `;
 const operations = ['plan', 'lock', 'import', 'start', 'status', 'logs', 'stop', 'export', 'storage', 'backup', 'inspect-backup', 'restore', 'detach', 'reattach',
-  'authoring', 'derive', 'rebuild', 'proposal', 'apply-proposal', 'source', 'fetch-source', 'publish', 'init-module', 'validate-module', 'doctor-module', 'preview-replacement'];
+  'authoring', 'derive', 'rebuild', 'proposal', 'apply-proposal', 'source', 'fetch-source', 'publish', 'init-module', 'validate-module', 'doctor-module', 'preview-replacement', 'attach-publisher-evidence'];
 export function parseArgs(argv) {
+  if (publisherCommands.includes(argv[0])) return parsePublisherArgs(argv);
   if (completionCommands.includes(argv[0])) return parseCompletionArgs(argv);
   if (argv.length === 0 || argv.length === 1 && ['--help', '-h'].includes(argv[0])) return { help: true };
   if (argv.length === 1 && ['--version', '-V'].includes(argv[0])) return { version: true };
@@ -58,7 +62,7 @@ export function parseArgs(argv) {
   const command = argv[0];
   if (!operations.includes(command)) throw new Error('Unknown operation; use --help');
   let index = 1, packDirectory;
-  const positional = ['plan', 'lock', 'import', 'inspect-backup', 'authoring', 'derive', 'rebuild', 'proposal', 'apply-proposal', 'source', 'fetch-source', 'publish', 'init-module', 'validate-module', 'doctor-module', 'preview-replacement'];
+  const positional = ['plan', 'lock', 'import', 'inspect-backup', 'authoring', 'derive', 'rebuild', 'proposal', 'apply-proposal', 'source', 'fetch-source', 'publish', 'init-module', 'validate-module', 'doctor-module', 'preview-replacement', 'attach-publisher-evidence'];
   if (positional.includes(command)) { packDirectory = argv[index++]; if (!packDirectory || packDirectory.startsWith('--')) throw new Error('Missing source path'); }
   const accepted = ['plan', 'lock', 'authoring', 'doctor-module'].includes(command) ? ['--node', '--python']
     : command === 'init-module' ? ['--id', '--runtime']
@@ -66,7 +70,8 @@ export function parseArgs(argv) {
     : command === 'preview-replacement' ? ['--component', '--module', '--node', '--python']
     : command === 'inspect-backup' ? []
     : command === 'source' ? ['--sha256']
-    : command === 'fetch-source' ? ['--index-digest', '--entry', '--cache']
+    : command === 'fetch-source' ? ['--index-digest', '--entry', '--cache', '--publisher-trust-root']
+    : command === 'attach-publisher-evidence' ? ['--evidence']
     : command === 'publish' ? ['--destination', '--kind', '--acknowledge-licenses', '--node', '--python']
     : command === 'rebuild' ? ['--destination', '--acknowledge-licenses', '--node', '--python']
     : ['derive', 'proposal'].includes(command) ? ['--destination', '--manifest', '--replacements', '--revision', '--acknowledge-licenses', '--node', '--python']
@@ -80,7 +85,7 @@ export function parseArgs(argv) {
   const keys = { '--root': 'root', '--instance': 'instanceId', '--node': 'nodePath', '--python': 'pythonPath', '--trust': 'trust', '--destination': 'destination',
     '--backup': 'backup', '--sha256': 'expectedSha256', '--manifest': 'manifestFile', '--replacements': 'replacementsFile', '--revision': 'expectedRevision',
     '--proposal': 'proposalDirectory', '--index-digest': 'indexDigest', '--entry': 'entryId', '--cache': 'cacheRoot', '--kind': 'kind', '--acknowledge-licenses': 'redistributionAcknowledged',
-    '--id': 'id', '--runtime': 'runtime', '--component': 'componentId', '--module': 'moduleDirectory', '--isolation': 'isolationFile', '--isolation-trust': 'isolationTrust' };
+    '--id': 'id', '--runtime': 'runtime', '--component': 'componentId', '--module': 'moduleDirectory', '--isolation': 'isolationFile', '--isolation-trust': 'isolationTrust', '--evidence': 'evidencePath', '--publisher-trust-root': 'publisherTrustRoot' };
   for (; index < argv.length; index += 2) {
     const key = argv[index], value = argv[index + 1];
     if (!accepted.includes(key) || seen.has(key) || !value || value.startsWith('--')) throw new Error(`Unknown, duplicate or incomplete option: ${key}`);
@@ -96,6 +101,7 @@ export function parseArgs(argv) {
   if (['derive', 'proposal'].includes(command) && (!options.manifestFile || !options.expectedRevision)) throw new Error('--manifest and --revision are required');
   if (command === 'apply-proposal' && !options.proposalDirectory) throw new Error('--proposal is required');
   if (command === 'fetch-source' && (!options.indexDigest || !options.entryId || !options.cacheRoot)) throw new Error('--index-digest, --entry and --cache are required');
+  if (command === 'attach-publisher-evidence' && !options.evidencePath) throw new Error('--evidence is required');
   if (['derive', 'rebuild', 'proposal', 'apply-proposal', 'publish'].includes(command)) {
     if (options.redistributionAcknowledged !== 'true') throw new Error('--acknowledge-licenses true is required after reviewing redistribution rights');
     options.redistributionAcknowledged = true;
@@ -109,7 +115,8 @@ export async function main(argv = process.argv.slice(2)) {
   if (args.completion) { process.stdout.write(completionScript(args.completion)); return; }
   const print = value => console.log(JSON.stringify(value));
   const { command, packDirectory, options } = args;
-  if (completionCommands.includes(command)) print(await runCompletion(args));
+  if (publisherCommands.includes(command)) { const result = await runPublisher(args); print(result); if (result.accepted === false || result.report?.accepted === false) process.exitCode = 1; }
+  else if (completionCommands.includes(command)) print(await runCompletion(args));
   else if (command === 'plan') { const plan = await inspectPackage(packDirectory, options); print(plan); }
   else if (command === 'lock') print(await createLock(packDirectory, options));
   else if (command === 'import') { const result = await importPackage(packDirectory, options); print(result); }
@@ -141,6 +148,7 @@ export async function main(argv = process.argv.slice(2)) {
   else if (command === 'source') print(await readSourceIndex(packDirectory, options));
   else if (command === 'fetch-source') print(await fetchSourceArtifact(packDirectory, options.indexDigest, options.entryId, options));
   else if (command === 'publish') print(await publishArtifact(packDirectory, options));
+  else if (command === 'attach-publisher-evidence') print(await attachPublisherEvidence(packDirectory, options));
   else {
     if (options.isolationFile) options.isolation = JSON.parse((await readBounded(options.isolationFile)).toString('utf8'));
     let session, interrupted = false; const controller = new AbortController();
@@ -156,7 +164,7 @@ export async function main(argv = process.argv.slice(2)) {
   }
 }
 export function completionScript(shell) {
-  const commands = [...operations, ...completionCommands, 'completion'];
+  const commands = [...operations, ...completionCommands, ...publisherCommands, 'completion'];
   const words = [...commands, '--help', '--version', '--node', '--python', '--id', '--runtime', '--component', '--module', '--destination', '--root', '--instance'];
   if (shell === 'powershell') return `Register-ArgumentCompleter -Native -CommandName world-hub-pack -ScriptBlock {\n  param($wordToComplete, $commandAst, $cursorPosition)\n  @(${words.map(word => `'${word}'`).join(', ')}) | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }\n}\n`;
   if (shell === 'bash') return `complete -W '${words.join(' ')}' world-hub-pack\n`;

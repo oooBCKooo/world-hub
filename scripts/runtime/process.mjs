@@ -1,15 +1,45 @@
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
+import { readFile, readdir } from 'node:fs/promises';
 import { filteredEnv } from './package.mjs';
 import { processCwd, processPath } from './paths.mjs';
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 function tail(text, bound = 65536) { const bytes = Buffer.from(text); return bytes.length <= bound ? text : bytes.subarray(bytes.length - bound).toString('utf8'); }
-export function ownProcess(executable, argv, { cwd, temporary, secrets, onFailure, onEvent, signal } = {}) {
-  const child = spawn(processPath(executable), argv, { cwd: processCwd(cwd), env: filteredEnv(executable, temporary), shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+export function ownProcess(executable, argv, { cwd, temporary, secrets, onFailure, onEvent, signal, detached = false } = {}) {
+  if (detached && process.platform !== 'linux') throw new Error('Owned process-group execution is a Linux-only adapter option');
+  const child = spawn(processPath(executable), argv, { cwd: processCwd(cwd), env: filteredEnv(executable, temporary), shell: false, windowsHide: true, detached, stdio: ['pipe', 'pipe', 'pipe'] });
   const handle = { child, pid: child.pid, exit: null, ready: null, messages: [], stdout: '', stderr: '', truncated: false, stopping: false };
   let closeResolve;
   handle.closed = new Promise(resolve => { closeResolve = resolve; });
+  if (detached) {
+    const groupStat = async pid => {
+      const text = await readFile('/proc/' + pid + '/stat', 'utf8'), fields = text.slice(text.lastIndexOf(') ') + 2).trim().split(/\s+/);
+      if (fields.length < 20 || !/^\d+$/.test(fields[19])) throw new Error('Invalid current owned process-group identity');
+      return { pid, group: Number(fields[2]), session: Number(fields[3]), started: fields[19], state: fields[0] };
+    };
+    handle.groupReady = new Promise((resolve, reject) => { child.once('error', reject); child.once('spawn', () => { void groupStat(child.pid).then(identity => {
+      if (identity.group !== child.pid || identity.session !== child.pid) throw new Error('Current owned supervisor did not create its own process group'); resolve(identity);
+    }).catch(reject); }); });
+    // The trusted group leader stays alive until group retirement. Never use a
+    // recorded PID after leader identity is lost or changed to kill a group.
+    handle.killOwnedGroup = async () => {
+      const owner = await handle.groupReady, current = await groupStat(owner.pid);
+      if (current.started !== owner.started || current.group !== owner.group || current.session !== owner.session || current.state === 'Z') throw new Error('Current owned process-group leader identity was lost; no foreign group was signalled');
+      process.kill(-owner.group, 'SIGKILL');
+    };
+    handle.groupStopped = async () => {
+      const owner = await handle.groupReady, entries = await readdir('/proc');
+      if (entries.length > 65536) throw new Error('Cannot confirm owned group retirement within process inventory bound');
+      for (const entry of entries) {
+        if (!/^\d+$/.test(entry)) continue;
+        try { const current = await groupStat(Number(entry)); if (current.group === owner.group && current.session === owner.session && current.state !== 'Z') return false; }
+        catch (error) { if (error.code !== 'ENOENT' && error.code !== 'ESRCH') throw error; }
+      }
+      return true;
+    };
+    handle.groupReady.catch(error => { handle.error = error.message; onFailure?.(error); });
+  }
   const redact = value => (secrets ?? []).reduce((text, secret) => text.replaceAll(secret, '[redacted]'), value);
   const record = (stream, value) => {
     const text = redact(handle[stream] + value);

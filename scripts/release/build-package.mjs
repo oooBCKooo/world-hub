@@ -19,14 +19,15 @@ export const SDK_FILES = ['sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-
   'sdk/powershell/HubBridge.psm1', 'sdk/powershell/HubBridge.cs'];
 export const SDK_DOCUMENTATION_FILES = Object.freeze(['sdk/javascript/README.md', 'sdk/python/README.md', 'sdk/powershell/README.md']);
 export const MODULE_CONTRACT_FILES = Object.freeze(['docs/modules/text-statistics.contract.json']);
-export const ECOSYSTEM_SCHEMA_FILES = Object.freeze(['docs/ecosystem/module.schema.json', 'docs/ecosystem/pack.schema.json', 'docs/ecosystem/pack-lock.schema.json', 'docs/ecosystem/template.schema.json', 'docs/ecosystem/template.example.json']);
+export const ECOSYSTEM_SCHEMA_FILES = Object.freeze(['docs/ecosystem/module.schema.json', 'docs/ecosystem/pack.schema.json', 'docs/ecosystem/pack-lock.schema.json', 'docs/ecosystem/template.schema.json', 'docs/ecosystem/template.example.json', 'docs/ecosystem/publisher-vectors.json', 'docs/ecosystem/publisher-vector-check.py']);
 export const ECOSYSTEM_RUNTIME_FILES = Object.freeze(['bin/world-hub-pack.mjs',
-  ...['index', 'runtime', 'package', 'paths', 'process', 'hub-process', 'maintenance', 'authoring', 'sources', 'developer', 'template', 'upgrade', 'staged-upgrade', 'completion-cli', 'isolation', 'isolation-wrapper', 'isolation-channel'].map(name => `scripts/runtime/${name}.mjs`),
+  ...['index', 'runtime', 'package', 'paths', 'process', 'hub-process', 'maintenance', 'authoring', 'sources', 'developer', 'template', 'upgrade', 'staged-upgrade', 'completion-cli', 'publisher-trust', 'publisher-store', 'publisher-cli', 'isolation', 'isolation-wrapper', 'isolation-channel', 'isolation-http', 'isolation-user', 'isolation-user-supervisor'].map(name => `scripts/runtime/${name}.mjs`),
+  'scripts/runtime/isolation-wrapper.py',
   'scripts/runtime/templates/node/program.mjs', 'scripts/runtime/templates/node/logic.mjs', 'scripts/runtime/templates/node/logic.test.mjs',
   'scripts/runtime/templates/python/program.py', 'scripts/runtime/templates/python/logic.py', 'scripts/runtime/templates/python/test_logic.py']);
 export const LAUNCHER_FILES = Object.freeze(['bin/world-hub.mjs',
   ...['cli', 'server', 'manager', 'source-registry', 'environment', 'environment-prepare', 'diagnostics', 'topology'].map(name => `tools/launcher/${name}.mjs`),
-  ...['index.html', 'app.mjs', 'style.css', 'i18n.mjs', 'advanced.mjs', 'completion-ui.mjs'].map(name => `tools/launcher/public/${name}`)]);
+  ...['index.html', 'app.mjs', 'style.css', 'i18n.mjs', 'advanced.mjs', 'completion-ui.mjs', 'publisher-ui.mjs', 'isolation-ui.mjs'].map(name => `tools/launcher/public/${name}`)]);
 export const WORKSHOP_FILES = Object.freeze(['tools/workshop/cli.mjs', 'tools/workshop/store.mjs', 'tools/workshop/server.mjs',
   ...['index.html', 'app.mjs', 'style.css'].map(name => `tools/workshop/public/${name}`)]);
 export const INTEROP_FILES = Object.freeze(['bin/world-hub-interop.mjs', 'tools/interop/text-statistics.mjs',
