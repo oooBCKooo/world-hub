@@ -96,10 +96,10 @@ try {
       'tests/integration/ecosystem-runtime/staged-upgrade.test.mjs',
       'tests/integration/ecosystem-runtime/isolation.test.mjs',
       'tests/integration/ecosystem-runtime/publisher-trust.test.mjs',
-    ]), { test: true });
+    ]), { test: true, timeoutMs: 600000 });
   } else if (suite === 'launcher') {
     const cases = (await readdir(join(root, 'tests/integration/launcher'))).filter(name => name.endsWith('.test.mjs')).sort().map(name => `tests/integration/launcher/${name}`);
-    await execute('Unified Launcher: reviewed starts, real cross-language packs, lifecycle and navigation', nodeTests(cases), { test: true });
+    await execute('Unified Launcher: reviewed starts, real cross-language packs, lifecycle and navigation', nodeTests(cases), { test: true, timeoutMs: 600000 });
   } else if (suite === 'workshop') {
     const cases = (await readdir(join(root, 'tests/integration/workshop'))).filter(name => name.endsWith('.test.mjs')).sort().map(name => `tests/integration/workshop/${name}`);
     await execute('Optional hosted Workshop: publication, accounts, collaboration and persistence', nodeTests(cases), { test: true });

@@ -101,3 +101,5 @@ Launcher 的“发布者公钥与风险证据”页面可读取锚、预览添�
 | `POST /api/publisher-evidence/observe` | `{previewId,accepted:true}`；证据和当前 revision 未变化时才记录 |
 
 所有信任结果保留 `startsModules:false`、`grantsExecution:false`。这套可选工具不引入中心强制注册、平台证书机构或对程序形态的规定。
+
+公开[固定验签向量](publisher-vectors.json)与[独立 Python 校验器](publisher-vector-check.py)可用于其他语言实现；校验器的测试依赖是 `cryptography==50.0.0`，产品 Node 验签只用内置 crypto。向量中的固定测试密钥不能用作真实身份信任锚。CLI 的 `--artifact` 是调用者独立核对的 `{kind,id,version,sha256}` JSON；Launcher 的作品文件选择和软件源会实际读取制品并计算这个身份，不把声明自带的摘要当作实际内容验证。

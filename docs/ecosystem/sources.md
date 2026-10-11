@@ -75,3 +75,9 @@ SHA-256 establishes content identity and integrity relative to a selected index.
 ## Template 分发
 
 `kind:"template"` 是独立分发对象。其制品包含 `template.json`、完整 `base/pack.json`／`base/pack.lock` 和锁定模块源码；静态校验不探测解释器，也不执行模板或模块。索引的平台来自锁定基包，`provides`／`requires` 为空；真实组件契约在制品内检查。获取后先检查参数并生成新 Pack，再走独立的导入、环境和执行审阅；缓存或发布都不等于运行授权。完整 Schema 和 API 见[模板](templates.md)。
+
+## 可选发布者证据
+
+索引条目可带 `publisherEvidence: {source:{path或url},sha256}`，指向独立、最多 256 KiB 的公共签名 JSON。它沿用索引的路径、HTTPS 和地址策略，摘要必须匹配。`attach-publisher-evidence` 给本地发布目录附加 sidecar；原制品字节和摘要不变。来源 sidecar 仅允许绑定该作品的 `artifact` 声明，不能在下载时偷偷应用轮换／撤销／风险控制声明。
+
+获取仍兼容未签名作品；无效、缺失或过期证据会明确显示诊断，不冒充发布者已验证，也不自动授予执行。导入与再次审阅会重新核对实际缓存制品和本机撤销／公告记录，旧 receipt 不能恢复已撤销的公钥。控制声明须在 Launcher 或 CLI 单独预览并明确记录。公钥与恢复策略见[作品信任](trust.md)。

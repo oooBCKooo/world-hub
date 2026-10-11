@@ -199,6 +199,7 @@ export function verifyPublisherEvidence({ artifact, artifactSha256, evidenceByte
   try {
     evidence = parsePublisherEvidence(evidenceBytes); const p = evidence.payload; report.type = p.type; report.issuer = p.issuer; report.keyId = p.keyId; report.sequence = p.sequence;
     if (p.type === 'artifact' && artifact !== undefined) {
+      if (!artifact) fail('ARTIFACT_IDENTITY_REQUIRED', 'Provide the actual artifact file to verify its exact kind, ID, version, and bytes.');
       artifactSubject(artifact);
       if (!subjectEqual(artifact, p.subject)) { report.contentIntegrity = 'mismatch'; fail('ARTIFACT_MISMATCH', 'Evidence does not bind the exact artifact kind, ID, version, and bytes.'); }
       report.contentIntegrity = 'verified';
@@ -254,6 +255,7 @@ export function verifyPublisherEvidence({ artifact, artifactSha256, evidenceByte
     if (p.type === 'artifact') {
       if (authority.role !== 'publisher') fail('WRONG_KEY_ROLE', 'Artifact requires a publisher anchor.');
       if (!artifact && artifactSha256) { report.warnings.push('EXACT_ARTIFACT_IDENTITY_REQUIRED'); fail('ARTIFACT_IDENTITY_REQUIRED', 'SHA alone cannot bind artifact kind, ID, and version.'); }
+      if (!artifact) fail('ARTIFACT_IDENTITY_REQUIRED', 'Provide the actual artifact file to verify its exact kind, ID, version, and bytes.');
       artifactSubject(artifact); if (!subjectEqual(artifact, p.subject)) { report.contentIntegrity = 'mismatch'; fail('ARTIFACT_MISMATCH', 'Evidence does not bind the exact artifact kind, ID, version, and bytes.'); }
       report.contentIntegrity = 'verified';
     } else if (p.type === 'key-rotation') {

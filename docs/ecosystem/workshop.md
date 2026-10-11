@@ -103,3 +103,9 @@ Place the exported contents in a fresh private root on the new server, restore d
 This is an initial hosted loop, not a claim of large-scale availability, replicated storage, social-network moderation, real-time collaborative editing, publisher signatures, or an execution sandbox. Those can be supplied by independent community services and transport profiles without turning Hub Core into a business platform.
 
 当前实现是初期托管闭环，不代表大规模可用性、复制存储、完整社交平台治理、实时协作编辑、发布者签名或执行沙箱。后续可由独立社区服务与传输方案扩展这些能力，不将 Hub Core 变成业务平台。
+
+## 作者签名的公共旁路证据
+
+发布／提案可选上传已在作者本机签好的公共 JSON，HTTP 字段为 `publisherEvidence` 原始 JSON 字符串，最大 256 KiB。服务器核对实际制品 kind／ID／version／SHA 和密码学签名，拒绝私钥、假签名或错误绑定；社区账号不会自动成为可信发布者身份。作者应独立保管发布钥与恢复钥，不上传私钥。
+
+公共证据按摘要从 `/workshop/publisher-evidence/<sha256>.json` 下载，重启和导出恢复保留精确字节；已发布版本不能覆盖，隐藏作品也隐藏其证据。模块本机信任由读者的[公钥锚与信任工具](trust.md)决定，社区不向本机授予代码运行权限。

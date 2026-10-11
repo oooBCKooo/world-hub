@@ -217,4 +217,6 @@ Runtime 不自动重试业务、重放未确认请求、release 消息或回滚�
 
 继续阅读：[pack 声明与源码锁](pack-spec.md)、[Python 桥](../../sdk/python/README.md)、[JavaScript 桥](../../sdk/javascript/README.md)、[Hub 边界](../specs/boundaries.md)。
 
-扩展工具：[参数化模板](templates.md)、[审阅升级与数据回滚](upgrade.md)、[可选 Node 容器隔离](isolation.md)。均不改变 Hub Core，也不自动赋予业务代码信任。
+扩展工具：[参数化模板](templates.md)、[审阅升级与数据回滚](upgrade.md)、[可选执行保护模式](isolation.md)。均不改变 Hub Core，也不自动赋予业务代码信任。
+
+公共发布者信任 API 与签名 CLI 见[作品信任](trust.md)。签名旁路不改变 Pack 的源码锁、原制品字节或 Hub 的正文透明性。
