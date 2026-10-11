@@ -63,7 +63,7 @@ test('Workshop publisher: public sidecars retain exact bytes and immutable ident
 
 test('Workshop publisher: unsigned publications work; private data, fake signatures and wrong artifact bindings are rejected',async t => {
   const {service,actor,root} = await fixture(t), unsigned = moduleArtifact('1.0.0','workshop.unsigned');
-  const first = await publication(service,actor,unsigned); assert.equal(first.data.publication.publisherEvidence,null);
+  const first = await publication(service,actor,unsigned); assert.equal(Object.hasOwn(first.data.publication,'publisherEvidence'),false);const unsignedIndex=await workshopCall(service,'index.json');assert.equal(Object.hasOwn(unsignedIndex.data.entries[0],'publisherEvidence'),false);
   const artifact = moduleArtifact(), signed = evidence(artifact), forged = structuredClone(signed.value);
   forged.signatures[0].value = Buffer.alloc(64).toString('base64');
   for (const input of [json(forged),json({...signed.value,privateKeyPem:signed.key.privateKeyPem}), signed.key.privateKeyPem,

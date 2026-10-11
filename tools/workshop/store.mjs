@@ -232,7 +232,7 @@ export class WorkshopStore {
     return { entryId: p.entryId, kind: p.kind, id: p.id, version: p.version, title: p.title, sha256: p.sha256, license: p.entry.license,
       platforms: p.entry.platforms, provides: p.entry.provides, requires: p.entry.requires, owner: { id: owner.id, username: owner.username },
       createdAt: p.createdAt, hidden: p.hidden, commentsCount: p.comments.length, proposalsCount: p.proposals.length,
-      publisherEvidence: p.entry.publisherEvidence ? { sha256: p.entry.publisherEvidence.sha256, status: 'public-evidence-user-verification-required', publisherIdentityVerified: false, codeSafetyVerified: false, grantsExecution: false } : null };
+      ...(p.entry.publisherEvidence ? { publisherEvidence: { sha256: p.entry.publisherEvidence.sha256, status: 'public-evidence-user-verification-required', publisherIdentityVerified: false, codeSafetyVerified: false, grantsExecution: false } } : {}) };
   }
   catalog({ search = '', kind = '', contract = '', offset = 0, limit = 40 } = {}, user = null) {
     requireValue(typeof search === 'string' && search.length <= 128 && ['', 'module', 'pack', 'template'].includes(kind) && typeof contract === 'string' && contract.length <= 128
@@ -249,7 +249,7 @@ export class WorkshopStore {
   }
   commentSummary(c) { const author = this.state.users.find(v => v.id === c.authorId); return { id: c.id, text: c.text, author: { id: author.id, username: author.username }, createdAt: c.createdAt }; }
   proposalSummary(q) { const author = this.state.users.find(v => v.id === q.authorId); return { id: q.id, title: q.title, baseSha256: q.baseSha256, sha256: q.sha256, kind: q.kind, artifactId: q.artifactId, version: q.version, author: { id: author.id, username: author.username }, createdAt: q.createdAt,
-    publisherEvidence: q.publisherEvidence ? { sha256: q.publisherEvidence.sha256, status: 'public-evidence-user-verification-required', publisherIdentityVerified: false, grantsExecution: false } : null }; }
+    ...(q.publisherEvidence ? { publisherEvidence: { sha256: q.publisherEvidence.sha256, status: 'public-evidence-user-verification-required', publisherIdentityVerified: false, grantsExecution: false } } : {}) }; }
   detail(entryId, user = null) { const p = this.publication(entryId, user); return { publication: this.summary(p), entry: p.entry, comments: p.comments.map(c => this.commentSummary(c)), proposals: p.proposals.map(q => this.proposalSummary(q)) }; }
   index(baseURL) { return { format: 'world-hub.source-index/v1', id: 'world-hub-workshop', title: 'World Hub Workshop', entries: this.state.publications.filter(p => !p.hidden).map(p => ({ ...p.entry, source: { url: `${baseURL}/artifacts/${p.sha256}.json` },
     ...(p.entry.publisherEvidence ? { publisherEvidence: { source: { url: `${baseURL}/publisher-evidence/${p.entry.publisherEvidence.sha256}.json` }, sha256: p.entry.publisherEvidence.sha256 } } : {}) })) }; }
