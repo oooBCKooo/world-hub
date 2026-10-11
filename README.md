@@ -42,7 +42,7 @@ node --test ./my-statistics/logic.test.mjs
 
 软件源可持久启用、禁用和排序；相同对象身份不同摘要会明确提示冲突。创作工作台可查看实际候选的合同、桥、权限和平台差异。声明兼容仍须用真实消费者验证业务结果。完整能力与验证边界见[第十七期](docs/ecosystem/phase17.md)。
 
-Creator 的引导表单可选择组件和候选模块，无需编辑 JSON 就能预览声明／环境差异、派生新目录，再导入并重新审阅执行。自己的 `text.statistics@1.0.0` 提供者可用 `world-hub-interop verify --config private-wiring.json --report new-report.json` 检查；[公开基准](docs/ecosystem/interop.md)分开声明、桥行为和业务结果，仓库 `npm run test:interop` 可重跑 JS／Python 参考链路。[候选试用](docs/ecosystem/upgrade.md)保留旧实例和私有备份，另建新实例供审阅启动、验证成果后自行切换。[第十八期](docs/ecosystem/phase18.md)明确自动验收、真人待办及签名接口设计的范围。
+Creator 的引导表单可选择组件和候选模块，无需编辑 JSON 就能预览声明／环境差异、派生新目录，再导入并重新审阅执行。自己的 `text.statistics@1.0.0` 提供者可用 `world-hub-interop verify --config private-wiring.json --report new-report.json` 检查；[公开基准](docs/ecosystem/interop.md)分开声明、桥行为和业务结果，仓库 `npm run test:interop` 可重跑 JS／Python 参考链路。[候选试用](docs/ecosystem/upgrade.md)保留旧实例和私有备份，另建新实例供审阅启动、验证成果后自行切换。[第十八期](docs/ecosystem/phase18.md)明确签名与执行保护的实装范围、自动验收及真人待办。
 
 ## 可选托管社区
 
@@ -234,6 +234,6 @@ tools/launcher/       可选整合包管理后台与统一浏览器入口
 
 本项目采用 [MIT 许可证](LICENSE)。便携包附带的 Node.js 运行时保留其自己的许可证；外部程序和 harness 按各自许可使用。
 
-共享组合还可以制作成[参数化模板](docs/ecosystem/templates.md)，填写公开参数后生成新的锁定包；已停止实例可[升级与完整数据回滚](docs/ecosystem/upgrade.md)，数据策略由各程序作者决定。可选[执行保护模式](docs/ecosystem/isolation.md)支持 Node／Python 固定限制容器与有限入口 HTTP，或明确标注为非沙箱的已有 Linux 用户身份分离，需自行准备 Linux Docker 与摘要镜像；其他程序继续按所选部署方式接入。
+共享组合还可以制作成[参数化模板](docs/ecosystem/templates.md)，填写公开参数后生成新的锁定包；已停止实例可[升级与完整数据回滚](docs/ecosystem/upgrade.md)，数据策略由各程序作者决定。可选[执行保护模式](docs/ecosystem/isolation.md)支持 Node／Python 固定限制容器与有限入口 HTTP，或明确标注为非沙箱的已有 Linux 用户身份分离。容器模式需自行准备 Linux Docker 与摘要镜像；用户模式需按文档准备 Linux 监督进程、已有用户与目录权限。其他程序继续按所选部署方式接入。
 
 作品可附加作者签名，读者独立固定公钥、审阅轮换／恢复撤销与风险公告；软件源、Launcher 和 Workshop 保留这些证据，执行仍需另行授权。见[作品与发布者信任](docs/ecosystem/trust.md)。
