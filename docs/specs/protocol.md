@@ -1,4 +1,4 @@
-# 枢纽与 mod 桥的通讯契约
+# 枢纽与模块桥的通讯契约
 
 线协议为 `wire: "0.1"`，附加通讯能力通过 welcome.features 协商。当前绑定为 UTF-8 JSON 文本 WebSocket，默认 `ws://127.0.0.1:8790/bridge`。传输绑定不规定外部程序语言、进程结构或界面形态。
 
@@ -30,7 +30,7 @@ principal 的分发与核对由接入程序负责，Hub 数据面没有程序名
 {"type":"registered","requestToken":"r1","channels":[{"name":"my-mod/new-information","publish":true,"subscribe":false},{"name":"other-mod/#","publish":false,"subscribe":true}]}
 ```
 
-`name` 完全由 mod 选择。发布方向必须为具体主题；订阅方向允许过滤器。至少一个方向为 true；同名声明合并方向，重复注册不产生重复订阅。单桥显式声明上限128，整个批次先校验再生效，不能通过声明扩大 ACL。
+`name` 完全由模块桥选择。发布方向必须为具体主题；订阅方向允许过滤器。至少一个方向为 true；同名声明合并方向，重复注册不产生重复订阅。单桥显式声明上限128，整个批次先校验再生效，不能通过声明扩大 ACL。
 
 成功的 `publish`/`subscribe` 也是隐式声明，旧客户端无需新增注册帧即可通讯。隐式声明的诊断表最多记录128项，但此诊断限制不构成可发信息种类清单。显式注册只是声明接口，不自动建立订阅，不装载 handler，不要求主题已存在。断开时清理声明，重接由桥恢复。
 
@@ -99,7 +99,7 @@ subscribed先回带token、subscription、filters、cursor、catchUpFrom/To。de
 {"type":"released","seq":[1,2],"requestToken":"cleanup1"}
 ```
 
-提供者通过自己的 mod 提交 `release`，决定何时允许回收它提供的记录。`seq` 为1–128个正安全整数，指向仍保留的消息。Hub 整批校验存在性和归属；任何一项不存在或归他人所有，则全批拒绝，不部分释放。不存在或已经轮转清理返回 `MESSAGE_NOT_FOUND`；归属不符返回 `RELEASE_DENIED`；非法数组返回 `FRAME_INVALID`。仍保留的已释放记录重复释放幂等。成功回 `released`，并原样回带可选 `requestToken`；失败也回带该标识。
+提供者通过自己的模块桥提交 `release`，决定何时允许回收它提供的记录。`seq` 为1–128个正安全整数，指向仍保留的消息。Hub 整批校验存在性和归属；任何一项不存在或归他人所有，则全批拒绝，不部分释放。不存在或已经轮转清理返回 `MESSAGE_NOT_FOUND`；归属不符返回 `RELEASE_DENIED`；非法数组返回 `FRAME_INVALID`。仍保留的已释放记录重复释放幂等。成功回 `released`，并原样回带可选 `requestToken`；失败也回带该标识。
 
 归属按稳定通讯身份维护：凭据模式使用凭据标识，同凭据的连接实例共享该归属；单身份模式使用 `bridgeId`，不依赖本次连接的临时实例后缀。发布记录的内部 `owner` 只用于通讯存储与释放授权，不进入交付载荷。旧日志缺少 `owner` 时回退到原记录 `from`；不能据此声称已恢复旧消息未记录的凭据关系。订阅权限、消费 ACK 或载荷声明不能取得他人的释放权。
 

@@ -8,10 +8,12 @@ export class Element {
   append(...items) { for (let child of items) { if (child === null || child === undefined) continue; if (!(child instanceof Element)) child = new Element('#text', String(child)); child.parent = this; this.children.push(child); } if (this.tagName === 'select' && !this.value) this.value = this.children[0]?.value ?? ''; }
   replaceChildren(...items) { this.children = []; this.text = ''; this.append(...items); }
   prepend(...items) { const old = this.children; this.children = []; this.append(...items); this.children.push(...old); }
+  remove() { if (this.parent) this.parent.children = this.parent.children.filter(child => child !== this); this.parent = null; }
   insertBefore(child, next) { child.parent = this; const index = this.children.indexOf(next); this.children.splice(index < 0 ? this.children.length : index, 0, child); }
   get textContent() { return this.text + this.children.map(child => child.textContent).join(''); }
   set textContent(value) { this.text = String(value); this.children = []; }
   get name() { return this.attributes.name ?? ''; }
+  get parentElement() { return this.parent ?? null; }
   get type() { return this.attributes.type ?? (this.tagName === 'input' ? 'text' : ''); }
   get options() { return this.children.filter(child => child.tagName === 'option'); }
   get classList() { return { add: (...names) => { this.className = [...new Set([...(this.className ?? '').split(' ').filter(Boolean), ...names])].join(' '); } }; }
@@ -26,7 +28,7 @@ export class Element {
   setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; }
   scrollIntoView() {}
   dispatchEvent(event) { for (const action of this.listeners[event.type] ?? []) action({ preventDefault() {}, target: this }); return true; }
-  async dispatch(kind) { if (kind === 'click' && this.disabled) return; for (const action of this.listeners[kind] ?? []) await action({ preventDefault() {}, target: this }); }
+  async dispatch(kind) { if (kind === 'click' && this.disabled) return; for (const action of this.listeners[kind] ?? []) await action({ preventDefault() {}, stopPropagation() {}, target: this }); }
   showModal() { this.open = true; }
   close() { this.open = false; for (const action of this.listeners.close ?? []) action({}); }
 }

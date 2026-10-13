@@ -74,3 +74,115 @@ test('PATH-UI-03 an old selection check cannot write its result into a different
   assert.equal(first.value, ''); assert.equal(second.value, ''); assert.equal(dialog.open, true);
   dialog.close(); ui.dispose();
 });
+
+test('TASK-UI-05 duplicate download operations of the same pack deduplicate the pending import badge count and mark older operations as duplicate download', async () => {
+  const operations = [
+    { id: 'pack-run-2', kind: 'fetch-source', state: 'succeeded', startedAt: '2026-10-13T12:00:00Z', result: { kind: 'pack', directory: '/cache/pack-a' } },
+    { id: 'pack-run-1', kind: 'fetch-source', state: 'succeeded', startedAt: '2026-10-13T11:00:00Z', result: { kind: 'pack', directory: '/cache/pack-a' } },
+    { id: 'pack-b-1', kind: 'fetch-source', state: 'succeeded', startedAt: '2026-10-13T10:00:00Z', result: { kind: 'pack', directory: '/cache/pack-b' } }
+  ];
+  const { body, ctx } = scene(async () => ({ operations })), ui = createTaskUi(ctx);
+  await ui.open();
+  const trigger = body.querySelector('#task-center-button');
+  const badge = trigger.querySelector('.badge-pending-import');
+  assert.equal(badge.textContent, '2 to import');
+  const dialog = body.querySelector('#task-center-dialog');
+  const cards = dialog.querySelectorAll('article');
+  assert.equal(cards.length, 3);
+  assert.ok(cards[0].className.includes('is-pending-import'));
+  assert.ok(!cards[1].className.includes('is-pending-import'));
+  assert.match(cards[1].textContent, /Duplicate download/);
+  assert.ok(cards[2].className.includes('is-pending-import'));
+  dialog.close();
+});
+
+test('TASK-UI-06 category filter tabs allow switching between all, pending, packs, modules, lifecycle, and failed tasks', async () => {
+  const operations = [
+    { id: 'pack-1', kind: 'fetch-source', state: 'succeeded', startedAt: '2026-10-13T12:00:00Z', result: { kind: 'pack', directory: '/cache/pack-1' } },
+    { id: 'pack-2', kind: 'fetch-source', state: 'succeeded', startedAt: '2026-10-13T11:00:00Z', result: { kind: 'pack', directory: '/cache/pack-1' } },
+    { id: 'mod-1', kind: 'fetch-source', state: 'succeeded', startedAt: '2026-10-13T10:00:00Z', result: { kind: 'module', directory: '/cache/mod-1' } },
+    { id: 'start-1', kind: 'start', state: 'succeeded', startedAt: '2026-10-13T09:00:00Z' },
+    { id: 'fail-1', kind: 'fetch-source', state: 'failed', startedAt: '2026-10-13T08:00:00Z' }
+  ];
+  const { body, ctx } = scene(async () => ({ operations })), ui = createTaskUi(ctx);
+  await ui.open();
+  const dialog = body.querySelector('#task-center-dialog');
+  const filterPills = dialog.querySelectorAll('.task-filter-pill');
+  assert.equal(filterPills.length, 6);
+  assert.equal(dialog.querySelectorAll('article').length, 5);
+  const pendingBtn = filterPills.find(btn => btn.dataset.filterId === 'pending');
+  assert.match(pendingBtn.textContent, /1/);
+  await pendingBtn.dispatch('click');
+  assert.equal(dialog.querySelectorAll('article').length, 1);
+  assert.ok(dialog.querySelectorAll('article')[0].className.includes('is-pending-import'));
+  const packsBtn = filterPills.find(btn => btn.dataset.filterId === 'packs');
+  await packsBtn.dispatch('click');
+  assert.equal(dialog.querySelectorAll('article').length, 2);
+  const failedBtn = filterPills.find(btn => btn.dataset.filterId === 'failed');
+  await failedBtn.dispatch('click');
+  assert.equal(dialog.querySelectorAll('article').length, 1);
+  dialog.close();
+});
+
+test('TASK-UI-07 opening or cancelling import retains pending status; only a real matching instance clears it', async () => {
+  const operations = [{ id: 'download', kind: 'fetch-source', state: 'succeeded', result: { kind: 'pack', directory: '/cache/pack' } }];
+  const { body, ctx, imports } = scene(async () => ({ operations })), ui = createTaskUi(ctx);
+  ctx.state.instances = [];
+  await ui.open(); const dialog = body.querySelector('#task-center-dialog');
+  await byText(dialog, 'Import and review').dispatch('click');
+  assert.deepEqual(imports, ['/cache/pack']);
+  assert.equal(body.querySelector('.badge-pending-import').textContent, '1 to import');
+  // Closing the import without creating an instance, including a failed import,
+  // leaves the only authoritative instance list unchanged.
+  await ui.open(); assert.match(dialog.textContent, /Pending import/); dialog.close();
+  ctx.state.instances = [{ instanceId: 'other', sourceDirectory: '/cache/other' }];
+  await ui.check(); assert.equal(body.querySelector('.badge-pending-import').textContent, '1 to import');
+  ctx.state.instances.push({ instanceId: 'created', sourceDirectory: '/cache/pack' });
+  await ui.open(); assert.equal(body.querySelector('.badge-pending-import'), null);
+  assert.doesNotMatch(dialog.textContent, /Pending import/);
+  dialog.close();
+  ctx.state.instances = []; await ui.check();
+  assert.equal(body.querySelector('.badge-pending-import').textContent, '1 to import');
+});
+
+test('PATH-UI-04 an old native picker result cannot fill or close a newly opened target', async () => {
+  const native = deferred();
+  const { body, ctx } = scene(async (path, input) => {
+    if (path === '/api/paths/known') return { places: [], recents: [], objects: [] };
+    if (path === '/api/paths/browse') return { directory: '/collection', parent: '/', roots: [], offset: 0, nextOffset: null, entries: [] };
+    if (path === '/api/paths/native-pick') return native.promise;
+    if (path === '/api/paths/check') return { path: input.path, kind: 'directory', selectable: true };
+    throw new Error('Unexpected request ' + path);
+  });
+  const ui = createPathUi(ctx), first = element('input'), second = element('input');
+  first.dataset.pathPurpose = 'source'; second.dataset.pathPurpose = 'pack';
+  await ui.open(first); const dialog = body.querySelector('#path-picker-dialog');
+  const oldRequest = dialog.querySelector('.path-pick-native').dispatch('click');
+  await turn(); dialog.close(); await ui.open(second);
+  native.resolve({ path: '/old-a.txt', kind: 'file' }); await oldRequest;
+  assert.equal(first.value, ''); assert.equal(second.value, ''); assert.equal(dialog.open, true);
+  assert.equal(dialog.querySelector('[name=path-location]').value, '/collection');
+  dialog.close(); ui.dispose();
+});
+
+test('PATH-UI-05 selecting a save parent preserves the new filename and validates the full output', async () => {
+  const checks = [];
+  const { body, ctx } = scene(async (path, input) => {
+    if (path === '/api/paths/known') return { places: [], recents: [], objects: [] };
+    if (path === '/api/paths/browse') return { directory: input.directory ?? '/collection', parent: '/', roots: [], offset: 0, nextOffset: null, entries: [] };
+    if (path === '/api/paths/native-pick') return { path: '/new-parent', kind: 'directory', selectionMode: 'parent' };
+    if (path === '/api/paths/check') { checks.push(input); return { path: input.path, kind: 'missing', parent: '/old-parent', selectable: true }; }
+    if (path === '/api/paths/remember') return {};
+    throw new Error('Unexpected request ' + path);
+  });
+  const ui = createPathUi(ctx), field = element('input');
+  field.dataset.pathPurpose = 'save-file'; field.value = '/old-parent/新备份.json';
+  await ui.open(field); const dialog = body.querySelector('#path-picker-dialog');
+  await dialog.querySelector('.path-pick-native').dispatch('click');
+  assert.equal(field.value, '/old-parent/新备份.json');
+  assert.equal(dialog.querySelector('[name=path-new-name]').value, '新备份.json');
+  await dialog.querySelector('.path-save').dispatch('click'); await turn();
+  assert.equal(field.value, '/new-parent/新备份.json');
+  assert.deepEqual(checks.at(-1), { path: '/new-parent/新备份.json', purpose: 'save-file' });
+  assert.equal(dialog.open, false); ui.dispose();
+});

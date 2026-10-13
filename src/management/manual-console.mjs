@@ -57,16 +57,16 @@ dialog.className = 'mc-dialog';
 dialog.setAttribute('aria-labelledby', 'mc-title');
 dialog.innerHTML = `
   <div class="mc-shell">
-    <header class="mc-header"><div class="mc-title-icon">${icon}</div><div><p class="mc-eyebrow">WORLD HUB · MANUAL MOD</p><h2 id="mc-title" data-i18n="手动通讯工作台">手动通讯工作台</h2></div><label class="mc-language"><span data-i18n="界面语言">界面语言</span><select id="mc-language" aria-label="界面语言" data-i18n-aria-label="界面语言"><option value="zh-CN">中文</option><option value="en">English</option></select></label><span id="mc-status" class="mc-badge"><span data-i18n="未连接">未连接</span></span><button type="button" class="mc-close" id="mc-close" aria-label="关闭工作台" data-i18n-aria-label="关闭工作台" title="关闭工作台；已连接的桥继续在后台通讯" data-i18n-title="关闭工作台；已连接的桥继续在后台通讯">×</button></header>
+    <header class="mc-header"><div class="mc-title-icon">${icon}</div><div><p class="mc-eyebrow">WORLD HUB · MANUAL MODULE BRIDGE</p><h2 id="mc-title" data-i18n="手动通讯工作台">手动通讯工作台</h2></div><label class="mc-language"><span data-i18n="界面语言">界面语言</span><select id="mc-language" aria-label="界面语言" data-i18n-aria-label="界面语言"><option value="zh-CN">中文</option><option value="en">English</option></select></label><span id="mc-status" class="mc-badge"><span data-i18n="未连接">未连接</span></span><button type="button" class="mc-close" id="mc-close" aria-label="关闭工作台" data-i18n-aria-label="关闭工作台" title="关闭工作台；已连接的桥继续在后台通讯" data-i18n-title="关闭工作台；已连接的桥继续在后台通讯">×</button></header>
     <div class="mc-scroll">
-      <section class="mc-connection" aria-label="自己的 mod 连接" data-i18n-aria-label="自己的 mod 连接">
-        <div class="mc-section-heading"><div><h3 data-i18n="以自己的 mod 接入">以自己的 mod 接入</h3><p data-i18n="通过当前枢纽通讯。管理画布仍能看到这条桥的真实信息流。">通过当前枢纽通讯。管理画布仍能看到这条桥的真实信息流。</p></div><button id="mc-disconnect" type="button" class="mc-button mc-subtle" disabled data-i18n="断开连接">断开连接</button></div>
+      <section class="mc-connection" aria-label="自己的模块桥连接" data-i18n-aria-label="自己的模块桥连接">
+        <div class="mc-section-heading"><div><h3 data-i18n="以自己的模块桥接入">以自己的模块桥接入</h3><p data-i18n="通过当前枢纽通讯。管理画布仍能看到这条桥的真实信息流。">通过当前枢纽通讯。管理画布仍能看到这条桥的真实信息流。</p></div><button id="mc-disconnect" type="button" class="mc-button mc-subtle" disabled data-i18n="断开连接">断开连接</button></div>
         <form id="mc-connect-form" class="mc-connect-grid">
           <label class="mc-url"><span data-i18n="当前枢纽地址">当前枢纽地址</span><input id="mc-url" readonly aria-readonly="true" placeholder="正在读取通讯地址…" data-i18n-placeholder="正在读取通讯地址…"></label>
           <label><span data-i18n="桥标识 bridge">桥标识 bridge</span><input id="mc-bridge" required maxlength="64" pattern="[a-z0-9][a-z0-9._\\-]{0,63}" title="1–64 个字符，以小写字母或数字开头；其后可用小写字母、数字、点、下划线和连字符" data-i18n-title="1–64 个字符，以小写字母或数字开头；其后可用小写字母、数字、点、下划线和连字符" autocomplete="off" placeholder="你配置的桥标识" data-i18n-placeholder="你配置的桥标识"></label>
           <label><span data-i18n="凭据标识 credential · 可选">凭据标识 credential · 可选</span><input id="mc-credential" maxlength="64" pattern="[a-z0-9][a-z0-9._\\-]{0,63}" title="可留空；填写时须为 1–64 个字符，以小写字母或数字开头；其后可用小写字母、数字、点、下划线和连字符" data-i18n-title="可留空；填写时须为 1–64 个字符，以小写字母或数字开头；其后可用小写字母、数字、点、下划线和连字符" autocomplete="off" placeholder="凭据模式时填写" data-i18n-placeholder="凭据模式时填写"></label>
           <label><span data-i18n="认证 token · 可选">认证 token · 可选</span><input id="mc-token" type="password" autocomplete="new-password" placeholder="仅用于这次连接" data-i18n-placeholder="仅用于这次连接"></label>
-          <button id="mc-connect" class="mc-button mc-primary" type="submit" data-i18n="连接自己的 mod">连接自己的 mod</button>
+          <button id="mc-connect" class="mc-button mc-primary" type="submit" data-i18n="连接自己的模块桥">连接自己的模块桥</button>
         </form>
         <p class="mc-note" data-i18n="token 只用于本次握手，不保存；连接尝试结束后清空输入。无 token 接入将如实标为未认证。同名单身份连接会接管旧连接，桥标识请使用你自己的配置。">token 只用于本次握手，不保存；连接尝试结束后清空输入。无 token 接入将如实标为未认证。同名单身份连接会接管旧连接，桥标识请使用你自己的配置。</p>
         <dl id="mc-identity" class="mc-identity"><div><dt data-i18n="稳定身份 principal">稳定身份 principal</dt><dd>—</dd></div><div><dt data-i18n="本次 session">本次 session</dt><dd>—</dd></div><div><dt data-i18n="认证 / 水位">认证 / 水位</dt><dd>—</dd></div><div><dt data-i18n="协商能力 features">协商能力 features</dt><dd>—</dd></div></dl>
@@ -98,7 +98,7 @@ dialog.innerHTML = `
             <h4 class="mc-delivery-heading"><span data-i18n="收到的信息 ">收到的信息 </span><span id="mc-delivery-count">0</span></h4><div id="mc-deliveries" class="mc-delivery-list"><p class="mc-empty" data-i18n="收到 delivery 后在这里显示。每条订阅分别确认。">收到 delivery 后在这里显示。每条订阅分别确认。</p></div>
           </div>
           <div class="mc-panel" id="mc-panel-channel" role="tabpanel" aria-labelledby="mc-tab-channel" hidden>
-            <div class="mc-panel-heading"><h3 data-i18n="声明 mod 的任意通道">声明 mod 的任意通道</h3><p data-i18n="声明通讯接口方向；不创建订阅或业务处理器。">声明通讯接口方向；不创建订阅或业务处理器。</p></div><form id="mc-register-form" class="mc-form"><label><span data-i18n="通道名称或订阅过滤器">通道名称或订阅过滤器</span><input id="mc-channel-name" required autocomplete="off" placeholder="你约定的主题 / 过滤器" data-i18n-placeholder="你约定的主题 / 过滤器"></label><fieldset class="mc-fieldset"><legend data-i18n="方向 · 至少一个">方向 · 至少一个</legend><div class="mc-checks"><label><input id="mc-channel-publish" type="checkbox"><span data-i18n="声明发布方向">声明发布方向</span></label><label><input id="mc-channel-subscribe" type="checkbox"><span data-i18n="声明订阅方向">声明订阅方向</span></label></div></fieldset><p class="mc-note" data-i18n="发布方向必须是具体主题。注册不会扩大现有 ACL；同名声明合并方向，通道名称不内置枚举。">发布方向必须是具体主题。注册不会扩大现有 ACL；同名声明合并方向，通道名称不内置枚举。</p><button type="submit" class="mc-button mc-primary" data-needs-connection data-i18n="注册通道">注册通道</button></form><h4 class="mc-delivery-heading" data-i18n="枢纽确认的声明">枢纽确认的声明</h4><pre id="mc-channels" class="mc-json-view" data-i18n="尚未收到 registered。">尚未收到 registered。</pre>
+            <div class="mc-panel-heading"><h3 data-i18n="声明模块桥的任意通道">声明模块桥的任意通道</h3><p data-i18n="声明通讯接口方向；不创建订阅或业务处理器。">声明通讯接口方向；不创建订阅或业务处理器。</p></div><form id="mc-register-form" class="mc-form"><label><span data-i18n="通道名称或订阅过滤器">通道名称或订阅过滤器</span><input id="mc-channel-name" required autocomplete="off" placeholder="你约定的主题 / 过滤器" data-i18n-placeholder="你约定的主题 / 过滤器"></label><fieldset class="mc-fieldset"><legend data-i18n="方向 · 至少一个">方向 · 至少一个</legend><div class="mc-checks"><label><input id="mc-channel-publish" type="checkbox"><span data-i18n="声明发布方向">声明发布方向</span></label><label><input id="mc-channel-subscribe" type="checkbox"><span data-i18n="声明订阅方向">声明订阅方向</span></label></div></fieldset><p class="mc-note" data-i18n="发布方向必须是具体主题。注册不会扩大现有 ACL；同名声明合并方向，通道名称不内置枚举。">发布方向必须是具体主题。注册不会扩大现有 ACL；同名声明合并方向，通道名称不内置枚举。</p><button type="submit" class="mc-button mc-primary" data-needs-connection data-i18n="注册通道">注册通道</button></form><h4 class="mc-delivery-heading" data-i18n="枢纽确认的声明">枢纽确认的声明</h4><pre id="mc-channels" class="mc-json-view" data-i18n="尚未收到 registered。">尚未收到 registered。</pre>
           </div>
           <div class="mc-panel" id="mc-panel-attachment" role="tabpanel" aria-labelledby="mc-tab-attachment" hidden>
             <div class="mc-panel-heading"><h3 data-i18n="大体积附件">大体积附件</h3><p data-i18n="有界分块、接纳进度和 SHA-256 校验。对象与消息各自释放。">有界分块、接纳进度和 SHA-256 校验。对象与消息各自释放。</p></div><form id="mc-upload-form" class="mc-form"><label><span data-i18n="选择本地文件">选择本地文件</span><input id="mc-upload-file" type="file" required></label><div class="mc-button-row"><button type="submit" class="mc-button mc-primary" data-needs-connection data-i18n="分块上传并提交">分块上传并提交</button><button id="mc-blob-cancel" type="button" class="mc-button mc-subtle" disabled data-i18n="取消当前传输">取消当前传输</button></div></form><div class="mc-progress-box"><progress id="mc-blob-progress" value="0" max="1"></progress><p id="mc-blob-progress-text" role="status" aria-live="polite" data-i18n="尚未开始传输。">尚未开始传输。</p></div><pre id="mc-blob-descriptor" class="mc-json-view" data-i18n="上传成功后显示可信附件描述符。">上传成功后显示可信附件描述符。</pre><button id="mc-use-attachment" type="button" class="mc-button mc-subtle" disabled data-i18n="将描述符加入待发送信息">将描述符加入待发送信息</button><p class="mc-note" data-i18n="上传完成不等于已发布。取消或发布失败后不自动释放对象；你可查询状态、继续使用或显式释放。">上传完成不等于已发布。取消或发布失败后不自动释放对象；你可查询状态、继续使用或显式释放。</p>
@@ -109,7 +109,7 @@ dialog.innerHTML = `
             <div class="mc-panel-heading"><h3 data-i18n="高级：原始通讯帧">高级：原始通讯帧</h3><p data-i18n="按当前线协议发送完整 JSON 帧，适用于已知通讯操作。">按当前线协议发送完整 JSON 帧，适用于已知通讯操作。</p></div><form id="mc-raw-form" class="mc-form"><label><span data-i18n="原始 JSON 帧">原始 JSON 帧</span><textarea id="mc-raw-frame" rows="12" spellcheck="false" required placeholder='{"type":"…"}'></textarea></label><p class="mc-note" data-i18n="此处只报告已发送到套接字；观察收帧才能判断枢纽是否接纳。hello 请用上方连接区，避免 token 进入记录。不会自动 ACK、释放或重连。">此处只报告已发送到套接字；观察收帧才能判断枢纽是否接纳。hello 请用上方连接区，避免 token 进入记录。不会自动 ACK、释放或重连。</p><button type="submit" class="mc-button mc-primary" data-needs-connection data-i18n="发送原始帧">发送原始帧</button></form>
           </div>
           <div class="mc-panel" id="mc-panel-management" role="tabpanel" aria-labelledby="mc-tab-management" hidden>
-            <div class="mc-panel-heading"><h3 data-i18n="管理真实接入与程序注记">管理真实接入与程序注记</h3><p data-i18n="本机管理操作与上方自己的 mod 通讯相互独立。">本机管理操作与上方自己的 mod 通讯相互独立。</p></div>
+            <div class="mc-panel-heading"><h3 data-i18n="管理真实接入与程序注记">管理真实接入与程序注记</h3><p data-i18n="本机管理操作与上方自己的模块桥通讯相互独立。">本机管理操作与上方自己的模块桥通讯相互独立。</p></div>
             <div class="mc-management-toolbar"><label><span data-i18n="通讯主体">通讯主体</span><select id="mc-managed-key"></select></label><button id="mc-management-refresh" type="button" class="mc-button mc-subtle" data-i18n="刷新状态">刷新状态</button></div>
             <p id="mc-management-status" class="mc-note mc-state-note" role="status" aria-live="polite" data-i18n="尚未读取管理状态。">尚未读取管理状态。</p>
             <p id="mc-managed-summary" class="mc-note"></p><div class="mc-button-row mc-management-actions"><button id="mc-managed-pause" type="button" class="mc-button mc-warning" data-i18n="暂停主体通讯">暂停主体通讯</button><button id="mc-managed-resume" type="button" class="mc-button" data-i18n="恢复主体通讯">恢复主体通讯</button></div>
@@ -127,7 +127,7 @@ document.body.append(dialog);
 const $ = id => dialog.querySelector(`#mc-${id}`);
 const textValue = id => $(id).value.trim();
 const notice = (message, error = false, params = {}) => { uiText($('notice'), message, params); $('notice').classList.toggle('mc-notice-error', error); };
-const errorLabels = { NOT_CONNECTED: '请先连接自己的 mod', FEATURE_UNSUPPORTED: '当前枢纽未协商这项能力', TIMEOUT: '本地等待已超时；操作可能已被枢纽接纳，请查阅收发记录，不自动重发', ABORTED: '本地传输已取消；枢纽中的对象或消息未自动释放', SOCKET_ERROR: '套接字连接失败，请检查地址和浏览器安全限制', DISCONNECTED: '桥已断开，不会自动重连', MANAGEMENT_STATE_STALE: '管理状态已过期，请先手动刷新并核对' };
+const errorLabels = { NOT_CONNECTED: '请先连接自己的模块桥', FEATURE_UNSUPPORTED: '当前枢纽未协商这项能力', TIMEOUT: '本地等待已超时；操作可能已被枢纽接纳，请查阅收发记录，不自动重发', ABORTED: '本地传输已取消；枢纽中的对象或消息未自动释放', SOCKET_ERROR: '套接字连接失败，请检查地址和浏览器安全限制', DISCONNECTED: '桥已断开，不会自动重连', MANAGEMENT_STATE_STALE: '管理状态已过期，请先手动刷新并核对' };
 function uiError(source, params = {}) {
   return Object.assign(new Error(t(source, params)), { uiSource: source, uiParams: params });
 }
@@ -271,7 +271,7 @@ const bridge = new ManualBridge({ onFrame: receive, onSend(raw, frame) { addLog(
   const launcher = document.querySelector('#btn-manual-console');
   if (launcher) {
     uiText(launcher, state.status === 'connected' ? '↗ 通讯工作台 · 已连接' : state.status === 'connecting' ? '↗ 通讯工作台 · 连接中' : '↗ 通讯工作台');
-    uiAttribute(launcher, 'title', state.status === 'connected' ? '工作台自己的 mod 仍在后台连接；打开后可手动断开' : '用界面自己的 mod 手动操作通讯');
+    uiAttribute(launcher, 'title', state.status === 'connected' ? '工作台自己的模块桥仍在后台连接；打开后可手动断开' : '用界面自己的模块桥手动操作通讯');
   }
   connecting = state.status === 'connecting';
   if (state.status === 'connected') {
@@ -558,7 +558,7 @@ async function refreshTransport() {
     transportUrl = url.href; $('url').value = transportUrl;
     if (state.bridges?.some(entry => entry.key === 'ui.manual' && entry.kind === 'credential') && !textValue('bridge') && !textValue('credential')) {
       $('bridge').value = `manual.${crypto.randomUUID().slice(0, 8)}`; $('credential').value = 'ui.manual';
-      notice('已填入专用本机工作台凭据 ui.manual；可以直接连接自己的 mod。token 不保存。');
+      notice('已填入专用本机工作台凭据 ui.manual；可以直接连接自己的模块桥。token 不保存。');
     }
   } catch (error) { transportUrl = ''; $('url').value = ''; notice(() => safeError(error), true); }
   updateControls();
@@ -569,7 +569,7 @@ document.querySelector('#btn-manual-console')?.addEventListener('click', async (
 });
 updateControls();
 const launcher = document.querySelector('#btn-manual-console');
-if (launcher) { uiText(launcher, '↗ 通讯工作台'); uiAttribute(launcher, 'title', '用界面自己的 mod 手动操作通讯'); }
+if (launcher) { uiText(launcher, '↗ 通讯工作台'); uiAttribute(launcher, 'title', '用界面自己的模块桥手动操作通讯'); }
 $('language').addEventListener('change', () => i18n.setLanguage($('language').value));
 i18n.onChange(refreshLanguage);
 refreshLanguage();

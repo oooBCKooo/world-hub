@@ -12,23 +12,23 @@
   <a class="skip-link" href="#main" data-i18n="skip">跳至内容</a>
   <div class="shell">
     <aside class="sidebar" aria-label="World Hub">
-      <a class="brand" href="#packs" aria-label="World Hub">
-        <span class="brand-mark" aria-hidden="true"><span></span></span>
-        <span>World Hub<small data-i18n="localWorkspace">本地工作空间</small></span>
-      </a>
+      <div class="brand-row">
+        <a class="brand" href="#packs" aria-label="World Hub">
+          <span class="brand-mark" aria-hidden="true"><span></span></span>
+          <span>World Hub<small data-i18n="localWorkspace">本地工作空间</small></span>
+        </a>
+        <button id="refresh" class="icon-button brand-refresh" type="button" title="刷新" aria-label="刷新" data-i18n-title="refresh" data-i18n-label="refresh"></button>
+      </div>
       <button id="sidebar-menu-toggle" class="button sidebar-menu-toggle" type="button" aria-controls="sidebar-navigation" aria-expanded="false" data-i18n-label="menuOpen"><span aria-hidden="true">☰</span><span data-i18n="menuNavigation">导航</span></button>
       <div id="sidebar-navigation" class="sidebar-navigation">
       <div class="nav-caption" data-i18n="useNavigation">使用</div>
       <nav id="navigation" aria-label="主导航">
-        <button class="nav-item active" data-view="packs" aria-current="page"><span class="nav-icon" aria-hidden="true">◇</span><span data-i18n="myPacks">我的整合包</span><span id="nav-count" class="nav-count">0</span></button>
-        <button class="nav-item" data-view="overview"><span class="nav-icon" aria-hidden="true">◫</span><span data-i18n="overview">状态总览</span></button>
-        <button class="nav-item" data-view="hubs"><span class="nav-icon" aria-hidden="true">◎</span><span data-i18n="hubs">枢纽管理</span></button>
-        <button class="nav-item" data-view="workbench"><span class="nav-icon" aria-hidden="true">⌘</span><span data-i18n="workbench">通信工作台</span></button>
+        <button class="nav-item active" data-view="packs" aria-current="page"><span class="nav-icon" aria-hidden="true">📦</span><span data-i18n="my">我的</span><span id="nav-count" class="nav-count">0</span></button>
       </nav>
-      <div class="nav-caption" data-i18n="createNavigation">创作</div>
-      <nav id="creator-navigation" aria-label="创作导航">
-        <button class="nav-item" data-view="sources"><span class="nav-icon" aria-hidden="true">⇩</span><span data-advanced-i18n="sources">软件源</span></button>
-        <button class="nav-item" data-view="creator"><span class="nav-icon" aria-hidden="true">✧</span><span data-advanced-i18n="creator">创作工作台</span></button>
+      <div class="nav-caption" data-i18n="createNavigation">装配</div>
+      <nav id="creator-navigation" aria-label="装配导航">
+        <button class="nav-item" data-view="sources"><span class="nav-icon" aria-hidden="true">⇩</span><span data-advanced-i18n="sources">下载</span></button>
+        <button class="nav-item" data-view="creator"><span class="nav-icon" aria-hidden="true">✧</span><span data-advanced-i18n="creator">工作台</span></button>
       </nav>
       <div class="nav-caption" data-i18n="system">系统</div>
       <nav id="system-navigation" aria-label="系统导航">
@@ -48,24 +48,152 @@
     <div class="content-shell">
       <header class="topbar">
         <div class="breadcrumb"><span>World Hub</span><span class="slash">/</span><span id="breadcrumb" data-i18n="myPacks">我的整合包</span></div>
-        <div class="topbar-actions"><span class="local-chip"><span class="status-dot"></span><span data-i18n="localOnly">仅限本机</span></span><button id="refresh" class="button button-quiet" data-i18n="refresh">刷新</button></div>
+        <div class="topbar-actions"></div>
       </header>
       <main id="main" tabindex="-1">
         <div id="connection-notice" class="notice notice-error" role="alert" hidden></div>
         <section id="view-packs" class="view">
-          <div class="page-heading"><div><div class="eyebrow" data-i18n="packEyebrow">YOUR LOCAL COLLECTION</div><h1 data-i18n="myPacks">我的整合包</h1><p data-i18n="packsSubtitle">让独立的程序一起工作，从一个入口开始。</p></div><button class="button button-primary" data-action="import"><span aria-hidden="true">＋</span><span data-i18n="importPack">导入整合包</span></button></div>
-          <div class="welcome-panel"><div class="welcome-art" aria-hidden="true"><span class="orbit orbit-one"></span><span class="orbit orbit-two"></span><span class="orbit-dot dot-one"></span><span class="orbit-dot dot-two"></span><span class="orbit-core">◇</span></div><div><div class="eyebrow" data-i18n="onePlace">ONE PLACE, YOUR PROGRAMS</div><h2 data-i18n="welcomeTitle">组合能力，开启你的工作空间。</h2><p data-i18n="welcomeText">导入本地整合包，审阅来源与权限，再启动自己的实例。随时查看模块、日志与通信状态。</p></div><div class="welcome-tag"><span class="status-dot"></span><span data-i18n="independentInstances">独立实例 · 本地运行</span></div></div>
+          <div id="packs-asset-tabs" class="asset-tabs-slot"></div>
           <div id="pack-stats" class="stats-grid"></div>
-          <div class="collection-toolbar"><div><h2 data-i18n="instances">整合包实例</h2><span id="collection-count" class="count-label"></span></div><label class="search-field"><span aria-hidden="true">⌕</span><input id="search" type="search" data-placeholder="searchPlaceholder" placeholder="搜索名称或实例 ID" aria-label="搜索实例"></label></div>
+          <div class="collection-toolbar">
+            <div>
+              <h2 data-i18n="instances">整合包实例</h2>
+              <span id="collection-count" class="count-label"></span>
+            </div>
+            <div class="collection-toolbar-actions">
+              <label class="search-field"><span aria-hidden="true">⌕</span><input id="search" type="search" data-placeholder="searchPlaceholder" placeholder="搜索名称或实例 ID" aria-label="搜索实例"></label>
+              <div class="dropdown-wrap" id="import-dropdown-wrap">
+                <button class="button button-primary dropdown-trigger" id="import-dropdown-trigger" type="button" aria-haspopup="true" aria-expanded="false">
+                  <span aria-hidden="true">＋</span>
+                  <span data-i18n="importPack">导入整合包</span>
+                  <span class="dropdown-caret" aria-hidden="true">▾</span>
+                </button>
+                <div class="dropdown-menu" id="import-dropdown-menu" hidden>
+                  <button class="dropdown-item" id="action-import-new" type="button">
+                    <span class="dropdown-item-icon" aria-hidden="true">📦</span>
+                    <div class="dropdown-item-text">
+                      <strong data-i18n="importNewPack">导入新建整合包</strong>
+                      <small data-i18n="importNewPackDesc">选择本机目录，检查并创建独立实例</small>
+                    </div>
+                  </button>
+                  <button class="dropdown-item" id="restore-entry" type="button">
+                    <span class="dropdown-item-icon" aria-hidden="true">🛡️</span>
+                    <div class="dropdown-item-text">
+                      <strong data-i18n="restorePrivateBackup">从私有备份恢复</strong>
+                      <small data-i18n="restorePrivateBackupDesc">从归档备份文件完整恢复到新实例</small>
+                    </div>
+                  </button>
+                </div>
+              </div>
+              <button class="button button-quiet" id="packs-workshop-btn" type="button">
+                <span class="button-icon" aria-hidden="true">☁</span>
+                <span data-i18n="browseMarketplacePacks">从工坊获取更多整合包</span>
+              </button>
+              <div id="packs-restore-slot" hidden></div>
+            </div>
+          </div>
           <div id="packs-list" class="pack-grid"></div>
         </section>
-        <section id="view-overview" class="view" hidden><div class="page-heading"><div><div class="eyebrow">LOCAL WORKSPACE</div><h1 data-i18n="overview">状态总览</h1><p data-i18n="overviewSubtitle">运行、通信和业务就绪，各有自己的事实。</p></div></div><div id="overview-stats" class="stats-grid"></div><div id="overview-content"></div></section>
-        <section id="view-hubs" class="view" hidden><div class="page-heading"><div><div class="eyebrow">COMMUNICATION INFRASTRUCTURE</div><h1 data-i18n="hubs">枢纽管理</h1><p data-i18n="hubsSubtitle">从实例进入已有的拓扑管理，沿用 Hub 的通信能力。</p></div></div><div class="notice" data-i18n="hubBoundary">Hub 负责通信；Runtime 负责实例与进程。连接状态不会替代业务就绪状态。</div><div id="hubs-list" class="stack"></div></section>
-        <section id="view-workbench" class="view" hidden><div class="page-heading"><div><div class="eyebrow">DEVELOPER TOOLS</div><h1 data-i18n="workbench">通信工作台</h1><p data-i18n="workbenchSubtitle">在已有 Hub 管理界面打开通信工作台，调试消息与请求响应。</p></div></div><div id="workbench-list" class="stack"></div></section>
-        <section id="view-environment" class="view" hidden><div class="page-heading"><div><div class="eyebrow">ENVIRONMENT &amp; DIAGNOSTICS</div><h1 data-i18n="environment">环境与诊断</h1><p data-i18n="environmentSubtitle">检查宿主环境，选择已安装的解释器，再验证整合包要求。</p></div></div><div class="panel"><div class="panel-heading"><h2 data-i18n="interpreters">已安装解释器</h2><span class="pill" data-i18n="detectOnly">仅检测</span></div><form id="environment-form"><div class="field-grid"><label><span data-i18n="nodePath">Node.js 路径（可选）</span><input name="nodePath" autocomplete="off" spellcheck="false" data-placeholder="nodePlaceholder" placeholder="使用 Launcher 当前 Node.js"></label><label><span data-i18n="pythonPath">Python 路径（可选）</span><input name="pythonPath" autocomplete="off" spellcheck="false" data-placeholder="pythonPlaceholder" placeholder="从 PATH 检测 Python"></label></div><p class="field-help" data-i18n="probeNotice">检测会运行所选解释器的固定版本与依赖探针，不执行整合包入口或安装脚本。</p><button class="button button-primary" type="submit" data-i18n="detectEnvironment">重新检测环境</button></form><div id="environment-results" class="environment-results"></div></div><div class="panel security-panel"><div class="panel-heading"><h2 data-i18n="securityBoundary">当前保护边界</h2><span class="pill pill-amber" data-i18n="noSandbox">未提供 OS 沙箱</span></div><p data-i18n="sandboxNotice">权限是模块的声明，用户审阅是对当前代码和环境的授权。当前 Runtime 不强制限制模块访问文件、网络或系统资源。</p><p data-i18n="isolationNotice">每个实例拥有独立工作目录与 Hub 身份；同账户下的程序仍可能读取其他实例文件。请只运行你信任的代码，并用操作系统账户与目录权限保护数据。</p><dl id="diagnostic-info" class="definition-grid"></dl></div></section>
+        <section id="view-modules" class="view" hidden>
+          <div id="modules-asset-tabs" class="asset-tabs-slot"></div>
+          <div id="modules-content"></div>
+        </section>
+        <section id="view-templates" class="view" hidden>
+          <div id="templates-asset-tabs" class="asset-tabs-slot"></div>
+          <div id="templates-content"></div>
+        </section>
+        <section id="view-environment" class="view" hidden>
+          <div class="view-subtabs env-tabs" role="tablist" aria-label="环境与诊断" data-i18n-label="environment">
+            <div class="view-subtabs-group">
+              <button id="env-subtab-interpreters" class="view-subtab is-active" data-env-tab="interpreters" role="tab" aria-controls="env-panel-interpreters" tabindex="0" aria-selected="true" data-i18n="envTabInterpreters">🔍 解释器与探针</button>
+              <button id="env-subtab-isolation" class="view-subtab" data-env-tab="isolation" role="tab" aria-controls="env-panel-isolation" tabindex="-1" aria-selected="false" data-i18n="envTabIsolation">🛡️ 隔离模式与安全诊断</button>
+              <button id="env-subtab-dependencies" class="view-subtab" data-env-tab="dependencies" role="tab" aria-controls="env-panel-dependencies" tabindex="-1" aria-selected="false" data-i18n="envTabDependencies">📦 依赖环境准备</button>
+            </div>
+          </div>
+
+          <div id="env-panel-interpreters" class="env-tab-panel" role="tabpanel" aria-labelledby="env-subtab-interpreters" tabindex="0">
+            <div class="env-hero">
+              <div class="env-hero-lead">
+                <div class="eyebrow" data-i18n="hostDiagnosticsEyebrow">HOST RUNTIME BASELINE</div>
+                <h2 data-i18n="hostDiagnosticsTitle">宿主运行时基线与安全防护</h2>
+                <p data-i18n="hostDiagnosticsDesc">检测已安装的解释器与固定依赖探针，配置执行隔离等级，确保整合包在受审阅的环境中安全运行。</p>
+                <div class="env-hero-badges">
+                  <span class="status-chip active"><span class="status-dot"></span><span id="env-active-profile-pill" data-i18n="trustedLocalProfile">可信本机 · 无 OS 沙箱</span></span>
+                </div>
+              </div>
+              <div class="env-diag-matrix">
+                <dl id="diagnostic-info" class="diagnostic-grid-cards definition-grid"></dl>
+              </div>
+            </div>
+
+            <div class="panel env-panel env-interpreters-panel">
+              <div class="panel-heading">
+                <div>
+                  <h2 data-i18n="interpreters">已安装解释器</h2>
+                  <p class="panel-subhead" data-i18n="interpretersSubhead">配置运行时可执行路径，运行固定探针或从本机快速发现可用候选。</p>
+                </div>
+                <span class="pill" data-i18n="detectOnly">仅检测</span>
+              </div>
+              <div class="env-config-container">
+                <form id="environment-form" class="env-form-card">
+                  <div class="field-grid env-fields-grid">
+                    <div class="env-field-group">
+                      <label>
+                        <span data-i18n="nodePath">Node.js 路径（可选）</span>
+                        <input name="nodePath" autocomplete="off" spellcheck="false" data-placeholder="nodePlaceholder" placeholder="使用 Launcher 当前 Node.js">
+                      </label>
+                      <div id="node-candidates-slot" class="env-candidates-slot"></div>
+                    </div>
+                    <div class="env-field-group">
+                      <label>
+                        <span data-i18n="pythonPath">Python 路径（可选）</span>
+                        <input name="pythonPath" autocomplete="off" spellcheck="false" data-placeholder="pythonPlaceholder" placeholder="从 PATH 检测 Python">
+                      </label>
+                      <div id="python-candidates-slot" class="env-candidates-slot"></div>
+                    </div>
+                  </div>
+                  <div class="form-actions env-form-actions">
+                    <button class="button button-primary" type="submit" data-i18n="detectEnvironment">重新检测环境并发现解释器</button>
+                  </div>
+                </form>
+                <div class="env-results-wrapper">
+                  <div class="env-results-header">
+                    <h3 class="env-subhead" data-i18n="probeResults">探针检测结果</h3>
+                  </div>
+                  <div id="environment-results" class="environment-results"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="env-panel-isolation" class="env-tab-panel is-hidden" role="tabpanel" aria-labelledby="env-subtab-isolation" tabindex="0" hidden>
+            <div id="env-isolation-slot"></div>
+          </div>
+
+          <div id="env-panel-dependencies" class="env-tab-panel is-hidden" role="tabpanel" aria-labelledby="env-subtab-dependencies" tabindex="0" hidden>
+            <div id="env-dependencies-slot"></div>
+          </div>
+
+          <div id="advanced-environment" class="env-advanced-mount is-hidden"></div>
+        </section>
         <section id="view-sources" class="view" hidden><div id="sources-content"></div></section>
         <section id="view-creator" class="view" hidden><div id="creator-content"></div></section>
-        <section id="view-detail" class="view" hidden><button id="back-to-packs" class="back-link"><span aria-hidden="true">←</span><span data-i18n="backToPacks">我的整合包</span></button><div id="detail-heading"></div><div id="detail-actions" class="detail-actions"></div><div id="detail-notice"></div><div class="detail-tabs" role="tablist"><button id="tab-status" data-tab="status" role="tab" aria-controls="detail-content" aria-selected="true" data-i18n="runtimeStatus">运行状态</button><button id="tab-modules" data-tab="modules" role="tab" aria-controls="detail-content" aria-selected="false" data-i18n="modulesPermissions">模块与权限</button><button id="tab-logs" data-tab="logs" role="tab" aria-controls="detail-content" aria-selected="false" data-i18n="logs">运行日志</button><button id="tab-storage" data-tab="storage" role="tab" aria-controls="detail-content" aria-selected="false" data-advanced-i18n="storage">存储与备份</button><button id="tab-details" data-tab="details" role="tab" aria-controls="detail-content" aria-selected="false" data-i18n="instanceDetails">实例信息</button></div><div id="detail-content" role="tabpanel" aria-labelledby="tab-status"></div></section>
+        <section id="view-detail" class="view" hidden>
+          <div class="detail-nav-bar">
+            <button id="back-to-packs" class="back-link"><span aria-hidden="true">←</span><span data-i18n="backToPacks">我的整合包</span></button>
+          </div>
+          <div id="detail-heading"></div>
+          <div id="detail-actions" class="detail-actions"></div>
+          <div id="detail-notice"></div>
+          <div class="detail-tabs" role="tablist">
+            <button id="tab-status" data-tab="status" role="tab" aria-controls="detail-content" aria-selected="true"><span class="tab-icon" aria-hidden="true"></span><span data-i18n="runtimeStatus">运行状态</span></button>
+            <button id="tab-modules" data-tab="modules" role="tab" aria-controls="detail-content" aria-selected="false"><span class="tab-icon" aria-hidden="true"></span><span data-i18n="modulesPermissions">模块与权限</span></button>
+            <button id="tab-logs" data-tab="logs" role="tab" aria-controls="detail-content" aria-selected="false"><span class="tab-icon" aria-hidden="true"></span><span data-i18n="logs">运行日志</span></button>
+            <button id="tab-storage" data-tab="storage" role="tab" aria-controls="detail-content" aria-selected="false"><span class="tab-icon" aria-hidden="true"></span><span data-advanced-i18n="storage">存储与备份</span></button>
+            <button id="tab-details" data-tab="details" role="tab" aria-controls="detail-content" aria-selected="false"><span class="tab-icon" aria-hidden="true"></span><span data-i18n="instanceDetails">实例信息</span></button>
+          </div>
+          <div id="detail-content" role="tabpanel" aria-labelledby="tab-status"></div>
+        </section>
       </main>
       <footer><span data-i18n="footer">独立程序，共同协作。</span><span>World Hub · <span data-i18n="localWorkspace">本地工作空间</span></span></footer>
     </div>

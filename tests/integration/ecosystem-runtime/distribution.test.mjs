@@ -8,7 +8,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildEcosystemPackage, ECOSYSTEM_SOURCE_FILES, ECOSYSTEM_PACK_FILES,
   parseEcosystemBuildArguments } from '../../../scripts/release/build-ecosystem-package.mjs';
-import { ECOSYSTEM_RUNTIME_FILES, ECOSYSTEM_SCHEMA_FILES, LAUNCHER_FILES, WORKSHOP_FILES } from '../../../scripts/release/build-package.mjs';
+import { ECOSYSTEM_RUNTIME_FILES, ECOSYSTEM_SCHEMA_FILES, LAUNCHER_FILES, WORKSHOP_FILES, BUNDLED_TEMPLATE_FILES } from '../../../scripts/release/build-package.mjs';
 import { verifyPackage } from '../../../scripts/release/verify-package.mjs';
 import { createLock } from '../../../scripts/runtime/package.mjs';
 
@@ -19,7 +19,7 @@ let temporary, source, bundle, built;
 before(async () => {
   temporary = await mkdtemp(join(tmpdir(), 'world-hub-ecosystem-distribution-'));
   source = join(temporary, 'source'); await mkdir(source);
-  for (const local of [...ECOSYSTEM_SOURCE_FILES.filter(path => !path.endsWith('/pack.lock')), 'package.json']) {
+  for (const local of [...ECOSYSTEM_SOURCE_FILES.filter(path => path !== 'examples/ecosystem-pack/pack.lock'), 'package.json']) {
     await mkdir(dirname(join(source, local)), { recursive: true });
     await copyFile(join(repository, local), join(source, local));
   }
@@ -42,7 +42,7 @@ test('ecosystem source distribution carries exact locked programs, Runtime and s
   assert.equal(manifest.externalRuntimes.python.packages.websockets, '15.0.1');
   assert.deepEqual(manifest.mutable, ['data/**']);
   assert.equal((await verifyPackage(bundle)).passed, true);
-  for (const local of [...ECOSYSTEM_PACK_FILES, ...ECOSYSTEM_RUNTIME_FILES, ...ECOSYSTEM_SCHEMA_FILES, ...LAUNCHER_FILES, ...WORKSHOP_FILES]) {
+  for (const local of [...ECOSYSTEM_PACK_FILES, ...ECOSYSTEM_RUNTIME_FILES, ...ECOSYSTEM_SCHEMA_FILES, ...LAUNCHER_FILES, ...WORKSHOP_FILES, ...BUNDLED_TEMPLATE_FILES]) {
     assert.equal(hash(await readFile(join(bundle, local))), hash(await readFile(join(source, local))), local);
   }
   assert.ok(manifest.files.every(item => !/(?:\.local|\.artifacts|node_modules|__pycache__|\/data\/|node\.exe|python\.exe|\/tests\/|\.pyc$)/.test(item.path)));

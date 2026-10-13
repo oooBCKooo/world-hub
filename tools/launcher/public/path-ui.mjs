@@ -1,4 +1,5 @@
 // Local paths are selected through the authenticated Launcher, never through a browser upload.
+import { createIcon } from './icons.mjs';
 export function pathPurpose(input) {
   if (input.dataset.pathPurpose) return input.dataset.pathPurpose;
   const name = input.name ?? '', title = input.closest?.('label')?.textContent ?? '';
@@ -49,7 +50,13 @@ export function createPathUi({ state, api, el, button, toast }) {
     dialog.querySelector('[name=path-location]').value = listing.directory;
     const root = dialog.querySelector('.path-entries');
     root.replaceChildren(...listing.entries.map(entry => el('div', { class: 'path-entry' }, [
-      entry.kind === 'directory' ? button(`▣ ${entry.name}`, () => void browse(entry.path), 'button button-quiet path-entry-name') : el('span', { class: 'path-entry-name' }, `${entry.kind === 'blocked' ? '⊘' : '◇'} ${entry.name}`),
+      entry.kind === 'directory'
+        ? button([createIcon('folder'), ' ', entry.name], () => void browse(entry.path), 'button button-quiet path-entry-name')
+        : el('span', { class: 'path-entry-name' }, [
+            entry.kind === 'blocked' ? createIcon('alert') : createIcon('file'),
+            ' ',
+            entry.name,
+          ]),
       el('small', { class: 'subtle' }, objectText(entry.object)),
       entry.selectable && !purpose.startsWith('save-') ? button(say('选择', 'Select'), () => void choose(entry.path), 'button button-small') : null
     ])));
@@ -67,10 +74,10 @@ export function createPathUi({ state, api, el, button, toast }) {
   }
   async function browse(directory, offset = 0) {
     const currentRequest = ++request; busy = true; dialog.querySelector('.path-entries').setAttribute('aria-busy', 'true');
-    for (const selector of ['.path-up', '.path-select-current', '.path-save', '.path-scan']) dialog.querySelector(selector).disabled = true;
+    for (const selector of ['.path-up', '.path-select-current', '.path-save', '.path-scan', '.path-pick-native']) dialog.querySelector(selector)?.setAttribute('disabled', 'true');
     try { const data = await api('/api/paths/browse', { ...(directory ? { directory } : {}), purpose, offset }); if (currentRequest !== request || !dialog.open) return; listing = data; busy = false; dialog.querySelector('.path-error').hidden = true; renderListing(); }
     catch (error) { if (currentRequest === request && dialog.open) fail(error); }
-    finally { if (currentRequest === request) { busy = false; dialog.querySelector('.path-entries').setAttribute('aria-busy', 'false'); } }
+    finally { if (currentRequest === request) { busy = false; dialog.querySelector('.path-entries').setAttribute('aria-busy', 'false'); const nativeBtn = dialog.querySelector('.path-pick-native'); if (nativeBtn) nativeBtn.disabled = false; } }
   }
   function renderKnown() {
     const root = dialog.querySelector('.path-known'); root.replaceChildren();
@@ -84,7 +91,7 @@ export function createPathUi({ state, api, el, button, toast }) {
     root.replaceChildren();
     if (!objects.length) return;
     root.append(el('h3', {}, say('发现的候选（尚未审阅）', 'Discovered candidates (not reviewed)')));
-    for (const object of objects) root.append(el('div', { class: 'path-entry' }, [el('div', {}, [el('strong', {}, objectText(object)), el('p', { class: 'mono' }, object.path), ...(object.warnings ?? []).map(text => el('small', {}, text))]), button(say('使用此路径', 'Use this path'), () => void choose(object.path), 'button button-small')]));
+    for (const object of objects) root.append(el('div', { class: 'path-entry path-candidate-entry' }, [el('div', { class: 'path-candidate-info' }, [el('strong', {}, objectText(object)), el('p', { class: 'mono' }, object.path), ...(object.warnings ?? []).map(text => el('small', {}, text))]), button(say('使用此路径', 'Use this path'), () => void choose(object.path), 'button button-small path-candidate-use')]));
   }
   async function scan() {
     if (!listing || busy || scanId) return;
@@ -109,19 +116,51 @@ export function createPathUi({ state, api, el, button, toast }) {
   function finishScan() { clearTimeout(scanTimer); scanTimer = null; scanId = null; dialog.querySelector('.path-scan').disabled = false; dialog.querySelector('.path-scan-cancel').hidden = true; }
   async function open(input, specifiedPurpose) {
     ensureDialog(); clearTimeout(scanTimer); const epoch = ++request; target = input; purpose = specifiedPurpose ?? pathPurpose(input) ?? 'directory'; listing = null; scanId = null; busy = true;
-    const close = button('×', () => dialog.close(), 'icon-button'); close.setAttribute('aria-label', say('关闭路径选择', 'Close path picker'));
+    const close = button(createIcon('close'), () => dialog.close(), 'icon-button'); close.setAttribute('aria-label', say('关闭路径选择', 'Close path picker'));
     const location = el('input', { name: 'path-location', 'aria-label': say('当前目录', 'Current directory'), spellcheck: 'false' });
-    const locationForm = el('form', { onsubmit: event => { event.preventDefault(); void browse(location.value.trim()); } }, el('div', { class: 'path-control-row' }, [location, el('button', { type: 'submit', class: 'button' }, say('前往', 'Go'))]));
+    const pickNative = button([createIcon('folder'), ' ', say('系统选择…', 'Browse system…')], async () => {
+      if (busy) return;
+      const nativeRequest = request, nativeTarget = target, nativePurpose = purpose;
+      const current = () => dialog.open && request === nativeRequest && target === nativeTarget && purpose === nativePurpose;
+      pickNative.disabled = true;
+      try {
+        const res = await api('/api/paths/native-pick', {
+          purpose: nativePurpose,
+          initialPath: location.value.trim() || undefined
+        });
+        if (res.cancelled || !current()) return;
+        if (res.path) {
+          location.value = res.path;
+          if (res.selectionMode === 'parent' || res.kind === 'directory') {
+            await browse(res.path);
+          } else {
+            await choose(res.path);
+          }
+        }
+      } catch (error) {
+        if (current()) fail(error);
+      } finally {
+        if (current()) pickNative.disabled = busy;
+      }
+    }, 'button button-quiet path-pick-native');
+    pickNative.setAttribute('aria-label', say('打开系统文件选择器', 'Open system file selector'));
+    const locationForm = el('form', { onsubmit: event => { event.preventDefault(); void browse(location.value.trim()); } }, el('div', { class: 'path-control-row' }, [location, el('button', { type: 'submit', class: 'button' }, say('前往', 'Go')), pickNative]));
+    const isSave = purpose.startsWith('save-');
     const saveName = el('input', { name: 'path-new-name', spellcheck: 'false', autocomplete: 'off' });
     const scanButton = button(say('识别当前目录', 'Discover in this folder'), () => void scan(), 'button path-scan', true);
     const cancelScan = button(say('取消识别', 'Cancel discovery'), async () => { try { await api(`/api/operations/${encodeURIComponent(scanId)}/cancel`, {}); } catch (error) { fail(error); } }, 'button path-scan-cancel'); cancelScan.hidden = true;
     const select = button(say('选择当前目录', 'Select current folder'), () => void choose(listing.directory), 'button button-primary path-select-current', true);
+    select.hidden = isSave;
     const save = button(say('使用新路径', 'Use new path'), () => { const name = saveName.value, windows = /^[a-z]:/i.test(listing.directory); if (!name.trim() || /[/\\]/.test(name) || name === '.' || name === '..' || /[\u0000-\u001f]/.test(name) || windows && (/[<>:"|?*]/.test(name) || /[. ]$/.test(name) || /^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(name))) { fail(new Error(say('请输入有效的单个文件或目录名称。', 'Enter a valid single file or folder name.'))); return; } const separator = windows ? '\\' : '/'; void choose(`${listing.directory.replace(/[/\\]$/, '')}${separator}${name}`); }, 'button button-primary path-save');
+    save.hidden = !isSave;
+    const saveLabelText = purpose === 'save-file'
+      ? say('新文件名（目标必须尚不存在）', 'New file name (output must not exist)')
+      : say('新文件夹名（目标必须尚不存在）', 'New folder name (output must not exist)');
     dialog.replaceChildren(el('div', { class: 'dialog-heading' }, [el('h2', { id: 'path-picker-title' }, say('选择本机路径', 'Choose a local path')), close]),
       el('p', { class: 'field-help' }, say('仅列举和识别文件。候选仍须审阅；不会执行、导入或修改。扫描限于选定目录。', 'Lists and identifies files only. Candidates need review; nothing is run, imported or modified. Discovery is limited to the selected folder.')),
       locationForm, el('div', { class: 'path-known' }), el('div', { class: 'path-control-row' }, [button(say('上级目录', 'Parent folder'), () => void browse(listing.parent), 'button button-quiet path-up'), scanButton, cancelScan]),
       el('div', { class: 'path-error notice notice-error', role: 'alert', hidden: true }), el('div', { class: 'path-entries', 'aria-busy': 'false' }), el('div', { class: 'path-scan-status', role: 'status' }), el('div', { class: 'path-candidates' }),
-      el('label', {}, [el('span', {}, say('新的名称（目标必须尚不存在）', 'New name (output must not exist)')), saveName]), el('div', { class: 'dialog-footer' }, [button(say('取消', 'Cancel'), () => dialog.close(), 'button button-quiet'), select, save]));
+      el('label', { hidden: !isSave }, [el('span', {}, saveLabelText), saveName]), el('div', { class: 'dialog-footer' }, [button(say('取消', 'Cancel'), () => dialog.close(), 'button button-quiet'), select, save]));
     dialog.querySelector('.path-save').disabled = true; dialog.querySelector('.path-up').disabled = true;
     dialog.showModal();
     try { known = await api('/api/paths/known'); if (!dialog.open || target !== input || request !== epoch) return; } catch { known = null; }

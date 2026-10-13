@@ -16,9 +16,10 @@ function validate(value) {
     || !Array.isArray(value.replacements) || value.replacements.length > 32 || typeof value.selection !== 'string' || value.selection.length > 256
     || typeof value.updatedAt !== 'string' || value.updatedAt.length > 64) throw fault('DRAFT_INVALID', 'Unsupported Creator draft.', 400);
   const directory = path(value.directory), replacements = value.replacements.map(row => {
-    if (!object(row) || Object.keys(row).some(key => !['componentId', 'moduleDirectory'].includes(key)) || typeof row.componentId !== 'string' || !row.componentId || row.componentId.length > 256)
+    if (!object(row) || Object.keys(row).some(key => !['componentId', 'moduleDirectory', 'candidateDigest'].includes(key)) || typeof row.componentId !== 'string' || !row.componentId || row.componentId.length > 256
+        || (row.candidateDigest !== undefined && !/^[a-f0-9]{64}$/.test(row.candidateDigest)))
       throw fault('DRAFT_INVALID', 'Unsupported module replacement in draft.', 400);
-    return { componentId: row.componentId, moduleDirectory: path(row.moduleDirectory) };
+    return { componentId: row.componentId, moduleDirectory: path(row.moduleDirectory), ...(row.candidateDigest ? { candidateDigest: row.candidateDigest } : {}) };
   });
   return { ...structuredClone(value), directory, replacements };
 }

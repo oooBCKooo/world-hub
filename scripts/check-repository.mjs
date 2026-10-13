@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { lstat, readdir, readFile } from 'node:fs/promises';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { BUNDLED_TEMPLATE_FILES } from './release/build-package.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const directories = ['bin', 'src', 'sdk', 'config', 'examples', 'tests', 'scripts', 'tools', 'docs', '.github'];
@@ -21,7 +22,9 @@ const extensions = new Set(['.mjs', '.js', '.html', '.css', '.json', '.md', '.py
 const forbiddenSegments = new Set(['.local', '.artifacts', 'dist', 'data', 'world-hub-data', '.hub', '.state', 'node_modules', '__pycache__', '.venv']);
 const screenshotPath = /^docs\/images\/[a-z0-9][a-z0-9._-]*\.(?:png|jpg)$/;
 const ecosystemLock = 'examples/ecosystem-pack/pack.lock';
-const ecosystemLicenses = new Set(['source', 'stats', 'desk'].map(name => `examples/ecosystem-pack/modules/${name}/LICENSE`));
+const templateLocks = BUNDLED_TEMPLATE_FILES.filter(path => path.endsWith('/pack.lock'));
+const ecosystemLicenses = new Set([...['source', 'stats', 'desk'].map(name => `examples/ecosystem-pack/modules/${name}/LICENSE`),
+  ...BUNDLED_TEMPLATE_FILES.filter(path => path.endsWith('/LICENSE'))]);
 const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const jpegStartOfFrame = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -105,7 +108,7 @@ for (const path of paths) {
   if (path.startsWith('config/') && path !== 'config/hub.json') reject(path, 'Only the reference configuration can be published');
   const screenshot = screenshotPath.test(path);
   if (!rootFiles.includes(path) && !extensions.has(extname(path)) && path !== 'scripts/release/prepare-isolation-ci.sh' && !screenshot
-      && path !== ecosystemLock && !ecosystemLicenses.has(path)) reject(path, 'Unexpected source file type');
+      && path !== ecosystemLock && !templateLocks.includes(path) && !ecosystemLicenses.has(path)) reject(path, 'Unexpected source file type');
   const key = path.toLowerCase();
   if (cases.has(key)) reject(path, 'Filename conflicts on case-insensitive filesystems');
   cases.set(key, path);
@@ -168,19 +171,26 @@ try {
   const publishBytes = async path => indexed
     ? execFileSync('git', ['show', ':' + path], { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
     : readFile(join(root, path));
-  const lock = JSON.parse((await publishBytes(ecosystemLock)).toString('utf8'));
-  const locked = [
-    { path: 'examples/ecosystem-pack/pack.json', sha256: lock.pack?.sha256 },
-    ...(lock.modules ?? []).flatMap(module => (module.files ?? []).map(file => ({
-      path: 'examples/ecosystem-pack/' + module.source + '/' + file.path,
-      sha256: file.sha256,
-    }))),
-  ];
-  for (const file of locked) {
-    if (!pathSet.has(file.path) || !/^[a-f0-9]{64}$/.test(file.sha256 ?? '')) {
-      reject(ecosystemLock, 'Sample lock refers to an invalid or unpublished source: ' + file.path);
-    } else if (hash(await publishBytes(file.path)) !== file.sha256) {
-      reject(ecosystemLock, 'Sample lock hash differs from the publish bytes: ' + file.path);
+  for (const lockPath of [ecosystemLock, ...templateLocks]) {
+    try {
+      const lock = JSON.parse((await publishBytes(lockPath)).toString('utf8'));
+      const prefix = dirname(lockPath).replaceAll('\\', '/');
+      const locked = [
+        { path: prefix + '/pack.json', sha256: lock.pack?.sha256 },
+        ...(lock.modules ?? []).flatMap(module => (module.files ?? []).map(file => ({
+          path: prefix + '/' + module.source + '/' + file.path,
+          sha256: file.sha256,
+        }))),
+      ];
+      for (const file of locked) {
+        if (!pathSet.has(file.path) || !/^[a-f0-9]{64}$/.test(file.sha256 ?? '')) {
+          reject(lockPath, 'Sample lock refers to an invalid or unpublished source: ' + file.path);
+        } else if (hash(await publishBytes(file.path)) !== file.sha256) {
+          reject(lockPath, 'Sample lock hash differs from the publish bytes: ' + file.path);
+        }
+      }
+    } catch {
+      reject(lockPath, 'Sample pack.lock cannot verify the publish bytes');
     }
   }
 } catch {

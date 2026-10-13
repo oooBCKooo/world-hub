@@ -4,15 +4,23 @@
 
 项目源码与文档按 [MIT 许可](../LICENSE) 分发，各类生成包保留根 `LICENSE`。Windows 便携包另带官方 Node 的 `runtime/LICENSE`，两份许可独立保留。第三方依赖与运行时的归属见[仓库结构](repository.md)。
 
+## 0.19.0：Launcher 操作与装配界面
+
+十九期更新整个 Launcher 的导航、资产管理、装配画布和中英文界面。目录和文件支持选择、已知候选及有界发现；草稿可保存、重新检查和恢复。新增模块可以配置公开 settings、桥槽权限和启动依赖，再生成独立新包；导入与运行授权仍分开。
+
+任务中心保留本次后台进程的进度、错误和输出结果，导入状态依据实际实例。实例删除要求确认退出和维护所有权；清理中断会保留事务与剩余目录，允许显式重试。模板随 npm 与 ZIP 分发，使用后端返回的实际目录。保护模式、发布者信任、静态合同绑定和运行观察按各自事实呈现。
+
+界面升级不改变 Hub 通信协议或外部程序的业务职责。操作细节见 [Launcher UX](launcher-ux.md)。原生文件窗口人工操作、真人独立开发者和新手验收仍保留待办，自动测试与浏览器验收不替代这些验收。
+
 ## npm 与 ZIP 分发
 
-npm 包提供 Hub CLI、可选统一 Launcher、外部 `world-hub-pack` Runtime 和 JavaScript、Python、PowerShell 三个 SDK，使用方式见[npm 包](npm.md)。JavaScript SDK 与 Runtime 有 npm 导出入口；另外两个 SDK 仍使用自己的语言环境，不由 Hub 加载。包使用明确的源码文件清单，不携带官方 Node 二进制、个人配置、通讯数据、测试装置或业务演示。默认首次 Hub 部署在调用者自己的工作目录初始化配置和存储；升级 npm 安装不会覆盖这份部署数据。
+npm 包提供 Hub CLI、可选统一 Launcher、外部 `world-hub-pack` Runtime 和 JavaScript、Python、PowerShell 三个 SDK，使用方式见[npm 包](npm.md)。JavaScript SDK 与 Runtime 有 npm 导出入口；另外两个 SDK 仍使用自己的语言环境，不由 Hub 加载。包使用明确的源码文件清单，不携带官方 Node 二进制、个人配置、通讯数据或测试装置。可选文本台创作模板另带自己的基础包源码，不自动生成或执行程序；完整用途演示由独立 ZIP 分发。默认首次 Hub 部署在调用者自己的工作目录初始化配置和存储；升级 npm 安装不会覆盖这份部署数据。
 
 [提供者接入契约](modules/provider-contract.md)、[机器契约](modules/text-statistics.contract.json)和 SDK 文档随 npm、Hub 源码／便携包与用途演示包分发。机器契约采用明确文件清单；打包检查核对其与示例兼容副本的一致性，以及独立接入指南的本地链接。
 
 ZIP 分发适合独立目录部署或 Windows 便携使用。用途演示整合包另含外部业务程序，仍由自己的启动入口运行；它们不由 npm CLI 或默认 Hub 部署自动启动。
 
-npm 和 Hub 源码／便携 ZIP 随带 Launcher 的本机服务与中英文页面、Runtime CLI、实现与三个开放部署 Schema，业务模块仍由使用者另行取得。选择 Launcher 或 Runtime 不会改变默认 Hub 启动；完整的三程序组合由下面的独立生态源码 ZIP 分发。
+npm 和 Hub 源码／便携 ZIP 随带 Launcher 的本机服务与中英文页面、Runtime CLI、实现、三个开放部署 Schema及可选文本台创作模板。其他业务模块由使用者另行取得。选择 Launcher 或 Runtime 不会改变默认 Hub 启动；可直接导入的三程序参考包由下面的独立生态源码 ZIP 分发。
 
 npm、Hub 源码／便携包和生态源码包另带可选的独立 [Workshop](ecosystem/workshop.md) 服务及其页面。它要求部署者自己的私有配置、数据和 HTTPS 代理，不随默认 Hub 或 Launcher 启动，也不执行上传程序。社区私有导出含账号与会话元数据，应单独迁移，不能当作公开整合包上传。
 
@@ -69,7 +77,7 @@ node scripts/release/verify-package.mjs --root dist/world-hub-ecosystem-source
 
 直接使用 `node scripts/launcher.mjs` 不打开浏览器，加 `--open` 显式打开。配置路径与运行文件根据包位置解析，不依赖启动者工作目录；配置中的相对数据路径按配置目录解析。`--port`、`--config` 等部署选项见启动器 `--help`。
 
-Hub 源码／便携包还提供可选 `ui.cmd`，源码或生态包可用 `node bin/world-hub.mjs ui --root ./data/launcher --open` 进入统一 Launcher。便携包可以把 `node` 换成 `runtime/node.exe`。它默认显示“我的整合包”，已有 `start.cmd` 和 `world-hub --open` 继续直接启动 Hub 管理。整合包来源在 UI 中填写本机目录，环境与权限经过审阅后才能明确授权启动。源码／便携 Hub 包不附业务整合包；生态源码包可选择包内 `examples/ecosystem-pack`。实例根目录包含私人凭据和状态，不能作为公开整合包分享。更多操作见[Launcher](ecosystem/launcher.md)。
+Hub 源码／便携包还提供可选 `ui.cmd`，源码或生态包可用 `node bin/world-hub.mjs ui --root ./data/launcher --open` 进入统一 Launcher。便携包可以把 `node` 换成 `runtime/node.exe`。它默认显示“我的整合包”，已有 `start.cmd` 和 `world-hub --open` 继续直接启动 Hub 管理。整合包来源在 UI 中填写本机目录，环境与权限经过审阅后才能明确授权启动。内置模板须先检查和生成新包；生态源码包还可直接选择包内 `examples/ecosystem-pack`。实例根目录包含私人凭据和状态，不能作为公开整合包分享。更多操作见[Launcher](ecosystem/launcher.md)。
 
 `check.cmd` 或 `node scripts/launcher.mjs --check` 只读检查环境、配置、必需文件和数据占用，不启动、不创建数据目录。`verify.cmd` 或验证脚本校验全部原始文件；用户明确选择 `--allow-config-change` 才放过 `config/hub.json` 内容变化，仍检查源码与运行时。新增 `data/**` 不参与原始程序校验，新增程序文件则仍视为清单外；自己的程序放在包外。
 
@@ -77,7 +85,7 @@ Hub 源码／便携包还提供可选 `ui.cmd`，源码或生态包可用 `node 
 
 ## 配置、数据与生命周期
 
-参考配置默认监听回环、拒绝未登记身份，预置 `ui.manual` 本机无 token 工作台身份。它不提供来源防伪或多租户隔离。正式接线由部署方设置自己的 token、主体与主题 ACL，保存配置后重启；不自动读取或合并第三方 ACL。动态主题和 `body.kind` 由 mod／程序决定。
+参考配置默认监听回环、拒绝未登记身份，预置 `ui.manual` 本机无 token 工作台身份。它不提供来源防伪或多租户隔离。正式接线由部署方设置自己的 token、主体与主题 ACL，保存配置后重启；不自动读取或合并第三方 ACL。动态主题和 `body.kind` 由模块桥／程序决定。
 
 默认持久数据分为 `data/log`、`data/blobs`、`data/management.json`，首次运行才创建。日志包含通讯记录及提供者释放元数据，附件包含字节和分块进度，管理状态含暂停与 N:M 注记。业务状态、上下文、harness home 与消费程序游标由外部程序保存。
 
@@ -91,7 +99,7 @@ Hub 源码／便携包还提供可选 `ui.cmd`，源码或生态包可用 `node 
 
 npm 发布前运行 `npm run test:npm`，以实际 tarball 在中文空格路径中进行独立本地与全局前缀安装，检查命令入口、数据目录、管理界面、JavaScript 导出和真实桥通讯。也可用 `node scripts/release/npm-package-acceptance.mjs` 单独生成并验收 tarball；输出包与报告留在忽略的 `.artifacts/npm/`，该工具不执行发布。
 
-`npm run test:launcher` 另行检查本地管理认证、审阅变化后的授权拒绝、实例启停与异常、精确桥归属、真实跨语言应用调用，以及备份恢复、创作／软件源、有限环境准备与界面实际事件授权。源码／便携 ZIP 的 manifest 和 npm tarball 必须携带 Launcher 全部后端及五个静态文件（包括 `advanced.mjs`），同时完整携带 Runtime 的维护、创作与软件源依赖。清单核对不能替代从实际安装包／解压包运行 Launcher 的验收，也不等同于人工浏览器体验验收。
+`npm run test:launcher` 另行检查本地管理认证、审阅变化后的授权拒绝、实例启停与异常、精确桥归属、真实跨语言应用调用，以及备份恢复、创作／软件源、有限环境准备与界面实际事件授权。源码／便携 ZIP 的 manifest 和 npm tarball 必须携带 Launcher 全部后端及静态资源（包括 `advanced.mjs` 与图标模块），同时完整携带 Runtime 的维护、创作与软件源依赖。清单核对不能替代从实际安装包／解压包运行 Launcher 的验收，也不等同于人工浏览器体验验收。
 
 `scripts/release/` 提供可重跑的包级工具，输入实际解压目录和新的包外证据目录。例如：
 

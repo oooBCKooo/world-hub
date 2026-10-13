@@ -1,6 +1,6 @@
-# mod 接入材料
+# 模块桥接入材料
 
-所有程序都是普通通讯对端。桥的通道名和业务正文由程序自行决定；管理程序注记不参与认证和寻址。下面是最小接线示例，不规定自己的程序目录、语言、业务或 mod 形态。
+所有程序都是普通通讯对端。桥的通道名和业务正文由程序自行决定；管理程序注记不参与认证和寻址。下面是最小接线示例，不规定自己的程序目录、语言、业务或模块桥形态。
 
 ## 先登记一个桥
 
@@ -34,7 +34,7 @@
 | Python | [hub_bridge.py](../sdk/python/hub_bridge.py)、[requirements.txt](../sdk/python/requirements.txt) | 接入者自己的 Python 与 websockets==15.0.1；项目曾实测 Python 3.14.0 |
 | PowerShell | [HubBridge.psm1](../sdk/powershell/HubBridge.psm1)、[HubBridge.cs](../sdk/powershell/HubBridge.cs) | 接入者自己的 PowerShell 7；模块使用随带 .NET 编译通用 C# 桥 |
 
-不用下载这些语言环境就能启动 Hub。各语言桥不会随 Hub 自动载入。源码 `tests/fixtures/` 中的 worker／ProtocolWorker 是可选测试程序，未随分发包提供，不规定接入形态。自己的程序也可直接调用桥、嵌入 mod 或使用 sidecar。
+不用下载这些语言环境就能启动 Hub。各语言桥不会随 Hub 自动载入。源码 `tests/fixtures/` 中的 worker／ProtocolWorker 是可选测试程序，未随分发包提供，不规定接入形态。自己的程序也可直接调用桥、嵌入模块桥或使用 sidecar。
 
 ## 用自己的程序接入
 
@@ -59,7 +59,7 @@ try {
   await bridge.registerChannels([{ name: 'example/my/output', publish: true }]);
   console.log(JSON.stringify({ event: 'registered', channels: bridge.channels }));
   const receipt = await bridge.publishConfirmed('example/my/output',
-    { kind: '接入者自选类型', text: '我的程序经 mod 发来信息' });
+    { kind: '接入者自选类型', text: '我的程序经模块桥发来信息' });
   console.log(JSON.stringify({ event: 'published', seq: receipt.seq }));
 } catch (error) {
   console.error(JSON.stringify({ event: 'failed',
@@ -85,7 +85,7 @@ try {
 
 ## 命名、凭据与多桥
 
-桥可按 `pkg.alpha`、`pkg.beta` 等命名，但 `pkg.` 只是程序作者的命名约定。Hub 不按前缀分组、授予权限或自动装载 mod；每个桥或 credential 仍按精确配置登记。
+桥可按 `pkg.alpha`、`pkg.beta` 等命名，但 `pkg.` 只是程序作者的命名约定。Hub 不按前缀分组、授予权限或自动装载模块桥；每个桥或 credential 仍按精确配置登记。
 
 `acl.bridges` 中的一个身份对应一条当前连接，同名重连接管旧连接。多桥可以分别登记不同 `acl.bridges` 身份，各有自己的主体与权限。要让多条并存连接共享稳定主体、主题权限和连接配额时，使用同一个 `acl.credentials` 项，设置 `maxConnections` 和主题权限；各连接声明 bridgeId 并使用同一 credential，实际传输实例身份与 session 由 welcome 给出。credential 模式也允许相同的声明 bridgeId 并存，桥名不同不是协议要求。
 

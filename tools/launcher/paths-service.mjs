@@ -1,12 +1,15 @@
 // Launcher convenience only: bounded filesystem observation is not package validation.
 import { lstat, opendir } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 import { basename, dirname, extname, isAbsolute, join, parse, resolve } from 'node:path';
 import { homedir } from 'node:os';
-import { ordinaryPath, privateJson, readBounded } from '../../scripts/runtime/paths.mjs';
+import { ordinaryPath, privateJson, readBounded, relativePath } from '../../scripts/runtime/paths.mjs';
 import { discoverEnvironment } from './environment.mjs';
 
 export const pathPurposes = new Set(['pack', 'module', 'template', 'proposal', 'source', 'backup', 'comments', 'executable', 'directory', 'file', 'save-directory', 'save-file']);
 export const discoveryLimits = Object.freeze({ depth: 4, entries: 2000, directories: 256, objects: 128, milliseconds: 2000, declarationBytes: 65536 });
+export const knownLimits = Object.freeze({ entries: 512, directories: 128, objects: 128, milliseconds: 2000 });
+export const nativePickerEncoding = '[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)';
 const fault = (code, message, status = 409) => Object.assign(new Error(message), { code, status });
 const same = (a, b) => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
 const ignored = new Set(['.git', 'node_modules', '__pycache__', '.venv', 'venv', '.state', '.hub', 'programs', 'runs', 'containers']);
@@ -50,8 +53,22 @@ export async function identifyDirectory(directory) {
     if (found.value && found.value.format !== format) warnings.push('DECLARATION_FORMAT_UNRECOGNIZED');
     let lockPresent;
     if (kind === 'pack') { try { const lock = await lstat(join(directory, 'pack.lock')); lockPresent = lock.isFile() && !lock.isSymbolicLink(); } catch { lockPresent = false; } if (!lockPresent) warnings.push('PACK_LOCK_MISSING'); }
-    return { kind, path: directory, declaration: name, ...Object.fromEntries(['id', 'version', 'title'].map(key => [key, short(found.value?.[key])]).filter(([, value]) => value !== undefined)),
-      ...(lockPresent === undefined ? {} : { lockPresent }), warnings, checked: false, requiresReview: true, startsModules: false };
+    return {
+      kind, path: directory, declaration: name, ...Object.fromEntries(['id', 'version', 'title'].map(key => [key, short(found.value?.[key])]).filter(([, value]) => value !== undefined)),
+      ...(lockPresent === undefined ? {} : { lockPresent }), warnings, checked: false, requiresReview: true, startsModules: false,
+      ...(kind === 'module' ? {
+        description: short(found.value?.description),
+        runtime: found.value?.runtime,
+        provides: Array.isArray(found.value?.provides) ? found.value.provides : [],
+        requires: Array.isArray(found.value?.requires) ? found.value.requires : []
+      } : {}),
+      ...(kind === 'template' ? {
+        description: short(found.value?.description),
+        license: short(found.value?.license),
+        base: short(found.value?.base),
+        parameters: Array.isArray(found.value?.parameters) ? found.value.parameters : []
+      } : {})
+    };
   }
   return null;
 }
@@ -67,8 +84,209 @@ async function identifyFile(path, purpose, info) {
   return kind ? { kind, path, warnings: ['CONTENTS_NOT_CHECKED'], checked: false, requiresReview: true, startsModules: false } : null;
 }
 
+// A modal chooser is still an owned helper. Bound both output and lifetime;
+// keep an unconfirmed child in the owner's set so shutdown can retry cleanup.
+export function runPickerProcess(command, args, options = {}, { children = new Set(), timeoutMs = 120000, stopTimeoutMs = 3000, maxBytes = 16384 } = {}) {
+  return new Promise((resolveResult, reject) => {
+    let child, timer, stopTimer, failure = null, bytes = 0; const chunks = [];
+    const finish = (error, value) => { clearTimeout(timer); clearTimeout(stopTimer); error ? reject(error) : resolveResult(value); };
+    try { child = spawn(command, args, { ...options, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }); }
+    catch (error) { finish(fault('NATIVE_PICK_FAILED', `Could not open the system chooser: ${error.message}`)); return; }
+    children.add(child);
+    const terminate = error => {
+      if (failure) return; failure = error;
+      try { child.kill(); } catch {}
+      stopTimer = setTimeout(() => finish(Object.assign(fault('CLEANUP_INCOMPLETE', 'System chooser exit remains unconfirmed. Retain the Launcher and retry shutdown.'), { cleanupIncomplete: true })), stopTimeoutMs);
+    };
+    child.stdout.on('data', chunk => { bytes += chunk.length; if (bytes > maxBytes) terminate(fault('NATIVE_PICK_OUTPUT_LIMIT', 'System chooser output exceeded its path bound.')); else chunks.push(chunk); });
+    child.once('error', error => { children.delete(child); finish(fault('NATIVE_PICK_FAILED', `Could not open the system chooser: ${error.message}`)); });
+    child.once('close', code => {
+      children.delete(child);
+      if (failure) { finish(failure); return; }
+      if (code !== 0) { finish(null, null); return; }
+      finish(null, Buffer.concat(chunks).toString('utf8').replace(/[\r\n]+$/, '') || null);
+    });
+    timer = setTimeout(() => terminate(fault('NATIVE_PICK_TIMEOUT', 'System chooser timed out; choose a path in the Launcher or retry.')), timeoutMs);
+  });
+}
+
+async function runNativePicker({ isDirectory, initialPath, title, children }) {
+  if (process.env.WH_NATIVE_PICK_RESULT !== undefined) {
+    return process.env.WH_NATIVE_PICK_RESULT || null;
+  }
+  if (process.platform === 'win32') {
+      const script = `
+${nativePickerEncoding}
+Add-Type -AssemblyName System.Windows.Forms
+$source = @"
+using System;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Windows.Forms;
+
+[ComImport]
+[Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IShellItem {
+    void BindToHandler(IntPtr pbc, ref Guid bhid, ref Guid riid, out IntPtr ppv);
+    void GetParent(out IShellItem ppsi);
+    void GetDisplayName(uint sigdnName, [MarshalAs(UnmanagedType.LPWStr)] out string ppszName);
+    void GetAttributes(uint sfgaoMask, out uint psfgaoAttribs);
+    void Compare(IShellItem psi, uint hint, out int piOrder);
+}
+
+[ComImport]
+[Guid("d57c7288-d4ad-4768-be02-9d969532d960")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IFileOpenDialog {
+    [PreserveSig] int Show(IntPtr parent);
+    void SetFileTypes(uint cFileTypes, IntPtr rgFilterSpec);
+    void SetFileTypeIndex(uint iFileType);
+    void GetFileTypeIndex(out uint piFileType);
+    void Advise(IntPtr pfde, out uint pdwCookie);
+    void Unadvise(uint dwCookie);
+    void SetOptions(uint fos);
+    void GetOptions(out uint fos);
+    void SetDefaultFolder(IShellItem psi);
+    void SetFolder(IShellItem psi);
+    void GetFolder(out IShellItem ppsi);
+    void GetCurrentSelection(out IShellItem ppsi);
+    void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string pszName);
+    void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string pszName);
+    void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string pszTitle);
+    void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string pszText);
+    void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string pszLabel);
+    void GetResult(out IShellItem ppsi);
+    void AddPlace(IShellItem psi, int fdap);
+    void SetDefaultExtension([MarshalAs(UnmanagedType.LPWStr)] string pszDefaultExtension);
+    void Close(int hr);
+    void SetClientGuid(ref Guid guid);
+    void ClearClientData();
+    void SetFilter(IntPtr pFilter);
+    void GetResults(out IntPtr ppenum);
+    void GetSelectedItems(out IntPtr ppsai);
+}
+
+[ComImport]
+[Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7")]
+[ClassInterface(ClassInterfaceType.None)]
+public class FileOpenDialogRCW {}
+
+public class ModernPicker {
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SetProcessDpiAwarenessContext(IntPtr dpiContext);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SetProcessDPIAware();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern IntPtr OpenDesktop(string lpszDesktop, uint dwFlags, bool fInherit, uint dwDesiredAccess);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SetThreadDesktop(IntPtr hDesktop);
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern int SHCreateItemFromParsingName([MarshalAs(UnmanagedType.LPWStr)] string pszPath, IntPtr pbc, ref Guid riid, out IShellItem ppv);
+
+    public static string Pick(bool isFolder, string initialPath, string title) {
+        try {
+            SetProcessDpiAwarenessContext((IntPtr)(-4));
+        } catch {
+            try { SetProcessDPIAware(); } catch {}
+        }
+        string selected = null;
+        Thread t = new Thread(() => {
+            try {
+                IntPtr hDesk = OpenDesktop("default", 0, false, 0x10000000);
+                if (hDesk != IntPtr.Zero) SetThreadDesktop(hDesk);
+            } catch {}
+            IFileOpenDialog dialog = (IFileOpenDialog)new FileOpenDialogRCW();
+            try {
+                uint options = 0x00000040 | 0x00000800; // FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST
+                if (isFolder) {
+                    options |= 0x00000020; // FOS_PICKFOLDERS
+                } else {
+                    options |= 0x00001000; // FOS_FILEMUSTEXIST
+                }
+                dialog.SetOptions(options);
+                if (!string.IsNullOrEmpty(title)) {
+                    dialog.SetTitle(title);
+                }
+                if (!string.IsNullOrEmpty(initialPath)) {
+                    Guid shellItemGuid = new Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE");
+                    IShellItem folderItem;
+                    if (SHCreateItemFromParsingName(initialPath, IntPtr.Zero, ref shellItemGuid, out folderItem) == 0 && folderItem != null) {
+                        dialog.SetFolder(folderItem);
+                    }
+                }
+                using (Form owner = new Form()) {
+                    owner.TopMost = true;
+                    owner.Width = 0;
+                    owner.Height = 0;
+                    owner.StartPosition = FormStartPosition.CenterScreen;
+                    owner.ShowInTaskbar = false;
+                    int hr = dialog.Show(owner.Handle);
+                    if (hr == 0) {
+                        IShellItem resultItem;
+                        dialog.GetResult(out resultItem);
+                        if (resultItem != null) {
+                            string path;
+                            resultItem.GetDisplayName(0x80058000, out path); // SIGDN_FILESYSPATH
+                            selected = path;
+                        }
+                    }
+                }
+            } finally {
+                Marshal.ReleaseComObject(dialog);
+            }
+        });
+        t.SetApartmentState(ApartmentState.STA);
+        t.Start();
+        t.Join();
+        return selected;
+    }
+}
+"@
+Add-Type -TypeDefinition $source -ReferencedAssemblies "System.Windows.Forms"
+$res = [ModernPicker]::Pick(($env:WH_PICK_FOLDER -eq '1'), $env:WH_INITIAL_PATH, $env:WH_PICK_TITLE)
+if ($res) { [Console]::Out.Write($res) }
+`;
+      const encoded = Buffer.from(script, 'utf16le').toString('base64');
+      return runPickerProcess('powershell.exe', ['-STA', '-NoProfile', '-EncodedCommand', encoded], {
+        env: {
+          ...process.env,
+          WH_PICK_FOLDER: isDirectory ? '1' : '0',
+          WH_INITIAL_PATH: initialPath ?? '',
+          WH_PICK_TITLE: title ?? (isDirectory ? '选择目录' : '选择文件')
+        }
+      }, { children });
+  } else if (process.platform === 'darwin') {
+      const prompt = (title ?? (isDirectory ? '选择目录' : '选择文件')).replace(/"/g, '\\"');
+      const script = isDirectory
+        ? `try\nset p to POSIX path of (choose folder with prompt "${prompt}")\ndo shell script "printf %s " & quoted form of p\nend try`
+        : `try\nset p to POSIX path of (choose file with prompt "${prompt}")\ndo shell script "printf %s " & quoted form of p\nend try`;
+      return runPickerProcess('osascript', ['-e', script], {}, { children });
+  } else if (process.platform === 'linux') {
+      const args = ['--file-selection', `--title=${title ?? (isDirectory ? '选择目录' : '选择文件')}`];
+      if (isDirectory) args.push('--directory');
+      if (initialPath) args.push(`--filename=${initialPath}`);
+      return runPickerProcess('zenity', args, {}, { children });
+  }
+  return null;
+}
+
 export class PathsService {
-  constructor(root) { this.root = root; this.recents = []; this.discovered = []; this.queue = Promise.resolve(); }
+  constructor(root) { this.root = root; this.recents = []; this.discovered = []; this.queue = Promise.resolve(); this.children = new Set(); }
+  async close() {
+    for (const child of this.children) {
+      if (child.exitCode !== null || child.signalCode !== null) continue;
+      await new Promise((resolveClose, reject) => {
+        const timer = setTimeout(() => reject(fault('CLEANUP_INCOMPLETE', 'System chooser exit remains unconfirmed; retry Launcher shutdown.')), 3000);
+        child.once('close', () => { clearTimeout(timer); this.children.delete(child); resolveClose(); });
+        try { child.kill(); } catch {}
+      });
+    }
+  }
   async initialize() {
     try {
       const value = JSON.parse((await readBounded(join(this.root, 'launcher-paths.json'), 128 * 1024)).toString('utf8'));
@@ -122,6 +340,41 @@ export class PathsService {
       return { remembered: true, path: checked.path };
     }); this.queue = action.catch(() => {}); return action;
   }
+  async builtinTemplates(manager) {
+    const candidates = []; let scannedEntries = 0, partial = false;
+    const started = Date.now(), root = manager.defaults.templateDirectory;
+    if (!root) return { candidates, partial, startsModules: false, requiresReview: true };
+    try {
+      const directory = await ordinaryPath(root);
+      for await (const entry of await opendir(directory)) {
+        if (scannedEntries >= 32 || Date.now() - started >= knownLimits.milliseconds) { partial = true; break; }
+        scannedEntries++;
+        if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+        const path = await ordinaryPath(join(directory, entry.name)), object = await identifyDirectory(path);
+        if (object?.kind !== 'template' || object.warnings.length) continue;
+        let basePack = null, runtimeKinds = [], platforms = [], componentCount = null;
+        try {
+          const base = relativePath(object.base), baseDirectory = await ordinaryPath(join(path, base));
+          const pack = (await declaration(baseDirectory, 'pack.json'))?.value;
+          if (pack?.format === 'world-hub.pack/v1' && Array.isArray(pack.components) && pack.components.length <= 32) {
+            componentCount = pack.components.length;
+            basePack = { id: short(pack.id), title: short(pack.title), version: short(pack.version) };
+            const modules = join(baseDirectory, 'modules'); let count = 0;
+            for await (const module of await opendir(await ordinaryPath(modules))) {
+              if (count++ >= 32 || Date.now() - started >= knownLimits.milliseconds) { partial = true; break; }
+              if (!module.isDirectory() || module.isSymbolicLink()) continue;
+              const manifest = (await declaration(join(modules, module.name), 'module.json'))?.value;
+              if (['node', 'python'].includes(manifest?.runtime?.kind)) runtimeKinds.push(manifest.runtime.kind);
+              if (Array.isArray(manifest?.platforms)) platforms.push(...manifest.platforms.filter(value => typeof value === 'string' && value.length <= 64));
+            }
+          }
+        } catch { /* Identification is a hint; full template inspection follows selection. */ }
+        candidates.push({ ...object, directory: path, origin: 'builtin', basePack, componentCount,
+          runtimeKinds: [...new Set(runtimeKinds)], platforms: [...new Set(platforms)] });
+      }
+    } catch { partial = true; }
+    return { candidates, scannedEntries, partial, startsModules: false, requiresReview: true };
+  }
   async known(manager) {
     await this.queue;
     const places = [{ id: 'launcher', label: 'Launcher', path: this.root }, { id: 'home', label: basename(homedir()) || homedir(), path: homedir() }];
@@ -129,28 +382,58 @@ export class PathsService {
     if (manager.defaults.packDirectory) places.push({ id: 'examples', label: 'Examples', path: dirname(manager.defaults.packDirectory) });
     const cache = join(this.root, 'source-cache'); let canonicalCache = null;
     try { const path = await ordinaryPath(cache); if ((await lstat(path)).isDirectory()) { canonicalCache = path; places.push({ id: 'cache', label: 'Source cache', path }); } } catch {}
-    const objects = [], seen = new Set(), add = async path => {
-      if (objects.length >= 128 || seen.has(process.platform === 'win32' ? path.toLowerCase() : path)) return;
+    const objects = [], seen = new Set(), started = Date.now(); let scannedEntries = 0, scannedDirectories = 0, partial = false, skipped = 0;
+    const exhausted = () => objects.length >= knownLimits.objects || scannedEntries >= knownLimits.entries
+      || scannedDirectories >= knownLimits.directories || Date.now() - started >= knownLimits.milliseconds;
+    const add = async path => {
+      if (exhausted()) { partial = true; return; }
+      if (seen.has(process.platform === 'win32' ? path.toLowerCase() : path)) return;
       seen.add(process.platform === 'win32' ? path.toLowerCase() : path);
       try { const canonical = await ordinaryPath(path), info = await lstat(canonical); const object = info.isDirectory() ? await identifyDirectory(canonical) : info.isFile() ? await identifyFile(canonical, 'file', info) : null; if (object) objects.push({ ...object, ...(canonicalCache && same(dirname(canonical), canonicalCache) ? { origin: 'cache' } : {}) }); } catch {}
     };
-    if (manager.defaults.packDirectory) await add(manager.defaults.packDirectory);
-    for (const row of manager.records.values()) await add(join(this.root, 'instances', row.instanceId, row.detached ? 'detached-package' : 'package'));
+    const scan = async directory => {
+      if (exhausted()) { partial = true; return; }
+      scannedDirectories++;
+      try {
+        const canonical = await ordinaryPath(directory);
+        for await (const entry of await opendir(canonical)) {
+          if (exhausted()) { partial = true; break; }
+          scannedEntries++;
+          if (entry.isSymbolicLink()) { skipped++; continue; }
+          if (entry.isDirectory() && !ignored.has(entry.name)) await add(join(canonical, entry.name));
+        }
+      } catch { skipped++; }
+    };
+    const builtin = await this.builtinTemplates(manager);
+    partial ||= builtin.partial; scannedEntries += builtin.scannedEntries ?? 0;
+    for (const candidate of builtin.candidates) { if (exhausted()) { partial = true; break; } objects.push(candidate); seen.add(process.platform === 'win32' ? candidate.path.toLowerCase() : candidate.path); }
+    if (manager.defaults.packDirectory) {
+      await add(manager.defaults.packDirectory);
+      await scan(join(manager.defaults.packDirectory, 'modules'));
+    }
+    for (const row of manager.records.values()) {
+      if (row.deletion) continue;
+      if (exhausted()) { partial = true; break; }
+      const pkgDir = join(this.root, 'instances', row.instanceId, row.detached ? 'detached-package' : 'package');
+      await add(pkgDir);
+      await scan(join(pkgDir, 'modules'));
+    }
     const recents = [];
     for (const recent of this.recents) {
       let exists = false; try { await ordinaryPath(recent.path); exists = true; } catch {}
       recents.push({ ...recent, exists }); if (exists) await add(recent.path);
     }
-    for (const object of this.discovered) await add(object.path);
-    try { let count = 0; for await (const entry of await opendir(await ordinaryPath(cache))) { if (++count > 128) break; if (entry.isDirectory() && !entry.isSymbolicLink()) await add(join(cache, entry.name)); } } catch {}
-    for (const record of manager.sourceRegistry.records) if (!/^https?:/i.test(record.source)) await add(record.source);
-    const executables = await discoverEnvironment(manager.defaults);
+    for (const object of this.discovered) { if (exhausted()) { partial = true; break; } await add(object.path); }
+    await scan(cache);
+    for (const record of manager.sourceRegistry.records) { if (exhausted()) { partial = true; break; } if (!/^https?:/i.test(record.source)) await add(record.source); }
+    const executables = exhausted() ? {} : await discoverEnvironment(manager.defaults);
     for (const [runtimeKind, group] of Object.entries(executables)) for (const entry of group) {
-      if (objects.length >= 128) break;
+      if (exhausted()) { partial = true; break; }
       const checked = await this.check({ path: entry.path, purpose: 'executable' }).catch(() => null);
       if (checked?.selectable && !objects.some(object => same(object.path, checked.path))) objects.push({ kind: 'executable', path: checked.path, runtimeKind, warnings: ['CONTENTS_NOT_CHECKED'], checked: false, requiresReview: true, startsModules: false });
     }
-    return { places, recents, objects, truncated: objects.length >= 128, startsModules: false, requiresReview: true };
+    return { places, recents, objects, truncated: partial, partial, skipped, scannedEntries, scannedDirectories,
+      limits: knownLimits, startsModules: false, requiresReview: true };
   }
   async discover(input, signal) {
     const directory = await ordinaryPath(absolute(input.directory));
@@ -177,5 +460,39 @@ export class PathsService {
     this.discovered = [...objects, ...this.discovered.filter(old => !objects.some(found => same(found.path, old.path)))].slice(0, 128);
     return { directory, objects, partial, cancelled: Boolean(signal?.aborted), skipped, scannedEntries: entries, scannedDirectories: directories,
       limits: discoveryLimits, startsModules: false, requiresReview: true };
+  }
+  async nativePick(input) {
+    const purpose = purposeOf(input.purpose);
+    if (this.children.size) throw fault('NATIVE_PICK_BUSY', 'Close the current system chooser before opening another.');
+    const save = purpose.startsWith('save-'), isFile = filePurposes.has(purpose);
+    let initialPath;
+    if (input.initialPath) {
+      try {
+        const canonical = await ordinaryPath(absolute(input.initialPath), { allowMissing: true });
+        let info; try { info = await lstat(canonical); } catch {}
+        initialPath = info?.isDirectory() ? canonical : dirname(canonical);
+      } catch {}
+    }
+    const selected = await runNativePicker({
+      isDirectory: !isFile,
+      initialPath,
+      title: save ? '选择新输出的父目录 / Choose output parent directory' : isFile ? '选择文件 / Choose file' : '选择目录 / Choose directory',
+      children: this.children
+    });
+    if (!selected) return { cancelled: true, startsModules: false };
+    const checked = await this.check({ path: selected, purpose: save ? 'directory' : purpose });
+    return {
+      cancelled: false,
+      path: checked.path,
+      exists: checked.exists,
+      kind: checked.kind,
+      selectable: checked.selectable,
+      purpose,
+      selectionMode: save ? 'parent' : 'path',
+      parent: checked.parent,
+      object: checked.object,
+      startsModules: false,
+      requiresReview: true
+    };
   }
 }

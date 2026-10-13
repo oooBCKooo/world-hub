@@ -39,7 +39,9 @@ function allowedAddress(address, options) {
 const policy = options => options.allowPrivateNetwork === true ? 'trusted-private-ipv4' : 'public-ipv4';
 function sourceUrl(value, options = {}) {
   if (typeof value !== 'string' || value.length > 4096) throw new Error('Invalid software source URL');
-  const u = new URL(value);
+  let raw = value.trim();
+  if (/^https:\/\/peros\.cn\/workshop\/?$/i.test(raw)) raw = 'https://peros.cn/workshop/index.json';
+  const u = new URL(raw);
   if (u.protocol !== 'https:' || u.username || u.password || u.hash || (u.port && u.port !== '443')) throw new Error('Software sources require HTTPS without credentials, fragments or custom ports');
   const host = u.hostname.replace(/^\[|\]$/g, '');
   if (host === 'localhost' || host.endsWith('.localhost') || (isIP(host) && !allowedAddress(host, options))) throw new Error('Remote software sources cannot contact a local or private address under the selected policy');

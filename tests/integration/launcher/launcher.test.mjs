@@ -438,3 +438,20 @@ test('LAUNCHER-11 actual readiness and initial health failures preserve only a p
       handleExcludedFromPublicJson: true, actualChildExitsConfirmed: true });
   }
 });
+
+test('LAUNCHER-12 native path picker returns checked path or cancelled state', options, async t => {
+  const app = await workspace(t), api = await launcher(app);
+  process.env.WH_NATIVE_PICK_RESULT = '';
+  try {
+    const cancelled = await api.call('/api/paths/native-pick', { purpose: 'pack' });
+    assert.equal(cancelled.cancelled, true);
+    process.env.WH_NATIVE_PICK_RESULT = app.root;
+    const selected = await api.call('/api/paths/native-pick', { purpose: 'directory' });
+    assert.equal(selected.cancelled, false);
+    assert.equal(selected.path, app.root);
+    assert.equal(selected.kind, 'directory');
+  } finally {
+    delete process.env.WH_NATIVE_PICK_RESULT;
+  }
+  app.record('native-path-picker', { cancelledSupported: true, selectedPathChecked: true });
+});

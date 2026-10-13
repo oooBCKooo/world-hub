@@ -17,11 +17,14 @@ function fields(body, allowed, required = []) {
     if (['accepted', 'redistributionAcknowledged', 'allowPrivateNetwork', 'enabled', 'observe'].includes(key)) { if (typeof value !== 'boolean') throw launcherError('INVALID_INPUT', `Invalid ${key}`, 400); }
     else if (['priority', 'revision', 'offset'].includes(key)) { if (!Number.isSafeInteger(value)) throw launcherError('INVALID_INPUT', `Invalid ${key}`, 400); }
     else if (key === 'expectedSha256' && value === '') { /* Explicitly clear an optional source pin. */ }
-    else if (['pack', 'values', 'identity', 'template', 'isolation', 'change', 'user', 'draft'].includes(key)) { if (!value || typeof value !== 'object' || Array.isArray(value)) throw launcherError('INVALID_INPUT', `Invalid ${key} object`, 400); }
+    else if (['pack', 'component', 'values', 'identity', 'template', 'isolation', 'change', 'user', 'draft'].includes(key)) { if (!value || typeof value !== 'object' || Array.isArray(value)) throw launcherError('INVALID_INPUT', `Invalid ${key} object`, 400); }
     else if (key === 'statePolicies') { if (!Array.isArray(value) || value.length > 32 || value.some(policy => !policy || typeof policy !== 'object' || Array.isArray(policy))) throw launcherError('INVALID_INPUT', 'Invalid state policies', 400); }
     else if (key === 'replacements') {
       if (!Array.isArray(value) || value.length > 32) throw launcherError('INVALID_INPUT', 'Invalid replacements', 400);
       for (const replacement of value) fields(replacement, ['componentId', 'moduleDirectory'], ['componentId', 'moduleDirectory']);
+    } else if (key === 'reviewedCandidates') {
+      if (!Array.isArray(value) || value.length > 32) throw launcherError('INVALID_INPUT', 'Invalid reviewed candidates', 400);
+      for (const candidate of value) fields(candidate, ['componentId', 'candidateDigest'], ['componentId', 'candidateDigest']);
     } else if (typeof value !== 'string' || !value.trim() || value.length > 4096 || value.includes('\0')) throw launcherError('INVALID_INPUT', `Invalid ${key}`, 400);
   }
 }
@@ -69,7 +72,7 @@ export async function createLauncherServer(options = {}) {
       if (['cross-site', 'same-site'].includes(request.headers['sec-fetch-site'])
         && !(document && request.headers['sec-fetch-mode'] === 'navigate' && request.headers['sec-fetch-dest'] === 'document'))
         throw launcherError('LOCAL_ORIGIN_REQUIRED', 'Only same-origin API and resource requests are accepted.', 403);
-      if (request.method === 'GET' && ['/', '/index.html', '/app.mjs', '/advanced.mjs', '/completion-ui.mjs', '/publisher-ui.mjs', '/isolation-ui.mjs', '/path-ui.mjs', '/task-ui.mjs', '/style.css', '/i18n.mjs'].includes(target.pathname)) {
+      if (request.method === 'GET' && ['/', '/index.html', '/app.mjs', '/advanced.mjs', '/completion-ui.mjs', '/publisher-ui.mjs', '/isolation-ui.mjs', '/path-ui.mjs', '/task-ui.mjs', '/icons.mjs', '/style.css', '/i18n.mjs'].includes(target.pathname)) {
         const navigationKeys = document ? ['instance', 'runId', 'hubOrigin', 'bridgeId', 'session'] : [];
         if ([...target.searchParams.keys()].some(key => !navigationKeys.includes(key) || target.searchParams.getAll(key).length !== 1
           || target.searchParams.get(key).length > 4096)) throw launcherError('INVALID_INPUT', 'Unsupported navigation query.', 400);
@@ -77,7 +80,7 @@ export async function createLauncherServer(options = {}) {
         const bytes = await readFile(new URL('./public/' + file, import.meta.url));
         response.writeHead(200, { 'content-type': file.endsWith('.html') ? 'text/html; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8',
           'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY',
-          'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" });
+          'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" });
         response.end(bytes); return;
       }
       const authorization = request.headers.authorization;
@@ -101,6 +104,7 @@ export async function createLauncherServer(options = {}) {
       else if (target.pathname === '/api/paths/known' && request.method === 'GET') result = await manager.paths.known(manager);
       else if (target.pathname === '/api/paths/remember' && request.method === 'POST') { fields(body, ['path', 'purpose'], ['path']); result = await manager.paths.remember(body); }
       else if (target.pathname === '/api/paths/discover' && request.method === 'POST') { fields(body, ['directory'], ['directory']); result = manager.discoverPaths(body); status = 202; }
+      else if (target.pathname === '/api/paths/native-pick' && request.method === 'POST') { fields(body, ['purpose', 'initialPath'], ['purpose']); result = await manager.paths.nativePick(body); }
       else if (target.pathname === '/api/creator-drafts' && request.method === 'GET') result = await manager.creatorDrafts.list();
       else if (target.pathname === '/api/creator-drafts/save' && request.method === 'POST') { fields(body, ['draft'], ['draft']); result = await manager.creatorDrafts.save(body.draft); }
       else if (target.pathname === '/api/creator-drafts/delete' && request.method === 'POST') { fields(body, ['directory'], ['directory']); result = await manager.creatorDrafts.delete(body.directory); }
@@ -111,18 +115,20 @@ export async function createLauncherServer(options = {}) {
       else if (target.pathname === '/api/environment/prepare' && request.method === 'POST') { fields(body, ['planId', 'accepted'], ['planId', 'accepted']); result = manager.prepareEnvironment(body.planId, body.accepted); status = 202; }
       else if (target.pathname === '/api/backups/inspect' && request.method === 'POST') { fields(body, ['backup'], ['backup']); result = { inspection: await manager.inspectBackup(body.backup) }; }
       else if (target.pathname === '/api/backups/restore' && request.method === 'POST') { fields(body, ['backup', 'sha256', 'instanceId', 'nodePath', 'pythonPath', 'accepted'], ['backup', 'sha256', 'instanceId', 'accepted']); result = await manager.restore(body); status = 202; }
+      else if (target.pathname === '/api/templates/builtin' && request.method === 'GET') result = await manager.builtinTemplates();
       else if (target.pathname === '/api/templates/inspect' && request.method === 'POST') { fields(body, ['directory'], ['directory']); result = await manager.templateInspect(body); }
       else if (target.pathname === '/api/templates/preview' && request.method === 'POST') { fields(body, ['directory', 'values', 'identity'], ['directory', 'values']); result = await manager.templatePreview(body); }
       else if (target.pathname === '/api/templates/instantiate' && request.method === 'POST') { fields(body, ['previewId', 'destination', 'redistributionAcknowledged'], ['previewId', 'destination', 'redistributionAcknowledged']); result = manager.templateInstantiate(body); status = 202; }
       else if (target.pathname === '/api/templates/create' && request.method === 'POST') { fields(body, ['directory', 'template', 'destination', 'redistributionAcknowledged', 'expectedPackSha256'], ['directory', 'template', 'destination', 'redistributionAcknowledged']); result = manager.templateCreate(body); status = 202; }
       else if (target.pathname === '/api/authoring/inspect' && request.method === 'POST') { fields(body, ['directory', 'nodePath', 'pythonPath'], ['directory']); directory = body.directory; result = { authoring: await manager.authoring(body) }; }
-      else if (target.pathname === '/api/authoring/preview' && request.method === 'POST') { fields(body, ['directory', 'componentId', 'moduleDirectory', 'nodePath', 'pythonPath'], ['directory', 'componentId', 'moduleDirectory']); result = { preview: await manager.previewReplacement(body) }; }
+      else if (target.pathname === '/api/authoring/preview' && request.method === 'POST') { fields(body, ['directory', 'componentId', 'moduleDirectory', 'nodePath', 'pythonPath', 'pack', 'replacements', 'expectedRevision'], ['directory', 'componentId', 'moduleDirectory']); result = { preview: await manager.previewReplacement(body) }; }
+      else if (target.pathname === '/api/authoring/addition-preview' && request.method === 'POST') { fields(body, ['directory', 'componentId', 'moduleDirectory', 'nodePath', 'pythonPath', 'pack', 'component', 'replacements', 'expectedRevision'], ['directory', 'componentId', 'moduleDirectory']); result = { preview: await manager.previewAddition(body) }; }
       else if (target.pathname === '/api/authoring/read-comments' && request.method === 'POST') { fields(body, ['directory'], ['directory']); result = { comments: await manager.comments(body) }; }
       else if (/^\/api\/authoring\/(derive|rebuild|proposal|apply-proposal|comments|export-comments|import-comments)$/.test(target.pathname) && request.method === 'POST') {
         const kind = target.pathname.split('/').at(-1);
         const allowed = ['directory', 'destination', 'nodePath', 'pythonPath', 'redistributionAcknowledged', 'expectedRevision'];
         const required = ['directory', 'destination', 'redistributionAcknowledged'];
-        if (['derive', 'proposal'].includes(kind)) { allowed.push('pack', 'replacements'); required.push('expectedRevision'); }
+        if (['derive', 'proposal'].includes(kind)) { allowed.push('pack', 'replacements', 'reviewedCandidates'); required.push('expectedRevision'); }
         if (kind === 'apply-proposal') { allowed.push('proposalDirectory'); required.push('proposalDirectory'); }
         if (kind === 'comments') { allowed.splice(0, allowed.length, 'directory', 'author', 'text', 'expectedRevision'); required.splice(0, required.length, 'directory', 'author', 'text', 'expectedRevision'); }
         if (kind === 'export-comments') { allowed.splice(0, allowed.length, 'directory', 'destination'); required.splice(0, required.length, 'directory', 'destination'); }
@@ -148,10 +154,11 @@ export async function createLauncherServer(options = {}) {
       else if (/^\/api\/operations\/[a-f0-9-]+$/.test(target.pathname) && request.method === 'GET') result = { operation: manager.operation(target.pathname.split('/').at(-1)) };
       else if (/^\/api\/operations\/[a-f0-9-]+\/cancel$/.test(target.pathname) && request.method === 'POST') { fields(body, []); result = { operation: await manager.cancelOperation(target.pathname.split('/').at(-2)) }; }
       else {
-        const match = /^\/api\/instances\/([a-z0-9][a-z0-9._-]{0,63})(?:\/(review|start|stop|restart|logs|export|topology|storage|backup|detach|reattach|upgrade-plan|upgrade|upgrade-history|staged-upgrade-plan|staged-upgrade|rollback-plan|rollback-upgrade|recover-upgrade))?$/.exec(target.pathname);
+        const match = /^\/api\/instances\/([a-z0-9][a-z0-9._-]{0,63})(?:\/(review|start|stop|restart|logs|export|topology|storage|backup|detach|reattach|upgrade-plan|upgrade|upgrade-history|staged-upgrade-plan|staged-upgrade|rollback-plan|rollback-upgrade|recover-upgrade|delete))?$/.exec(target.pathname);
         if (!match) throw launcherError('NOT_FOUND', 'Unknown Launcher operation.', 404);
         const [, id, action] = match;
         if (!action && request.method === 'GET') result = { instance: await manager.instance(id) };
+        else if (action === 'delete' && request.method === 'POST') { fields(body, ['accepted'], ['accepted']); result = await manager.deleteInstance(id, body.accepted); }
         else if (action === 'review' && request.method === 'POST') { fields(body, ['nodePath', 'pythonPath', 'isolation']); directory = join(manager.row(id).root, 'instances', id, 'package'); result = await manager.reviewInstance(id, body); }
         else if (['start', 'restart'].includes(action) && request.method === 'POST') { fields(body, ['reviewId', 'accepted'], ['reviewId', 'accepted']); result = await manager.start(id, body.reviewId, body.accepted, action === 'restart'); status = 202; }
         else if (action === 'stop' && request.method === 'POST') { fields(body, []); result = manager.stop(id); status = 202; }

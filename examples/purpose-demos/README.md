@@ -34,7 +34,7 @@ Node.js 22.4+ 即可启动，无需安装运行依赖。顶部“跟着这条路
 | [extension-material.mjs](extension-material.mjs) | 独立扩展材料提供者，实现相同材料请求合同 |
 | [checklist-harness.mjs](checklist-harness.mjs) | 独立清单执行器，实现相同上下文输入／回答输出合同 |
 | [digital-world.mjs](digital-world.mjs) | 独立世界状态、规则、NPC 与多轮导演 |
-| [explorer.mjs](explorer.mjs) | 独立浏览器界面程序的 HTTP 入口及双向 mod |
+| [explorer.mjs](explorer.mjs) | 独立浏览器界面程序的 HTTP 入口及双向模块桥 |
 | [explorer.html](explorer.html)、[explorer.js](explorer.js)、[explorer.css](explorer.css) | 引导操作、用途成果和可观察的通讯记录 |
 
 默认业务文件通过不同 `--peer` 启动为独立进程；独立扩展文件使用自己的业务实现和入口。这样的源码组织不规定接入程序必须采取同一形态。传感器有采样与控制两座桥；探索界面也通过自己的桥通讯。
@@ -53,7 +53,7 @@ Node.js 22.4+ 即可启动，无需安装运行依赖。顶部“跟着这条路
 1. 先运行原场景并保存一次结果，确认输入、返回和程序身份。
 2. 写自己的实现，保留相邻程序所需的业务合同；更改信息格式时，同时调整外部调用方或消费者。
 3. 在 `profiles.mjs` 声明程序与桥，给新 Node 入口设置 `entryFile`；入口参照现有独立扩展实现相同参数、ready 和退出约定。演示选择材料与执行器的合法名称由外部组装程序约定，也要同步调整。
-4. 授予新身份所需的主题权限，让自己的 mod 登记主题并处理信息。无需给 Hub 新增业务 `kind`。
+4. 授予新身份所需的主题权限，让自己的模块桥登记主题并处理信息。无需给 Hub 新增业务 `kind`。
 5. 重新运行原链路与新增链路，查证真实来源、消息序号和成果，再构建分享包。
 
 这套启动器拥有 Node 进程。Python、其他运行时或已有软件须自行启动，或调整外部启动器与接线；修改名称不会自动适配其启动和业务合同。参考 `config/hub.json` 不参与本次演示会话，实际配置由启动器生成在本次运行目录。

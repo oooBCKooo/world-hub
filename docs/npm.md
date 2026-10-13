@@ -1,6 +1,6 @@
 # npm 包与 SDK
 
-`world-hub` 提供前台运行的 Hub CLI、可选统一 Launcher、外部 `world-hub-pack` Runtime 和外部程序可选用的 JavaScript、Python、PowerShell mod 桥。Hub CLI、Launcher 与 JavaScript SDK 需要 Node.js 22.4.0 或以上，没有 npm 运行依赖；Node 运行时由使用者安装。Python 和 PowerShell SDK 按各自模块文件路径使用，需要自己的运行环境。npm 安装不会启动业务程序，也不会安装 DSH、模型或 Python 依赖。
+`world-hub` 提供前台运行的 Hub CLI、可选统一 Launcher、外部 `world-hub-pack` Runtime 和外部程序可选用的 JavaScript、Python、PowerShell 模块桥。Hub CLI、Launcher 与 JavaScript SDK 需要 Node.js 22.4.0 或以上，没有 npm 运行依赖；Node 运行时由使用者安装。Python 和 PowerShell SDK 按各自模块文件路径使用，需要自己的运行环境。npm 安装不会启动业务程序，也不会安装 DSH、模型或 Python 依赖。
 
 ## 安装并启动
 
@@ -18,7 +18,7 @@ world-hub --open
 
 默认监听 `127.0.0.1:8790`，管理地址为 `http://127.0.0.1:8790/manage`。`--open` 在就绪后打开浏览器；不传时按终端输出手动打开。若端口已有其他服务，可选择自己的端口或使用 `world-hub --port 0 --open`，按启动输出取得系统分配的地址。Ctrl+C 停止，等待 `stopped` 输出再关闭终端。
 
-参考配置仅允许已登记的可信回环身份，预置 `ui.manual` 工作台凭据标识，未设 token。自己的程序需要在配置中登记桥或凭据、主题权限和所需连接额度，保存后重启。私人配置、token 与通讯数据留在部署目录，不提交源码仓库。具体接入和管理边界见[mod 接入](onboarding.md)与[部署](deployment.md)。
+参考配置仅允许已登记的可信回环身份，预置 `ui.manual` 工作台凭据标识，未设 token。自己的程序需要在配置中登记桥或凭据、主题权限和所需连接额度，保存后重启。私人配置、token 与通讯数据留在部署目录，不提交源码仓库。具体接入和管理边界见[模块桥接入](onboarding.md)与[部署](deployment.md)。
 
 ## 配置和数据路径
 
@@ -112,7 +112,7 @@ world-hub ui --root ./my-pack-instances --port 0 --node '<已安装的 node.exe>
 
 两条命令是不同启动方式，选择一条。Launcher 默认进入“我的整合包”，提供本机目录检查、导入实例、明确授权当前审阅内容、启动／停止／重启、四种运行状态、模块权限、日志与公开包导出。环境检测只使用已安装解释器的固定探针。首次浏览器授权使用启动器打开的一次性链接；请保留终端运行，用 Ctrl+C 等待停止完成。原 `world-hub --open` 仍直接进入 Hub 管理界面，原 Runtime CLI 继续可用。
 
-每个运行实例的 Hub 拓扑和通信工作台复用原管理界面，并能按本次运行的桥会话返回对应组件日志。业务应用在独立标签页打开；连接、模块自报就绪和健康探针不代表业务成果已完成。Launcher 与 Runtime 位于 Hub 外部；权限仍为声明，当前没有 OS 沙箱。环境检测不安装依赖；需要时，用户可先审阅有限的固定 Python venv 准备方案再明确执行，之后重新检查包。
+每个运行实例的 Hub 拓扑和通信工作台复用原管理界面，并能按本次运行的桥会话返回对应组件日志。业务应用在独立标签页打开；连接、模块自报就绪和健康探针不代表业务成果已完成。Launcher 与 Runtime 位于 Hub 外部；默认 trusted-local 权限是声明，没有 OS 沙箱，其他可选保护模式需按[隔离指南](ecosystem/isolation.md)准备并逐包审阅。环境检测不安装依赖；需要时，用户可先审阅有限的固定 Python venv 准备方案再明确执行，之后重新检查包。
 
 界面还提供私有实例备份／新实例恢复、保留数据卸载与重新关联、静态软件源筛选与验证缓存、可视化组件配置和能力绑定、复制到新目录重建锁或派生、创作者制品发布、纯文本评论和基线冲突检查的提案交换。软件源和创作操作不自动执行模块，发布只生成供分享的本机文件。完整流程、支持范围与管理 API 见[统一 Launcher](ecosystem/launcher.md)。
 
@@ -128,7 +128,7 @@ world-hub-pack stop --root ./instances --instance one
 
 检查输出包含内容摘要、权限声明和宿主环境；审阅之后才能使用准确摘要启动。解释器可用 `--node <exe>`／`--python <exe>` 选择，不匹配锁或缺依赖时明确拒绝，不自动安装或改写锁。`start` 保持前台监督实例，每实例独立 Hub、凭据、端口与程序状态；进程、自报健康和真实通讯连接分别观察。权限声明不是 OS 沙箱，超时不自动重试业务。
 
-npm 只携带部署工具、Schema 与文档；[三程序文本台包](../examples/ecosystem-pack/README.md)的源码和锁在 GitHub 或独立生态源码 ZIP 取得。它要求自己的 Python／websockets 环境，不会由于安装 npm Hub 自动出现。普通程序可继续只用 mod 桥，不采用 Runtime 部署协议。
+npm 只携带部署工具、Schema 与文档；[三程序文本台包](../examples/ecosystem-pack/README.md)的源码和锁在 GitHub 或独立生态源码 ZIP 取得。它要求自己的 Python／websockets 环境，不会由于安装 npm Hub 自动出现。普通程序可继续只用模块桥，不采用 Runtime 部署协议。
 
 ## 源码、演示与许可
 
