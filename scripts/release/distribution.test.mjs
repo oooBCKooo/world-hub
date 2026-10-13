@@ -1,7 +1,7 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, readdir, cp, writeFile, rm, access } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, cp, writeFile, rm, access, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -102,7 +102,10 @@ test('source bundle resolves its real built-in template from an unrelated cwd wi
       WH_TEST_ROOT: join(temporaryRoot, 'private-template-root') } });
   assert.equal(result.status, 0, result.stderr);
   const templates = JSON.parse(result.stdout); assert.equal(templates.length, 1); assert.equal(templates[0].id, 'demo.text-template');
-  assert.ok(templates[0].directory.startsWith(bundle)); assert.equal(templates[0].startsModules, false);
+  // Windows runner temp paths can contain 8.3 aliases. The chooser returns
+  // the canonical directory, which must still be this bundle's exact template.
+  assert.equal(await realpath(templates[0].directory), await realpath(join(bundle, 'examples/templates/text-desk')));
+  assert.equal(templates[0].startsModules, false);
 });
 
 test('building over an existing target or archive is refused without modifying the existing package', async () => {
