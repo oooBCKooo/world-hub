@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { request as httpRequest } from 'node:http';
-import { appendFile, lstat } from 'node:fs/promises';
+import { appendFile, lstat, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createLock, importPackage, startInstance } from '../../../scripts/runtime/index.mjs';
 import { createLauncherServer } from '../../../tools/launcher/server.mjs';
@@ -448,7 +448,7 @@ test('LAUNCHER-12 native path picker returns checked path or cancelled state', o
     process.env.WH_NATIVE_PICK_RESULT = app.root;
     const selected = await api.call('/api/paths/native-pick', { purpose: 'directory' });
     assert.equal(selected.cancelled, false);
-    assert.equal(selected.path, app.root);
+    assert.equal(selected.path, await realpath(app.root));
     assert.equal(selected.kind, 'directory');
   } finally {
     delete process.env.WH_NATIVE_PICK_RESULT;

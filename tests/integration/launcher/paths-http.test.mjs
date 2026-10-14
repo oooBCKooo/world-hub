@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, writeFile, symlink, truncate, rm } from 'node:fs/promises';
+import { mkdir, writeFile, symlink, truncate, rm, realpath } from 'node:fs/promises';
 import { join, parse } from 'node:path';
 import { createLauncherServer } from '../../../tools/launcher/server.mjs';
 import { discoveryLimits } from '../../../tools/launcher/paths-service.mjs';
@@ -29,6 +29,10 @@ test('PATHS-HTTP-01 authenticated bounded browsing selects Unicode directories a
   const source = join(collection, 'index.json'); await save(source, { format: 'world-hub.source-index/v1', id: 'demo.source', entries: [] });
   const outside = join(app.directory, 'outside'), linked = join(collection, 'linked'); await mkdir(outside);
   await symlink(outside, linked, process.platform === 'win32' ? 'junction' : 'dir');
+  // Chooser results identify physical paths even when TEMP uses an 8.3 alias.
+  // For a blocked link, resolve only its ordinary parent, never its target.
+  const canonicalCollection = await realpath(collection), canonicalPack = join(canonicalCollection, '整合 包'),
+    canonicalBackup = join(canonicalCollection, 'private.whbackup'), canonicalLinked = join(canonicalCollection, 'linked');
   for (let index = 0; index < 105; index++) await writeFile(join(collection, `item-${index}.txt`), 'x');
   const unauthenticated = await api.request('/api/paths/known', undefined, {}); assert.equal(unauthenticated.status, 401);
   const noCsrf = await api.request('/api/paths/browse', { directory: collection }, { authorization: api.headers.authorization, 'content-type': 'application/json' }); assert.equal(noCsrf.status, 403);
@@ -37,9 +41,9 @@ test('PATHS-HTTP-01 authenticated bounded browsing selects Unicode directories a
   assert.equal(first.entries.length, 100); assert.equal(first.truncated, true); assert.equal(first.nextOffset, 100);
   const second = await api.call('/api/paths/browse', { directory: collection, purpose: 'pack', offset: first.nextOffset });
   const entries = [...first.entries, ...second.entries]; assert.equal(new Set(entries.map(entry => entry.path)).size, entries.length);
-  assert.equal(entries.find(entry => entry.path === linked).kind, 'blocked'); assert.equal(entries.find(entry => entry.path === linked).selectable, false);
-  assert.deepEqual(entries.find(entry => entry.path === pack).object.warnings, ['PACK_LOCK_MISSING']);
-  assert.equal(entries.find(entry => entry.path === pack).selectable, true); assert.equal(entries.find(entry => entry.path === backup).selectable, false);
+  assert.equal(entries.find(entry => entry.path === canonicalLinked).kind, 'blocked'); assert.equal(entries.find(entry => entry.path === canonicalLinked).selectable, false);
+  assert.deepEqual(entries.find(entry => entry.path === canonicalPack).object.warnings, ['PACK_LOCK_MISSING']);
+  assert.equal(entries.find(entry => entry.path === canonicalPack).selectable, true); assert.equal(entries.find(entry => entry.path === canonicalBackup).selectable, false);
   assert.ok((await api.request('/api/paths/browse', { directory: linked })).status >= 400);
   const chosen = await api.call('/api/paths/check', { path: backup, purpose: 'backup' }); assert.equal(chosen.selectable, true); assert.equal(chosen.object.checked, false);
   assert.equal((await api.call('/api/paths/check', { path: source, purpose: 'source' })).object.kind, 'source');
@@ -55,7 +59,7 @@ test('PATHS-HTTP-01 authenticated bounded browsing selects Unicode directories a
   assert.equal(known.startsModules, false); assert.deepEqual(api.server.manager.sessions.size, 0);
   const cached = join(app.root, 'source-cache', 'c'.repeat(64)); await mkdir(cached, { recursive: true });
   await save(join(cached, 'pack.json'), { format: 'world-hub.pack/v1', id: 'demo.cached', version: '1.0.0' });
-  await api.server.close(); const restarted = await launcher(app), recovered = await restarted.call('/api/paths/known'); assert.equal(recovered.recents[0].path, pack);
+  await api.server.close(); const restarted = await launcher(app), recovered = await restarted.call('/api/paths/known'); assert.equal(recovered.recents[0].path, canonicalPack);
   const cachedObject = recovered.objects.find(object => object.id === 'demo.cached'); assert.equal(cachedObject.origin, 'cache'); assert.equal(cachedObject.checked, false); assert.equal(cachedObject.requiresReview, true);
   app.record('bounded-directory-and-file-choice', { pages: 2, missingLockRecognized: true, linksBlocked: true, archiveBytes: 512 * 1024 * 1024, recentsSurviveRestart: true });
 });
@@ -68,12 +72,13 @@ test('PATHS-HTTP-02 discovery is bounded, cancellable, task-listed and never sca
   const generated = join(directory, 'node_modules'); await mkdir(generated); await save(join(generated, 'module.json'), { format: 'world-hub.module/v1', id: 'demo.generated' });
   const oversized = join(directory, 'oversized'); await mkdir(oversized); await writeFile(join(oversized, 'module.json'), ' '.repeat(discoveryLimits.declarationBytes + 1));
   const started = await api.call('/api/paths/discover', { directory }), operation = await api.wait(started.operationId);
+  const canonicalDirectory = await realpath(directory);
   assert.equal(operation.state, 'succeeded'); assert.ok(operation.result.objects.some(object => object.id === 'demo.discovery'));
   assert.equal(operation.result.objects.some(object => ['demo.too-deep', 'demo.generated'].includes(object.id)), false);
   assert.ok(operation.result.objects.some(object => object.warnings.includes('DECLARATION_TOO_LARGE')));
   assert.equal(operation.result.partial, true); assert.equal(operation.result.startsModules, false);
   assert.ok(operation.result.scannedEntries <= discoveryLimits.entries); assert.ok(operation.result.scannedDirectories <= discoveryLimits.directories);
-  assert.ok((await api.call('/api/operations')).operations.some(item => item.id === started.operationId && item.result.directory === directory));
+  assert.ok((await api.call('/api/operations')).operations.some(item => item.id === started.operationId && item.result.directory === canonicalDirectory));
   const rootScan = await api.call('/api/paths/discover', { directory: parse(directory).root }); assert.equal((await api.wait(rootScan.operationId)).error.code, 'SCAN_ROOT_REFUSED');
   const aborted = new AbortController(); aborted.abort(); const cancelled = await api.server.manager.paths.discover({ directory }, aborted.signal);
   assert.equal(cancelled.cancelled, true); assert.equal(cancelled.partial, true); assert.equal(cancelled.scannedEntries, 0);

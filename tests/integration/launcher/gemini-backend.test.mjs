@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, readFile, writeFile, lstat, unlink, open } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, lstat, unlink, open, realpath } from 'node:fs/promises';
 import { join, isAbsolute } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { LauncherManager } from '../../../tools/launcher/manager.mjs';
@@ -149,7 +149,7 @@ test('G-13 save-file native selection returns an existing parent and leaves outp
     process.env.WH_NATIVE_PICK_RESULT = app.root;
     const picked = await service.nativePick({ purpose: 'save-file', initialPath: join(app.root, 'new backup.whbackup') });
     assert.equal(picked.selectionMode, 'parent'); assert.equal(picked.purpose, 'save-file');
-    assert.equal(picked.path, app.root); assert.equal(picked.kind, 'directory'); assert.equal(picked.selectable, true);
+    assert.equal(picked.path, await realpath(app.root)); assert.equal(picked.kind, 'directory'); assert.equal(picked.selectable, true);
     const destination = join(picked.path, '新的备份 🌍.whbackup'), checked = await service.check({ path: destination, purpose: 'save-file' });
     assert.equal(checked.selectable, true); assert.equal(checked.exists, false);
     await assert.rejects(lstat(destination), { code: 'ENOENT' });

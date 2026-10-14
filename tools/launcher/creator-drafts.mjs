@@ -8,6 +8,17 @@ const fields = ['format', 'directory', 'baseRevision', 'pack', 'replacements', '
 const same = (a, b) => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
 const path = value => {
   if (typeof value !== 'string' || !value.trim() || value.length > 4096 || value.includes('\0') || !isAbsolute(value)) throw fault('DRAFT_INVALID', 'Draft directory must be an absolute local path.', 400);
+  // Native Windows callers may use the extended-length spelling of a drive
+  // or UNC path. Keep its identity ordinary for the checked ancestor walk.
+  if (process.platform === 'win32') {
+    if (value.startsWith('\\\\.\\')) throw fault('DRAFT_INVALID', 'Draft directory must be an absolute local path.', 400);
+    if (value.startsWith('\\\\?\\')) {
+      const unc = /^\\\\\?\\UNC\\([^\\/]+)\\([^\\/]+)(?:\\|$)/i.exec(value);
+      if (/^\\\\\?\\[a-z]:\\/i.test(value)) value = value.slice(4);
+      else if (unc && unc.slice(1).every(part => !['.', '..'].includes(part) && !/[<>:"|?*\x00-\x1f]/.test(part))) value = '\\\\' + value.slice(8);
+      else throw fault('DRAFT_INVALID', 'Draft directory must be an absolute local path.', 400);
+    }
+  }
   return resolve(value);
 };
 function validate(value) {
@@ -51,7 +62,14 @@ export class CreatorDrafts {
   }
   async delete(directory) {
     const chosen = path(directory), action = this.queue.then(async () => {
-      await this.write(this.drafts.filter(draft => !same(draft.directory, chosen))); return { deleted: true, directory: chosen };
+      // Stored paths are canonicalized when saved. Resolve an incoming alias
+      // the same way, including existing parents when the source is gone.
+      // An exact stored identity can always be discarded without accessing
+      // its source again; source availability conveys no deletion authority.
+      const stored = this.drafts.find(draft => same(draft.directory, chosen));
+      const identity = stored ? stored.directory : await ordinaryPath(chosen, { allowMissing: true });
+      await this.write(this.drafts.filter(draft => !same(draft.directory, identity)));
+      return { deleted: true, directory: identity };
     }); this.queue = action.catch(() => {}); return action;
   }
 }
