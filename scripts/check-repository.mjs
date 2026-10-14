@@ -18,13 +18,13 @@ const required = [...rootFiles, 'config/hub.json', 'src/hub/hub-server.mjs', 'sr
   'bin/world-hub.mjs', 'tools/launcher/cli.mjs', 'tools/launcher/server.mjs', 'tools/launcher/public/index.html',
   'src/management/launcher-link.mjs', 'docs/ecosystem/launcher.md',
   'scripts/launcher.mjs', 'scripts/verify.mjs', 'scripts/release/build-package.mjs', '.github/workflows/ci.yml'];
-const extensions = new Set(['.mjs', '.js', '.html', '.css', '.json', '.md', '.py', '.txt', '.psm1', '.cs', '.ps1', '.yml', '.yaml']);
+const extensions = new Set(['.mjs', '.js', '.cjs', '.html', '.css', '.json', '.md', '.py', '.txt', '.psm1', '.cs', '.ps1', '.yml', '.yaml']);
 const forbiddenSegments = new Set(['.local', '.artifacts', 'dist', 'data', 'world-hub-data', '.hub', '.state', 'node_modules', '__pycache__', '.venv']);
 const screenshotPath = /^docs\/images\/[a-z0-9][a-z0-9._-]*\.(?:png|jpg)$/;
 const ecosystemLock = 'examples/ecosystem-pack/pack.lock';
 const templateLocks = BUNDLED_TEMPLATE_FILES.filter(path => path.endsWith('/pack.lock'));
 const ecosystemLicenses = new Set([...['source', 'stats', 'desk'].map(name => `examples/ecosystem-pack/modules/${name}/LICENSE`),
-  ...BUNDLED_TEMPLATE_FILES.filter(path => path.endsWith('/LICENSE'))]);
+  ...BUNDLED_TEMPLATE_FILES.filter(path => path.endsWith('/LICENSE')), ...['desktop','counter'].map(name=>`examples/soft-ui-modules/${name}/LICENSE`)]);
 const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const jpegStartOfFrame = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -106,7 +106,7 @@ for (const path of paths) {
   if (segments.some(segment => forbiddenSegments.has(segment)) || /(?:\.bak|\.tmp|\.log|\.zip|\.py[co]|\.local\.json)$/i.test(path)
       || /(?:^|\/)(?:\.env(?:\..*)?|smoke-results\.json|self-check-result\.json|local[^/]*\.json)$/i.test(path)) reject(path, 'Local, generated or private file');
   if (path.startsWith('config/') && path !== 'config/hub.json') reject(path, 'Only the reference configuration can be published');
-  const screenshot = screenshotPath.test(path);
+  const screenshot = screenshotPath.test(path) || path === 'examples/soft-ui-modules/desktop/desktop/assets/tray.png';
   if (!rootFiles.includes(path) && !extensions.has(extname(path)) && path !== 'scripts/release/prepare-isolation-ci.sh' && !screenshot
       && path !== ecosystemLock && !templateLocks.includes(path) && !ecosystemLicenses.has(path)) reject(path, 'Unexpected source file type');
   const key = path.toLowerCase();

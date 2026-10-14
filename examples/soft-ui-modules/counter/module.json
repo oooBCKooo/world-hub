@@ -1,0 +1,12 @@
+{
+  "format": "world-hub.module/v1",
+  "id": "example.soft-ui-counter",
+  "version": "0.3.0",
+  "license": "MIT",
+  "platforms": ["win32-x64", "linux-x64", "darwin-arm64"],
+  "runtime": { "kind": "node", "entry": "program.mjs" },
+  "bridges": ["main"],
+  "provides": [],
+  "requires": [{ "id": "soft-ui.windows", "version": "1.0.0" }],
+  "permissions": { "filesystem": "instance-state", "network": ["hub-loopback"], "processes": "none" }
+}

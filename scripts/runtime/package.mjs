@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hash, relativePath, ordinaryPath, readBounded, privateJson, processCwd, processPath, checkPythonExecutablePath } from './paths.mjs';
 import { readSourceManifest, collectSourceFiles } from './source-guidance.mjs';
+import { inspectDeployment } from './deployment.mjs';
 
 export const repository = fileURLToPath(new URL('../../', import.meta.url));
 const idPattern = /^[a-z0-9][a-z0-9._-]{0,63}$/;
@@ -36,7 +37,8 @@ export function validateModule(m) {
   array(m.bridges, 'bridges', 1, 8); m.bridges.forEach(v => safeId(v, 'bridge slot')); unique(m.bridges, 'bridge slot');
   contracts(m.provides, 'provides'); contracts(m.requires, 'requires');
   closed(m.permissions, ['filesystem', 'network', 'processes'], 'permissions');
-  if (m.permissions.filesystem !== 'instance-state' || m.permissions.processes !== 'none') throw new Error('Unsupported permission declaration');
+  if (m.permissions.filesystem !== 'instance-state' || !['none', 'owned-children'].includes(m.permissions.processes)
+      || m.permissions.processes === 'owned-children' && m.runtime.kind !== 'node') throw new Error('Unsupported permission declaration');
   array(m.permissions.network, 'network permissions', 1, 2); unique(m.permissions.network, 'network permission');
   if (m.permissions.network.some(p => !['hub-loopback', 'loopback-listen'].includes(p))) throw new Error('Unsupported network permission declaration');
   return m;
@@ -178,7 +180,8 @@ export async function inspectPackage(packDirectory, options = {}) {
     if (!manifest.platforms.includes(`${process.platform}-${process.arch}`)) throw new Error(`Module platform unsupported: ${manifest.id}`);
     if (!locked.files.some(f => f.path === manifest.runtime.entry)) throw new Error('Module entry is not locked');
     if (!lock.runtimes[manifest.runtime.kind]) throw new Error('Module runtime not locked');
-    modules.push({ manifest, source: locked.source, files: actual });
+    const deployment = await inspectDeployment({directory:source,manifest});
+    modules.push({ manifest, source: locked.source, files: actual, ...(deployment.deployment ? {deployment} : {}) });
   }
   checkNodePackagePaths(modules, directory);
   for (const c of pack.components) {
@@ -201,6 +204,7 @@ export async function inspectPackage(packDirectory, options = {}) {
     environment[kind] = await interpreter(options[`${kind}Path`], kind, pinned.packages ?? {});
     if (environment[kind].version !== pinned.version) throw new Error(`${kind} version mismatch: expected ${pinned.version}, found ${environment[kind].version}`);
   }
+  if(modules.some(module=>module.deployment?.dependencies?.recipes.includes('electron')) && (Number(environment.node.version.split('.')[0])<22 || environment.node.version.startsWith('22.')&&Number(environment.node.version.split('.')[1])<12))throw new Error('The Electron deployment recipe requires Node 22.12.0 or newer');
   const digest = hash(JSON.stringify({ packBytes: hash(packBytes), lockBytes: hash(lockBytes), modules, environment }));
   return { format: 'world-hub.review/v1', digest, directory, pack, lock, modules, order: ordered.map(c => c.id), environment,
     startsModules: false, sandbox: false, permissions: modules.map(m => ({ module: m.manifest.id, declared: m.manifest.permissions, enforced: false })) };

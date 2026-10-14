@@ -1,5 +1,7 @@
 # 外部程序整合包声明 v1
 
+可选的作者部署默认值、锁定依赖准备和本机 Node 所属子进程 profile 见[部署扩展](launcher-deployment.md)与 [deployment.schema.json](deployment.schema.json)。Hub 不读取这些文件；原有 `processes: none` 模块继续兼容。
+
 这套开放声明描述一组外部程序怎样部署和接线。它与可选的[参考 Runtime](runtime.md)共同构成本地导入、启动、停止和重建的实验。Hub 仍只负责通讯；它不读取这些清单、不选择程序、不安装依赖、不执行业务。
 
 这里的 **模块桥（module bridge）是通信适配层**，**可部署模块（module）是外部程序包**。两者不是同一对象。一个程序可以具有多座模块桥；模块桥可以嵌入既有应用，也可以作为独立适配器。可部署模块的启动入口和生命周期约定只适用于选择这套部署工具的程序，不是接入 Hub 的要求。没有 module、pack、目录、Runtime 或 Launcher 的程序仍可按照[通讯协议](../specs/protocol.md)和自己的 SDK 接入。

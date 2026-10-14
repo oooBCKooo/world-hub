@@ -1,5 +1,7 @@
 # 可选外部整合包 Runtime v1
 
+Node 原生宿主的 `owned-children` 生命周期与依赖准备，以及无需整合包的 Launcher 本机接入，见[部署扩展](launcher-deployment.md)。本文的“每实例 Hub”指整合包 Runtime；独立程序可以使用 Launcher 的共享本机 Hub。原有 `none` 和容器 profile 的限制不变。
+
 参考 Runtime 是独立部署工具，负责本地整合包检查、实例目录、进程启停和日志。它与 Hub 的通讯内核分离，使用[开放整合包声明](pack-spec.md)。Hub 不加载 Runtime、不读取 module／pack、不执行外部程序。其他 Launcher 或 Runtime 可以实现同样声明，也可以直接按现有桥协议连接 Hub。
 
 参考 profile 支持 Node／Python 普通前台程序、每实例独立 Hub 和显式本地目录来源。独立 Launcher 另提供经审阅的有限依赖准备、私人备份与创作／分发工具；这些工具不成为 Hub 的运行条件。默认 trusted-local profile 没有 OS 沙箱、共享 Hub、资源强制限额或自动业务恢复。可选 Node 容器隔离与作者明确的数据迁移事务分别见下文。语言、入口和生命周期限制只约束选择此工具的部署包。

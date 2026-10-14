@@ -1,0 +1,12 @@
+{
+  "format": "world-hub.deployment/v1",
+  "title": { "zh": "软界面计数器", "en": "Soft UI Counter" },
+  "description": { "zh": "独立保存计数，使用软界面宿主显示按钮和数值。", "en": "Owns and persists a counter, using a Soft UI provider for its buttons and value." },
+  "topics": { "commands": "soft-ui/v1/commands", "events": "soft-ui/v1/events" },
+  "bridges": { "main": { "publish": ["commands"], "subscribe": ["events"] } },
+  "settings": [
+    { "key": "title", "label": { "zh": "窗口标题", "en": "Window title" }, "type": "string", "default": "动态计数器" },
+    { "key": "view-id", "label": { "zh": "视图名称", "en": "View name" }, "type": "string", "default": "counter" },
+    { "key": "initial-count", "label": { "zh": "初始计数（首次运行）", "en": "Initial count (first run)" }, "type": "number", "default": 0, "min": -1000000, "max": 1000000 }
+  ]
+}

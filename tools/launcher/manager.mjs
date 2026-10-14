@@ -21,6 +21,11 @@ import { probeIsolation, reviewIsolationPackage } from '../../scripts/runtime/is
 import { verifyStoredPublisherEvidence } from '../../scripts/runtime/publisher-store.mjs';
 import { PathsService } from './paths-service.mjs';
 import { CreatorDrafts } from './creator-drafts.mjs';
+import { LocalPrograms } from './local-programs.mjs';
+import { importLocalArtifact } from './local-artifacts.mjs';
+import { previewComposition, createComposition } from './composition.mjs';
+import { inspectDeployment } from '../../scripts/runtime/deployment.mjs';
+import { prepareDependencies } from '../../scripts/runtime/dependency-prepare.mjs';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
 export function launcherError(code, message, status = 409) { return Object.assign(new Error(message), { code, status }); }
@@ -45,12 +50,22 @@ export class LauncherManager {
     this.records = new Map(); this.reviews = new Map(); this.operations = new Map(); this.sessions = new Map();
     this.sourceRegistry = new SourceRegistry(this.root); this.sourceReviews = new Map(); this.completionReviews = new Map(); this.publisherReviews = new Map();
     this.paths = new PathsService(this.root); this.creatorDrafts = new CreatorDrafts(this.root);
+    this.compositionReviews = new Map(); this.credentialQueue = Promise.resolve(); this.defaultHubStopping = false;
+    this.localPrograms = new LocalPrograms({root:this.root,environment:this.defaults,inspectDeployment,prepareDependencies,
+      getHub:async ({ensure,signal}={}) => {
+        if(signal?.aborted)throw launcherError('START_STOPPED','Local program startup was cancelled.');
+        if(this.defaultHubStopping)throw launcherError('LOCAL_HUB_STOPPING','The local Hub is stopping.');
+        if(ensure&&(!this.hub||this.hub.exit)){const result=this.defaultHub('start');await this.operations.get(result.operationId).promise;}
+        if(!this.hub||this.hub.exit)throw launcherError('LOCAL_HUB_REQUIRED','Start the local Hub first.');
+        return {url:this.hub.url,endpoint:this.hub.url.replace('http:','ws:')+'/bridge'};
+      },updateCredentials:(change,options)=>this.updateLocalCredentials(change,options)});
     this.busy = new Map(); this.registryQueue = Promise.resolve(); this.saveQueue = Promise.resolve(); this.environmentPlans = new Map(); this.preparationOwners = new Map(); this.url = ''; this.hub = null; this.hubFailure = null; this.closing = false;
   }
   async initialize() {
     await ordinaryPath(this.root, { allowMissing: true }); await mkdir(this.root, { recursive: true, mode: 0o700 });
     await this.sourceRegistry.initialize();
     await this.paths.initialize(); await this.creatorDrafts.initialize();
+    await this.localPrograms.initialize();
     try {
       const data = await json(join(this.root, 'launcher-instances.json'));
       if (!Array.isArray(data.instances) || data.instances.length > 128) throw new Error('Invalid Launcher instance registry');
@@ -69,6 +84,42 @@ export class LauncherManager {
     this.saveQueue = action.catch(() => {}); return action;
   }
   environment(input = {}) { return { nodePath: input.nodePath ?? this.defaults.nodePath, pythonPath: input.pythonPath ?? this.defaults.pythonPath }; }
+  async importArtifact(input) {
+    const result=await importLocalArtifact({root:this.root,...input});
+    await this.paths.remember({path:result.object.path,purpose:result.object.kind});return result;
+  }
+  async compositionPreview(input) {
+    const preview=await previewComposition(input),reviewId=randomUUID();
+    this.compositionReviews.set(reviewId,{preview,input,createdAt:Date.now()});
+    while(this.compositionReviews.size>32)this.compositionReviews.delete(this.compositionReviews.keys().next().value);
+    return {reviewId,preview};
+  }
+  compositionCreate(input) {
+    const saved=this.compositionReviews.get(input.reviewId);
+    if(!saved||Date.now()-saved.createdAt>10*60000||input.accepted!==true)throw launcherError('REVIEW_REQUIRED','Review selected modules and communication wiring first.');
+    return this.launch('create-composition','$composition-'+saved.input.id,async(_,signal)=>{
+      const result=await createComposition({root:this.root,input:saved.input,preview:saved.preview,environment:this.environment(),signal});
+      await this.paths.remember({path:result.directory,purpose:'pack'});this.compositionReviews.delete(input.reviewId);return result;
+    });
+  }
+  updateLocalCredentials(change,{signal}={}) {
+    const action=this.credentialQueue.then(async()=>{
+      if(signal?.aborted)throw launcherError('START_STOPPED','Credential configuration cancelled.');
+      if(this.defaultHubStopping)throw launcherError('LOCAL_HUB_STOPPING','The local Hub is stopping.');
+      if(!this.hub||this.hub.exit){const operation=this.defaultHub('start');await this.operations.get(operation.operationId).promise;}
+      if(signal?.aborted)throw launcherError('START_STOPPED','Credential configuration cancelled.');
+      if(this.defaultHubStopping)throw launcherError('LOCAL_HUB_STOPPING','The local Hub is stopping.');
+      if(!this.hub||this.hub.exit)throw launcherError('LOCAL_HUB_REQUIRED','The local Hub did not start.');
+      const path=join(this.root,'default-hub','hub.json'),config=await json(path);
+      const credentials={...config.acl.credentials,...change.credentials};for(const id of change.remove)delete credentials[id];
+      const requestId=randomUUID();this.hub.send({command:'credentials-update',id:requestId,change});
+      const result=await this.hub.waitFor(event=>event.event==='credentials-updated'&&event.id===requestId,5000);
+      if(!result.ok)throw launcherError('LOCAL_CREDENTIALS_REJECTED','The local Hub rejected credential configuration.');
+      try {await privateJson(path,{...config,acl:{...config.acl,credentials}});}
+      catch(error){const rollbackId=randomUUID();this.hub.send({command:'credentials-update',id:rollbackId,change:{credentials:Object.fromEntries(Object.entries(config.acl.credentials).filter(([id])=>id.startsWith('local.'))),remove:Object.keys(change.credentials).filter(id=>!config.acl.credentials[id])}});await this.hub.waitFor(event=>event.event==='credentials-updated'&&event.id===rollbackId,5000);throw error;}
+      return {confirmed:true};
+    });this.credentialQueue=action.catch(()=>{});return action;
+  }
   async detect(input) { const chosen = this.environment(input); const [environment, candidates] = await Promise.all([detectEnvironment(chosen), discoverEnvironment(chosen)]);
     return { environment, candidates, guidance: ['Select an installed interpreter and check again. Prepare the supported dependency in a reviewed private venv, or install other dependencies manually in your own private environment.'] }; }
   async isolationProbe(input) { return { probe: await probeIsolation(input) }; }
@@ -277,6 +328,7 @@ export class LauncherManager {
   discoverPaths(input) { return this.launch('discover-paths', '$path-discovery', (_, signal) => this.paths.discover(input, signal)); }
   launch(kind, instanceId, work) {
     if (this.closing) throw launcherError('LAUNCHER_STOPPING', 'Launcher is stopping.');
+    if (kind === 'local-start' && this.defaultHubStopping) throw launcherError('LOCAL_HUB_STOPPING', 'The local Hub is stopping. Wait before starting an independent program.');
     if (this.busy.has(instanceId) && (kind !== 'stop' || this.busy.get(instanceId).kind === 'delete')) throw launcherError('INSTANCE_BUSY', 'Wait for this instance operation to complete.');
     const previous = this.busy.get(instanceId), operation = { id: randomUUID(), kind, instanceId, state: 'running', startedAt: new Date().toISOString(), controller: new AbortController() };
     this.operations.set(operation.id, operation); this.busy.set(instanceId, operation);
@@ -569,10 +621,28 @@ export class LauncherManager {
     return rows;
   }
   defaultHub(kind) {
-    if (kind === 'stop') this.busy.get('$default')?.controller.abort();
-    return this.launch(kind, '$default', async (previous, signal) => {
+    if (this.defaultHubStopping) {
+      const pending = this.busy.get('$default');
+      if (kind === 'stop' && pending?.kind === 'stop') return { operationId: pending.id };
+      throw launcherError('LOCAL_HUB_STOPPING', 'The local Hub is stopping. Wait before starting it again.');
+    }
+    if (kind === 'stop') {
+      this.defaultHubStopping = true; this.localPrograms.pauseStarts();
+      this.busy.get('$default')?.controller.abort();
+    }
+    let result;
+    try { result = this.launch(kind, '$default', async (previous, signal) => {
       if (kind === 'stop' && previous) await previous.promise;
-      if (kind === 'stop') { if (this.hub) await this.hub.stop(5000); if (this.hub && !this.hub.exit) throw launcherError('CLEANUP_INCOMPLETE', 'Default Hub exit unconfirmed.'); return { stopped: true }; }
+      if (kind === 'stop') {
+        // Admission was closed synchronously before this operation was queued.
+        // Aborted preparation and queued starts must finish before we inspect
+        // handles or report success; none can restart the Hub behind Stop.
+        await this.localPrograms.queue; await this.credentialQueue;
+        for(const [id,handle] of this.localPrograms.handles) if(!handle.exit || handle.cleanupIncomplete) await this.localPrograms.stop(id);
+        if (this.hub) await this.hub.stop(5000);
+        if (this.hub && !this.hub.exit) throw launcherError('CLEANUP_INCOMPLETE', 'Default Hub exit unconfirmed.');
+        return { stopped: true };
+      }
       if (this.hub && !this.hub.exit) return { url: this.hub.url };
       const directory = join(this.root, 'default-hub'); await ordinaryPath(directory, { allowMissing: true }); await mkdir(directory, { recursive: true, mode: 0o700 });
       const path = join(directory, 'hub.json');
@@ -596,7 +666,15 @@ export class LauncherManager {
         if (!Number.isInteger(ready.port) || ready.port < 1 || ready.port > 65535) throw new Error('Invalid Hub port');
         this.hub.url = `http://127.0.0.1:${ready.port}`; return { url: this.hub.url };
       } catch (error) { await this.hub.stop(1000); throw error; }
-    });
+    }); } catch (error) {
+      if (kind === 'stop') { this.defaultHubStopping = false; this.localPrograms.resumeStarts(); }
+      throw error;
+    }
+    if (kind === 'stop') {
+      const operation = this.operations.get(result.operationId);
+      operation.promise = operation.promise.finally(() => { this.defaultHubStopping = false; this.localPrograms.resumeStarts(); });
+    }
+    return result;
   }
   async close() {
     this.closing = true;
@@ -607,6 +685,7 @@ export class LauncherManager {
     await this.paths.queue; await this.creatorDrafts.queue;
     const errors = [];
     try { await this.paths.close(); } catch (error) { errors.push(error); }
+    try { await this.localPrograms.close(); } catch (error) { errors.push(error); }
     for (const [id] of this.preparationOwners) try { await this.clearPreparationOwner(id); } catch (error) { errors.push(error); }
     for (const [id] of this.sessions) try { await this.stopNow(id); } catch (error) { errors.push(error); }
     if (this.hub) try { await this.hub.stop(5000); if (!this.hub.exit) throw new Error('Default Hub exit unconfirmed'); } catch (error) { errors.push(error); }

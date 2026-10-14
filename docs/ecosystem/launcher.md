@@ -2,6 +2,8 @@
 
 [English](launcher.en.md) · [路径选择、草稿与任务结果](../launcher-ux.md)
 
+新增的模块 ZIP 导入、空白组合、本机独立程序和版本归组见[安装、装配与本机接入](launcher-deployment.md)。这些功能在部署层实现，Hub 不读取应用声明或执行业务。
+
 可选 Launcher 为本地整合包提供统一浏览器入口。后台调用已有的[参考 Runtime](runtime.md)，页面保留进入 Hub 拓扑管理和通信工作台的入口。Hub Core 仍负责通信，Runtime 仍负责所属进程、实例与日志，Launcher 负责用户审阅和导航。安装 Launcher 不要求修改模块的桥协议，也不把 Runtime 加载到 Hub Core 内。
 
 原来的 `world-hub --open`、`npm start`、`world-hub-pack` 和无界面 Runtime API 继续可用。Launcher 是可选入口，Workshop 不是本地启动的依赖。

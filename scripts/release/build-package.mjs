@@ -20,7 +20,7 @@ export const SDK_FILES = ['sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-
   'sdk/powershell/HubBridge.psm1', 'sdk/powershell/HubBridge.cs'];
 export const SDK_DOCUMENTATION_FILES = Object.freeze(['sdk/javascript/README.md', 'sdk/python/README.md', 'sdk/powershell/README.md']);
 export const MODULE_CONTRACT_FILES = Object.freeze(['docs/modules/text-statistics.contract.json']);
-export const ECOSYSTEM_SCHEMA_FILES = Object.freeze(['docs/ecosystem/module.schema.json', 'docs/ecosystem/pack.schema.json', 'docs/ecosystem/pack-lock.schema.json', 'docs/ecosystem/template.schema.json', 'docs/ecosystem/template.example.json', 'docs/ecosystem/publisher-vectors.json', 'docs/ecosystem/publisher-vector-check.py']);
+export const ECOSYSTEM_SCHEMA_FILES = Object.freeze(['docs/ecosystem/module.schema.json', 'docs/ecosystem/deployment.schema.json', 'docs/ecosystem/pack.schema.json', 'docs/ecosystem/pack-lock.schema.json', 'docs/ecosystem/template.schema.json', 'docs/ecosystem/template.example.json', 'docs/ecosystem/publisher-vectors.json', 'docs/ecosystem/publisher-vector-check.py']);
 // These are editable source templates, never automatically executed by Hub or
 // Launcher. Keep an explicit list so runtime/private material is not bundled.
 export const BUNDLED_TEMPLATE_FILES = Object.freeze(['template.json', 'base/pack.json', 'base/pack.lock',
@@ -29,13 +29,17 @@ export const BUNDLED_TEMPLATE_FILES = Object.freeze(['template.json', 'base/pack
   ...['module.json', 'program.mjs', 'bridge-kit.mjs', 'blob-client.mjs', 'index.html', 'ui.js', 'LICENSE'].map(file => 'base/modules/desk/' + file)]
   .map(file => 'examples/templates/text-desk/' + file));
 export const ECOSYSTEM_RUNTIME_FILES = Object.freeze(['bin/world-hub-pack.mjs',
-  ...['index', 'runtime', 'package', 'paths', 'source-guidance', 'process', 'hub-process', 'maintenance', 'authoring', 'sources', 'developer', 'template', 'upgrade', 'staged-upgrade', 'completion-cli', 'publisher-trust', 'publisher-store', 'publisher-cli', 'isolation', 'isolation-wrapper', 'isolation-channel', 'isolation-http', 'isolation-user', 'isolation-user-supervisor'].map(name => `scripts/runtime/${name}.mjs`),
+  ...['index', 'runtime', 'package', 'paths', 'source-guidance', 'deployment', 'dependency-prepare', 'host-process', 'host-owner-linux', 'process', 'hub-process', 'maintenance', 'authoring', 'sources', 'developer', 'template', 'upgrade', 'staged-upgrade', 'completion-cli', 'publisher-trust', 'publisher-store', 'publisher-cli', 'isolation', 'isolation-wrapper', 'isolation-channel', 'isolation-http', 'isolation-user', 'isolation-user-supervisor'].map(name => `scripts/runtime/${name}.mjs`),
+  'scripts/runtime/host-owner-windows.ps1', 'scripts/runtime/host-profile.mjs',
   'scripts/runtime/isolation-wrapper.py',
   'scripts/runtime/templates/node/program.mjs', 'scripts/runtime/templates/node/logic.mjs', 'scripts/runtime/templates/node/logic.test.mjs',
   'scripts/runtime/templates/python/program.py', 'scripts/runtime/templates/python/logic.py', 'scripts/runtime/templates/python/test_logic.py']);
 export const LAUNCHER_FILES = Object.freeze(['bin/world-hub.mjs', 'scripts/cli-entry.mjs',
-  ...['cli', 'server', 'owner-lock', 'manager', 'source-registry', 'paths-service', 'creator-drafts', 'environment', 'environment-prepare', 'diagnostics', 'topology'].map(name => `tools/launcher/${name}.mjs`),
-  ...['index.html', 'app.mjs', 'style.css', 'i18n.mjs', 'advanced.mjs', 'completion-ui.mjs', 'publisher-ui.mjs', 'isolation-ui.mjs', 'path-ui.mjs', 'task-ui.mjs', 'icons.mjs'].map(name => `tools/launcher/public/${name}`)]);
+  ...['cli', 'server', 'owner-lock', 'manager', 'local-artifacts', 'local-programs', 'composition', 'source-registry', 'paths-service', 'creator-drafts', 'environment', 'environment-prepare', 'diagnostics', 'topology'].map(name => `tools/launcher/${name}.mjs`),
+  ...['index.html', 'app.mjs', 'style.css', 'i18n.mjs', 'advanced.mjs', 'asset-versions.mjs', 'deployment-ui.mjs', 'completion-ui.mjs', 'publisher-ui.mjs', 'isolation-ui.mjs', 'path-ui.mjs', 'task-ui.mjs', 'icons.mjs'].map(name => `tools/launcher/public/${name}`)]);
+export const SOFT_UI_MODULE_FILES = Object.freeze(['examples/soft-ui-modules/README.md',
+  ...['desktop','counter'].flatMap(name=>['README.md','LICENSE','module.json','deployment.json','program.mjs','state.mjs','bridge-kit.mjs','blob-client.mjs'].map(file=>`examples/soft-ui-modules/${name}/${file}`)),
+  ...['config.mjs','host.mjs','model.mjs','package.json','package-lock.json','desktop/main.cjs','desktop/manager-preload.cjs','desktop/view-preload.cjs','desktop/manager.html','desktop/manager.js','desktop/manager.css','desktop/view.html','desktop/view.js','desktop/view.css','desktop/assets/tray.png'].map(file=>'examples/soft-ui-modules/desktop/'+file)]);
 export const WORKSHOP_FILES = Object.freeze(['tools/workshop/cli.mjs', 'tools/workshop/store.mjs', 'tools/workshop/server.mjs',
   ...['index.html', 'app.mjs', 'style.css'].map(name => `tools/workshop/public/${name}`)]);
 export const INTEROP_FILES = Object.freeze(['bin/world-hub-interop.mjs', 'tools/interop/text-statistics.mjs',
@@ -95,6 +99,7 @@ export async function buildPackage({ output, runtimeDirectory = null, sourceRoot
   for (const path of ECOSYSTEM_SCHEMA_FILES) await copy(path, 'documentation-contract');
   for (const path of ECOSYSTEM_RUNTIME_FILES) await copy(path, 'tooling');
   for (const path of BUNDLED_TEMPLATE_FILES) await copy(path, 'optional-template-source');
+  for (const path of SOFT_UI_MODULE_FILES) await copy(path, 'optional-module-source');
   for (const path of INTEROP_FILES) await copy(path, 'tooling');
   for (const path of LAUNCHER_FILES) await copy(path, path.startsWith('tools/launcher/public/') ? 'application' : 'tooling');
   for (const path of WORKSHOP_FILES) await copy(path, path.includes('/public/') ? 'application' : 'tooling');

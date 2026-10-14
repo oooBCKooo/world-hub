@@ -3,6 +3,7 @@ import { createAdvancedUi } from './advanced.mjs';
 import { createPathUi } from './path-ui.mjs';
 import { createTaskUi } from './task-ui.mjs';
 import { createIcon, renderSquareArt } from './icons.mjs';
+import { groupAssets, createAssetVersionSelection, renderAssetVersionSelector } from './asset-versions.mjs';
 
 const $ = selector => document.querySelector(selector);
 const sessionKey = 'world-hub.launcher.session';
@@ -42,6 +43,7 @@ const deletionBlocked = instance => Boolean(operationFor(instance) || running(in
   || !['imported', 'stopped', 'detached', 'failed', 'deletion-incomplete'].includes(instance?.status?.state));
 let advanced, paths, tasks, restoringHistory = false, historyReady = false;
 const say = (zh, en) => state.language === 'zh' ? zh : en;
+const packVersionSelection = createAssetVersionSelection({storageKey:'world-hub.pack-version-selection/v1'});
 function updateConnectionState(online = state.online) {
   state.online = Boolean(online);
   const stateLabel = $('#connection-state');
@@ -261,6 +263,21 @@ function packCard(instance) {
     ])
   ]);
 }
+function packProjectCard(group) {
+  const option = packVersionSelection.get(group), instance = option?.row;
+  const card = instance ? packCard(instance) : el('article', { class: 'pack-card asset-unavailable' }, [
+    el('div', { class: 'pack-card-content' }, [el('h3', { class: 'pack-card-title' }, group.title ?? group.id ?? t('unknown'))]),
+    el('div', { class: 'pack-card-footer' }, [button(t('viewDetails'), () => {}, 'button button-small', true), button(t('start'), () => {}, 'button button-small button-primary', true)])
+  ]);
+  card.setAttribute('data-pack-project', group.id ?? group.key);
+  const content = card.querySelector('.pack-card-content');
+  content.append(renderAssetVersionSelector({ el, say }, group, packVersionSelection, { onChange: () => renderPacks() }));
+  // Project grouping never merges lifecycle state: the selected instance still
+  // owns every action, while other live instances remain visible in the summary.
+  const live = group.options.filter(item => running(item.row) || exitUnconfirmed(item.row)).length;
+  content.append(el('p', { class: 'field-help asset-instance-summary' }, say(`${group.options.length} 个独立实例 · ${live} 个运行中或待确认退出`, `${group.options.length} independent instances · ${live} running or awaiting confirmed exit`)));
+  return card;
+}
 function defaultHubCard(hub) {
   const isRunning = hub.state === 'running';
   const busy = state.operations.has('hub:default');
@@ -315,15 +332,16 @@ function defaultHubCard(hub) {
 function empty(title, description, action) { return el('div', { class: 'empty-state' }, [el('div', { class: 'empty-icon', 'aria-hidden': 'true' }, createIcon('packs', 'icon-lg')), el('h3', {}, title), description ? el('p', {}, description) : null, action]); }
 function renderPacks() {
   const search = $('#search').value.trim().toLocaleLowerCase();
-  const instances = state.instances.filter(i => `${idOf(i)} ${i.pack?.id ?? ''} ${i.pack?.title ?? ''}`.toLocaleLowerCase().includes(search));
+  const projects = groupAssets(state.instances, { mode: 'instance' });
+  const matches = projects.filter(group => group.options.some(({ row: i }) => `${idOf(i)} ${i.pack?.id ?? ''} ${i.pack?.title ?? ''} ${i.pack?.version ?? ''}`.toLocaleLowerCase().includes(search)));
   const defaultHub = resolveDefaultHub();
   const matchDefaultHub = !search || 'launcher.default 默认hub 本机开发 调试 socket dev'.toLocaleLowerCase().includes(search);
-  $('#nav-count').textContent = String(state.instances.length);
-  $('#collection-count').textContent = t('items', { count: state.instances.length });
+  $('#nav-count').textContent = String(projects.length);
+  $('#collection-count').textContent = say(`${projects.length} 个项目 · ${state.instances.length} 个独立实例`, `${projects.length} projects · ${state.instances.length} independent instances`);
   advanced?.renderAssetTabs?.(state.view);
 
-  const cards = instances.map(packCard);
-  if (matchDefaultHub) cards.push(defaultHubCard(defaultHub));
+  const cards = matches.map(packProjectCard);
+  if (matchDefaultHub) {const card=defaultHubCard(defaultHub);card.append(button(say('管理本机独立程序','Manage local independent programs'),()=>advanced.managePrograms(),'button button-quiet'));cards.push(card);}
 
   if (!cards.length) {
     $('#packs-list').replaceChildren(empty(t(search ? 'noSearchResults' : 'emptyTitle'), search ? null : t('emptyDescription'), search ? null : el('div', { class: 'result-actions' }, [button(t('importPack'), openImport, 'button button-primary'), button(say('查找本机整合包', 'Find local packs'), () => { openImport(); void paths.open($('#import-form').elements.directory, 'pack'); }, 'button'), button(say('从软件源获取', 'Fetch from sources'), () => navigate('sources'), 'button button-quiet')])));
@@ -621,6 +639,7 @@ function reviewView(data, mode = 'execution') {
   const review = data.review;
   const nodes = [el('div', { class: 'review-summary' }, [el('div', {}, [el('h3', {}, review.pack?.title ?? review.pack?.id ?? '—'), el('p', {}, `${review.pack?.id ?? '—'} · v${review.pack?.version ?? '—'}`)]), pill(data.isolation ? data.isolation.profile : t('noSandbox'), 'amber')]), el('div', { class: `notice ${mode === 'execution' ? 'notice-warning' : ''}` }, mode === 'execution' && data.isolation ? (state.language === 'zh' ? '请核对执行模式与固定限制。Docker 模式隔离文件、网络与进程，并可开放审阅过的界面通道；已有 Linux 用户模式只分离账号，保留该账号的普通权限。协议内的信息与代码仍需信任。' : 'Inspect the execution profile and fixed restrictions. Docker isolates files, network, and processes with an optional reviewed UI tunnel. Existing Linux user mode separates accounts and retains their ordinary permissions. Protocol data and code still require trust.') : t(mode === 'execution' ? 'codeExecutionNotice' : 'importNoExecution')), el('div', { class: 'review-section' }, [el('h3', {}, t('source')), el('p', { class: 'review-digest' }, review.directory ?? '—')]), el('div', { class: 'review-section' }, [el('h3', {}, t('modulesPermissions')), el('div', { class: 'review-modules' }, (review.modules ?? []).map(module => moduleView(module, review, false)))]), el('div', { class: 'review-section' }, [el('h3', {}, t('executionOrder')), el('div', { class: 'review-order' }, (review.order ?? []).flatMap((id, i) => [i ? '→' : null, el('span', {}, id)]))]), el('div', { class: 'review-section' }, [el('h3', {}, t('environmentReview')), ...runtimeEnvironment(review.environment)])];
   if (data.isolation) nodes.push(el('details', { class: 'json-details', open: true }, [el('summary', {}, data.isolation.profile), el('pre', {}, JSON.stringify(data.isolation, null, 2))]));
+  for(const module of review.modules??[]) if(module.deployment?.dependencies) nodes.push(el('div',{class:'notice'},[el('h3',{},say('依赖准备','Dependency preparation')),el('p',{},say('启动时将在此实例的私有目录安装锁定的官方 npm 依赖；Electron 配方下载官方桌面运行时，不执行模块自定义安装命令。','Starting prepares locked official npm dependencies in this instance’s private directory. The Electron recipe downloads its official desktop runtime; module installation commands are not run.')),el('pre',{},JSON.stringify(module.deployment.dependencies,null,2))]));
   if (data.sourceReceipt?.publisherEvidence) nodes.push(advanced.publisherReport(data.sourceReceipt.publisherEvidence));
   if (data.sourceReceipt) nodes.push(el('details', { class: 'json-details', open: true }, [el('summary', {}, t('sourceReceipt')), el('p', {}, t('integrityNotIdentity')), el('pre', {}, JSON.stringify(data.sourceReceipt, null, 2))]));
   if (data.permissionDiff?.length) nodes.push(el('div', { class: 'notice notice-warning' }, [el('h3', {}, t('permissionChanges')), el('p', {}, t('changesRequireReview')), ...data.permissionDiff.map(change => el('div', { class: 'review-module' }, [el('h4', {}, change.module ?? '—'), ...Object.keys({ ...change.before, ...change.after }).filter(key => JSON.stringify(change.before?.[key]) !== JSON.stringify(change.after?.[key])).map(key => el('p', {}, `${key}: ${display(change.before?.[key])} → ${display(change.after?.[key])}`))]))]));

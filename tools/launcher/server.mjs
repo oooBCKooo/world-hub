@@ -16,7 +16,8 @@ function fields(body, allowed, required = []) {
     if (['accepted', 'redistributionAcknowledged', 'allowPrivateNetwork', 'enabled', 'observe'].includes(key)) { if (typeof value !== 'boolean') throw launcherError('INVALID_INPUT', `Invalid ${key}`, 400); }
     else if (['priority', 'revision', 'offset'].includes(key)) { if (!Number.isSafeInteger(value)) throw launcherError('INVALID_INPUT', `Invalid ${key}`, 400); }
     else if (key === 'expectedSha256' && value === '') { /* Explicitly clear an optional source pin. */ }
-    else if (['pack', 'component', 'values', 'identity', 'template', 'isolation', 'change', 'user', 'draft'].includes(key)) { if (!value || typeof value !== 'object' || Array.isArray(value)) throw launcherError('INVALID_INPUT', `Invalid ${key} object`, 400); }
+    else if (['pack', 'component', 'values', 'identity', 'template', 'isolation', 'change', 'user', 'draft','settings','topics','bridges'].includes(key)) { if (!value || typeof value !== 'object' || Array.isArray(value)) throw launcherError('INVALID_INPUT', `Invalid ${key} object`, 400); }
+    else if (['modules','bindings'].includes(key)) {if(!Array.isArray(value)||value.length>(key==='modules'?32:64)||value.some(item=>!item||typeof item!=='object'||Array.isArray(item)))throw launcherError('INVALID_INPUT',`Invalid ${key}`,400);}
     else if (key === 'statePolicies') { if (!Array.isArray(value) || value.length > 32 || value.some(policy => !policy || typeof policy !== 'object' || Array.isArray(policy))) throw launcherError('INVALID_INPUT', 'Invalid state policies', 400); }
     else if (key === 'replacements') {
       if (!Array.isArray(value) || value.length > 32) throw launcherError('INVALID_INPUT', 'Invalid replacements', 400);
@@ -65,7 +66,7 @@ export async function createLauncherServer(options = {}) {
       if (['cross-site', 'same-site'].includes(request.headers['sec-fetch-site'])
         && !(document && request.headers['sec-fetch-mode'] === 'navigate' && request.headers['sec-fetch-dest'] === 'document'))
         throw launcherError('LOCAL_ORIGIN_REQUIRED', 'Only same-origin API and resource requests are accepted.', 403);
-      if (request.method === 'GET' && ['/', '/index.html', '/app.mjs', '/advanced.mjs', '/completion-ui.mjs', '/publisher-ui.mjs', '/isolation-ui.mjs', '/path-ui.mjs', '/task-ui.mjs', '/icons.mjs', '/style.css', '/i18n.mjs'].includes(target.pathname)) {
+      if (request.method === 'GET' && ['/', '/index.html', '/app.mjs', '/advanced.mjs', '/asset-versions.mjs', '/deployment-ui.mjs', '/completion-ui.mjs', '/publisher-ui.mjs', '/isolation-ui.mjs', '/path-ui.mjs', '/task-ui.mjs', '/icons.mjs', '/style.css', '/i18n.mjs'].includes(target.pathname)) {
         const navigationKeys = document ? ['instance', 'runId', 'hubOrigin', 'bridgeId', 'session'] : [];
         if ([...target.searchParams.keys()].some(key => !navigationKeys.includes(key) || target.searchParams.getAll(key).length !== 1
           || target.searchParams.get(key).length > 4096)) throw launcherError('INVALID_INPUT', 'Unsupported navigation query.', 400);
@@ -92,6 +93,22 @@ export async function createLauncherServer(options = {}) {
       if (request.method === 'POST') body = await bodyOf(request);
       let result, status = 200;
       if (target.pathname === '/api/session' && request.method === 'GET') result = context();
+      else if (target.pathname === '/api/artifacts/import' && request.method === 'POST') { fields(body,['path','kind'],['path','kind']);result=await manager.importArtifact(body); }
+      else if (target.pathname === '/api/deployment/inspect' && request.method === 'POST') { fields(body,['directory'],['directory']);result=await manager.localPrograms.inspect(body.directory); }
+      else if (target.pathname === '/api/compositions/preview' && request.method === 'POST') { fields(body,['id','version','title','license','modules','entry'],['id','modules']);result=await manager.compositionPreview(body); }
+      else if (target.pathname === '/api/compositions/create' && request.method === 'POST') { fields(body,['reviewId','accepted'],['reviewId','accepted']);result=manager.compositionCreate(body);status=202; }
+      else if (target.pathname === '/api/programs' && request.method === 'GET') result={programs:await manager.localPrograms.programs()};
+      else if (target.pathname === '/api/programs/preview' && request.method === 'POST') {fields(body,['programId','directory','settings','topics','bridges','bindings','nodePath','pythonPath'],['programId','directory']);result=await manager.localPrograms.preview(body);}
+      else if (target.pathname === '/api/programs/register' && request.method === 'POST') {fields(body,['reviewId','accepted'],['reviewId','accepted']);result=await manager.localPrograms.register(body);}
+      else if (/^\/api\/programs\/[a-z0-9][a-z0-9._-]{0,63}\/(review|start|stop|logs)$/.test(target.pathname)) {
+        const [,id,action]=target.pathname.match(/^\/api\/programs\/([^/]+)\/(.+)$/);
+        if(action==='logs'&&request.method==='GET')result={logs:await manager.localPrograms.logs(id)};
+        else if(request.method==='POST'){
+          fields(body,action==='start'?['reviewId','accepted']:[],action==='start'?['reviewId','accepted']:[]);
+          if(action==='review')result=await manager.localPrograms.reviewStart(id);
+          else {result=manager.launch('local-'+action,'$local-'+id,(_,signal)=>action==='start'?manager.localPrograms.start(id,{...body,signal}):manager.localPrograms.stop(id));status=202;}
+        } else throw launcherError('NOT_FOUND','Unknown local program action',404);
+      }
       else if (target.pathname === '/api/paths/browse' && request.method === 'POST') { fields(body, ['directory', 'purpose', 'offset']); result = await manager.paths.browse(body); }
       else if (target.pathname === '/api/paths/check' && request.method === 'POST') { fields(body, ['path', 'purpose'], ['path']); result = await manager.paths.check(body); }
       else if (target.pathname === '/api/paths/known' && request.method === 'GET') result = await manager.paths.known(manager);

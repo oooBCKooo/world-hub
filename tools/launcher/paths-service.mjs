@@ -425,6 +425,7 @@ export class PathsService {
     }
     for (const object of this.discovered) { if (exhausted()) { partial = true; break; } await add(object.path); }
     await scan(cache);
+    await scan(join(this.root,'local-artifacts'));
     for (const record of manager.sourceRegistry.records) { if (exhausted()) { partial = true; break; } if (!/^https?:/i.test(record.source)) await add(record.source); }
     const executables = exhausted() ? {} : await discoverEnvironment(manager.defaults);
     for (const [runtimeKind, group] of Object.entries(executables)) for (const entry of group) {

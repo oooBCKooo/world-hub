@@ -74,7 +74,7 @@ export function ownProcess(executable, argv, { cwd, temporary, secrets, onFailur
       let event; try { event = JSON.parse(line); } catch { continue; }
       if (!event || typeof event !== 'object' || Array.isArray(event)) continue;
       if (event.event === 'ready' || event.event === 'module-ready') handle.ready = event;
-      if (['ready', 'module-ready', 'module-health'].includes(event.event)) {
+      if (['ready', 'module-ready', 'module-health', 'credentials-updated'].includes(event.event)) {
         handle.messages.push(event); if (handle.messages.length > 128) handle.messages.shift();
       }
       onEvent?.(event);
