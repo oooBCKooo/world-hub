@@ -27,7 +27,7 @@ async function fixture(mode) {
   await handle.waitFor(frame => frame.event === 'module-ready', 10000); const descendant = JSON.parse(await readFile(file, 'utf8')).pid;
   return { handle, descendant, failures };
 }
-for (const mode of ['graceful', 'forced', 'orphan']) test(`owned Host ${mode} retires its current child tree`, { skip: !supported, timeout: 60000 }, async () => {
+if (supported) for (const mode of ['graceful', 'forced', 'orphan']) test(`owned Host ${mode} retires its current child tree`, { timeout: 60000 }, async () => {
   const { handle, descendant, failures } = await fixture(mode);
   try {
     assert.equal(alive(descendant), true); assert.ok(handle.hostOwner.programPid);
@@ -38,6 +38,6 @@ for (const mode of ['graceful', 'forced', 'orphan']) test(`owned Host ${mode} re
     assert.equal(alive(descendant), false, 'real descendant must leave the owned Job/group');
   } finally { if (!handle.hostedLifecycle.retired) await handle.stop(500).catch(() => {}); }
 });
-test('unsupported systems refuse owned child-process deployment', { skip: supported }, async () => {
+if (!supported) test('unsupported systems refuse owned child-process deployment', async () => {
   await assert.rejects(ownHostedProcess(process.execPath, [], { ownedChildren: true }), { code: 'HOST_LIFECYCLE_UNSUPPORTED' });
 });
