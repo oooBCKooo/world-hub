@@ -30,6 +30,10 @@ Use `--port 0` for an assigned port, and `--node <executable>` or `--python <exe
 
 An accepted start or stop request is not proof that a process is running or has exited. Closing a browser tab does not stop an instance. Stop the backend with Ctrl+C and wait for its reported result. Unconfirmed cleanup retains diagnostics and the actual ownership needed to retry stopping; an old PID is not authority to terminate a process.
 
+Launcher accepts only the current `world-hub.pack-lock/v2` format. Its `hubVersion` records the product release used to generate the lock; it is not an import/start compatibility requirement. `hubCompatibility` must exactly match the current wire protocol (`0.1`) and module run-configuration API (`world-hub.run/v1`). A different recorded product release alone does not block import. Obsolete/unknown lock formats and unsupported contracts are refused, with no legacy implementation, automatic conversion or fallback. Source hashes, platform, interpreter and dependency versions remain strict requirements.
+
+For a current-format package whose interpreter or platform selection needs to change, the author can explicitly create and test a new lock, or use **Copy and rebuild lock** to verify the source and create a separately reviewed copy for the selected environment. This interface rejects obsolete/unknown formats. Existing Hub state and private backup restore retain separate checks against the actual Hub product release; matching communication contracts do not establish persistent-data compatibility.
+
 ## Paths, drafts and operations
 
 [The bilingual interaction guide](../launcher-ux.md#english) explains the local picker, bounded user-triggered discovery, recoverable private Creator drafts, tasks and results, responsive navigation and language selection.

@@ -1,21 +1,22 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/oooBCKooo/world-hub/docs/ecosystem/pack-lock.schema.json",
-  "title": "Exact local deployment source and environment lock, v1",
-  "$comment": "The file set and hashes cover carried module sources. Interpreter and Python dependency versions describe preinstalled environment compatibility; they do not prove identical binaries or OS isolation. Exact tree coverage, path safety and pack/module correspondence require the reference Runtime validator.",
+  "title": "Current local deployment source and environment lock, v2",
+  "$comment": "Only the current lock format is accepted. hubVersion records the release that produced this lock; hubCompatibility requires the current wire and Runtime configuration contracts. There is no older-format execution fallback. File sets and hashes cover carried module sources, with exact interpreter versions and platform constraints. Review trust includes the installed release and must be renewed after an upgrade. Exact tree coverage, path safety and pack/module correspondence require the reference Runtime validator.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "format",
     "pack",
     "hubVersion",
+    "hubCompatibility",
     "platform",
     "runtimes",
     "modules"
   ],
   "properties": {
     "format": {
-      "const": "world-hub.pack-lock/v1"
+      "const": "world-hub.pack-lock/v2"
     },
     "pack": {
       "type": "object",
@@ -49,11 +50,15 @@
       ],
       "properties": {
         "os": {
-          "type": "string", "minLength": 1, "maxLength": 32,
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
           "pattern": "^[^\\u0000]+$"
         },
         "arch": {
-          "type": "string", "minLength": 1, "maxLength": 32,
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
           "pattern": "^[^\\u0000]+$"
         }
       }
@@ -91,8 +96,13 @@
             "packages": {
               "type": "object",
               "maxProperties": 32,
-              "propertyNames": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$" },
-              "additionalProperties": { "$ref": "#/$defs/version" }
+              "propertyNames": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/version"
+              }
             }
           }
         }
@@ -142,6 +152,22 @@
               }
             }
           }
+        }
+      }
+    },
+    "hubCompatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wireVersion",
+        "runtimeApi"
+      ],
+      "properties": {
+        "wireVersion": {
+          "const": "0.1"
+        },
+        "runtimeApi": {
+          "const": "world-hub.run/v1"
         }
       }
     }

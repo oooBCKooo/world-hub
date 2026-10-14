@@ -12,6 +12,7 @@ import { writeExistingUserConfiguration } from './isolation-user.mjs';
 import { prepareDependencies } from './dependency-prepare.mjs';
 import { ownHostedProcess } from './host-process.mjs';
 import { deploymentTopics } from './deployment.mjs';
+import { RUNTIME_API } from './compatibility.mjs';
 export { inspectPackage, importPackage, createLock } from './package.mjs';
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -48,6 +49,7 @@ export async function startInstance(options) {
   if (isolation && options.isolationTrust !== isolation.digest) throw Object.assign(new Error('Review the current package isolation policy, Docker executable and image before starting'), { code: 'ISOLATION_REVIEW_REQUIRED' });
   if (!isolation && options.isolationTrust !== undefined) throw Object.assign(new Error('An isolation review cannot be used for trusted-local execution'), { code: 'ISOLATION_REVIEW_REQUIRED' });
   const recorded = await json(join(stateDir, 'instance.json'));
+  if (recorded.hubVersion !== plan.hubVersion) throw Object.assign(new Error('Hub state belongs to another or unknown installed release; state migration must be explicit.'), { code: 'INSTANCE_HUB_STATE_VERSION' });
   if (recorded.instanceId !== options.instanceId || recorded.digest !== plan.digest) throw new Error('Instance review has changed; export/reimport and review this package/environment before starting');
   const lockFile = join(stateDir, 'owner.lock'), nonce = randomUUID();
   await ordinaryPath(lockFile, { allowMissing: true });
@@ -183,7 +185,7 @@ export async function startInstance(options) {
       const bridges = Object.entries(c.bridges).map(([slot, acl]) => ({ slot, endpoint, bridgeId: identity(`runtime.${c.id}.${slot}`),
         credential: principal, principal, token: tokens.get(c.id), publish: acl.publish.map(k => plan.pack.topics[k]), subscribe: acl.subscribe.map(k => plan.pack.topics[k]) }));
       const config = userExecution ? join(componentState, `.runtime-${nonce}.json`) : join(runDir, `${c.id}.json`);
-      const configuration = { format: 'world-hub.run/v1', instanceId: options.instanceId, componentId: c.id,
+      const configuration = { format: RUNTIME_API, instanceId: options.instanceId, componentId: c.id,
         module: { id: m.manifest.id, version: m.manifest.version }, stateDir: componentState, settings: c.settings, topics: deploymentTopics(plan.pack,c,m.deployment?.deployment), peers, bindings:plan.pack.bindings, bridges,
         ...(deployed ? {deployment:deployed} : {}) };
       if (userExecution) { await writeExistingUserConfiguration(isolation.policy, config, configuration, plan.environment.node.executable); userConfigurationFiles.push(config); }

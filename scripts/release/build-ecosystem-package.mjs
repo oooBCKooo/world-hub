@@ -9,7 +9,8 @@ import { APPLICATION_FILES, SDK_FILES, SDK_DOCUMENTATION_FILES, MODULE_CONTRACT_
 import { zipDirectory } from './zip.mjs';
 import { verifyPackage } from './verify-package.mjs';
 import { collectFiles, ordinaryPath, readBounded, relativePath } from '../runtime/paths.mjs';
-import { validatePack, validateModule } from '../runtime/package.mjs';
+import { validatePack, validateModule, validateLock } from '../runtime/package.mjs';
+import { checkHubCompatibility } from '../runtime/compatibility.mjs';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -17,9 +18,9 @@ const exactKeys = (value, keys) => value !== null && typeof value === 'object' &
   && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
 const packPrefix = 'examples/ecosystem-pack/';
 const moduleFiles = {
-  source: ['module.json', 'program.mjs', 'bridge-kit.mjs', 'blob-client.mjs', 'LICENSE'],
-  stats: ['module.json', 'program.py', 'hub_bridge.py', 'requirements.txt', 'LICENSE'],
-  desk: ['module.json', 'program.mjs', 'bridge-kit.mjs', 'blob-client.mjs', 'index.html', 'ui.js', 'LICENSE'],
+  source: ['module.json', 'deployment.json', 'program.mjs', 'bridge-kit.mjs', 'blob-client.mjs', 'LICENSE'],
+  stats: ['module.json', 'deployment.json', 'program.py', 'hub_bridge.py', 'requirements.txt', 'LICENSE'],
+  desk: ['module.json', 'deployment.json', 'program.mjs', 'bridge-kit.mjs', 'blob-client.mjs', 'index.html', 'ui.js', 'LICENSE'],
 };
 export const ECOSYSTEM_PACK_FILES = Object.freeze(['README.md', 'pack.json', 'pack.lock',
   ...Object.entries(moduleFiles).flatMap(([id, names]) => names.map(name => `modules/${id}/${name}`))]
@@ -57,9 +58,9 @@ async function validateReferencePack(inputs, sourceRoot, version) {
   const packBytes = inputs.get(packPrefix + 'pack.json');
   const pack = JSON.parse(packBytes); validatePack(pack);
   const lock = JSON.parse(inputs.get(packPrefix + 'pack.lock'));
-  if (!exactKeys(lock, ['format', 'pack', 'hubVersion', 'platform', 'runtimes', 'modules'])
-      || !exactKeys(lock.pack, ['id', 'version', 'sha256']) || lock.format !== 'world-hub.pack-lock/v1' || lock.pack?.id !== pack.id || lock.pack?.version !== pack.version
-      || lock.pack?.sha256 !== hash(packBytes) || lock.hubVersion !== version) throw new Error('Sample pack lock identity or hash mismatch');
+  validateLock(lock); checkHubCompatibility(lock, version);
+  if (lock.pack.id !== pack.id || lock.pack.version !== pack.version
+      || lock.pack.sha256 !== hash(packBytes)) throw new Error('Sample pack lock identity or hash mismatch');
   if (!exactKeys(lock.runtimes, ['node', 'python']) || !exactKeys(lock.runtimes.node, ['version'])
       || !exactKeys(lock.runtimes.python, ['version', 'packages']) || lock.runtimes?.node?.version !== '22.23.2' || lock.runtimes?.python?.version !== '3.14.0'
       || lock.runtimes.python.packages?.websockets !== '15.0.1' || Object.keys(lock.runtimes.python.packages).length !== 1)

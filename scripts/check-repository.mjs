@@ -6,6 +6,7 @@ import { lstat, readdir, readFile } from 'node:fs/promises';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BUNDLED_TEMPLATE_FILES } from './release/build-package.mjs';
+import { validateLock } from './runtime/package.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const directories = ['bin', 'src', 'sdk', 'config', 'examples', 'tests', 'scripts', 'tools', 'docs', '.github'];
@@ -134,7 +135,8 @@ for (const path of paths) {
   if (path === ecosystemLock) {
     try {
       const lock = JSON.parse(content);
-      if (lock.format !== 'world-hub.pack-lock/v1' || !Array.isArray(lock.modules)
+      validateLock(lock);
+      if (!Array.isArray(lock.modules)
           || lock.modules.length !== 3 || !lock.modules.every(module => ['modules/source', 'modules/stats', 'modules/desk'].includes(module.source))) {
         reject(path, 'Only the public three-module sample lock is accepted');
       }
@@ -174,6 +176,7 @@ try {
   for (const lockPath of [ecosystemLock, ...templateLocks]) {
     try {
       const lock = JSON.parse((await publishBytes(lockPath)).toString('utf8'));
+      validateLock(lock);
       const prefix = dirname(lockPath).replaceAll('\\', '/');
       const locked = [
         { path: prefix + '/pack.json', sha256: lock.pack?.sha256 },

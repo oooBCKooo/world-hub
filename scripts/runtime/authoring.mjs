@@ -180,8 +180,8 @@ export async function derivePackage(source, options) {
   return { ...result, provenance, requiresNewExecutionReview: true };
   } catch (error) { error.incompleteDestination = destination; throw error; }
 }
-// Explicit lock migration is a creator action, never an import/start fallback.
-// The old content is checked even when its Hub/runtime versions are unavailable.
+// Rebuilds the environment of a current-format package after source checks.
+// Obsolete formats are rejected; import/start never rewrite a lock.
 export async function rebuildPackage(source, options) {
   cancelled(options); agreement(options);
   const directory = await ordinaryPath(source);
@@ -207,8 +207,8 @@ export async function rebuildPackage(source, options) {
     for (const m of modules) await copyTree(join(directory, m.source), m.files, join(destination, m.source), options);
     await createLock(destination, { ...options, moduleSources: lock.modules.map(m => m.source), pythonPackages: options.pythonPackages ?? lock.runtimes.python?.packages });
     const result = await inspectAuthoring(destination, options);
-    const oldRequirements = { hubVersion: lock.hubVersion, platform: lock.platform, runtimes: lock.runtimes };
-    const newRequirements = { hubVersion: result.review.lock.hubVersion, platform: result.review.lock.platform, runtimes: result.review.lock.runtimes };
+    const oldRequirements = { hubVersion: lock.hubVersion, hubCompatibility: lock.hubCompatibility, platform: lock.platform, runtimes: lock.runtimes };
+    const newRequirements = { hubVersion: result.review.lock.hubVersion, hubCompatibility: result.review.lock.hubCompatibility, platform: result.review.lock.platform, runtimes: result.review.lock.runtimes };
     const provenance = { format: 'world-hub.derivation/v1', operation: 'explicit-lock-rebuild', createdAt: new Date().toISOString(),
       from: { id: pack.id, version: pack.version, revision: baseRevision }, to: { id: result.pack.id, version: result.pack.version, revision: result.revision },
       oldRequirements, newRequirements, licenses: modules.map(m => ({ id: m.manifest.id, version: m.manifest.version, license: m.manifest.license })), redistributionAcknowledged: true };

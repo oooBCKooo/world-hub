@@ -73,6 +73,7 @@ export function createAdvancedUi(ctx) {
   function restoreForms(root) { for (const node of root?.querySelectorAll('form[data-form-key]') ?? []) restoreForm(node); }
   function rememberResult(kind, result) {
     if (!result || typeof result !== 'object') return;
+    if (kind === 'fetch') result = { ...result.entry, ...result };
     const row = { kind, result, at: new Date().toISOString() }, key = result.directory ?? result.destination ?? result.indexPath ?? result.instanceId ?? result.pythonPath;
     extra.results = [row, ...extra.results.filter(item => item.kind !== kind || (item.result.directory ?? item.result.destination ?? item.result.indexPath ?? item.result.instanceId ?? item.result.pythonPath) !== key)].slice(0, 32);
     try { localStorage.setItem(storageKey('results'), JSON.stringify(extra.results)); } catch {}
@@ -919,7 +920,19 @@ export function createAdvancedUi(ctx) {
           ])
         ], say('我已检查来源、网络策略和摘要，允许下载或复制该制品到本机缓存。', 'I reviewed the source, network policy, and digest and authorize downloading or copying this artifact to the local cache.'), async () => {
           const fetched = await operation(await api('/api/sources/fetch', { ...(data.sourceId && data.receiptId ? { sourceId: data.sourceId, receiptId: data.receiptId } : { source, indexDigest: data.digest, ...(allowPrivateNetwork ? { allowPrivateNetwork: true } : {}) }), entryId: entry.entryId }), 'fetch');
+          const downloaded = { ...fetched.entry, ...fetched, path: fetched.directory };
+          if (['module', 'template'].includes(downloaded.kind)) {
+            const hidden = getDeletedObjects();
+            for (const key of [assetDeletionKey(downloaded.kind, downloaded), `${downloaded.kind}:${String(downloaded.id).toLowerCase()}`, `${downloaded.kind}:${String(downloaded.path).toLowerCase()}`]) hidden.delete(key);
+            try { localStorage.setItem('world-hub.launcher.deleted-objects', JSON.stringify([...hidden])); } catch {}
+          }
           await loadKnown();
+          if (['module', 'template'].includes(downloaded.kind)) {
+            const group = groupAssets(downloaded.kind === 'module' ? getModules() : getTemplates(), { kind: downloaded.kind }).find(item => item.id === downloaded.id);
+            const option = group?.options.find(item => sameDirectory(item.path, downloaded.directory));
+            if (option) assetVersionSelection.select(group, option.key);
+            navigate(downloaded.kind === 'module' ? 'modules' : 'templates');
+          }
           const targetHint = entry.kind === 'module'
             ? say('已自动收录至“我的模块”，可在模块列表查看或装配。', 'Cataloged in My Modules.')
             : entry.kind === 'template'
@@ -3312,10 +3325,10 @@ export function createAdvancedUi(ctx) {
       if (row.kind === 'fetch' && row.result?.kind === 'module') {
         add({
           kind: 'module',
-          id: row.result.id,
-          version: row.result.version,
+          id: row.result.id ?? row.result.entry?.id,
+          version: row.result.version ?? row.result.entry?.version,
           path: row.result.directory,
-          title: row.result.title,
+          title: row.result.title ?? row.result.entry?.title,
           runtime: row.result.runtime,
           origin: 'cache'
         });
@@ -3352,10 +3365,10 @@ export function createAdvancedUi(ctx) {
       if (row.kind === 'fetch' && row.result?.kind === 'template') {
         add({
           kind: 'template',
-          id: row.result.id,
-          version: row.result.version,
+          id: row.result.id ?? row.result.entry?.id,
+          version: row.result.version ?? row.result.entry?.version,
           path: row.result.directory,
-          title: row.result.title,
+          title: row.result.title ?? row.result.entry?.title,
           origin: 'cache'
         });
       }

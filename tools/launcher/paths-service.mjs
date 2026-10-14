@@ -276,7 +276,7 @@ if ($res) { [Console]::Out.Write($res) }
 }
 
 export class PathsService {
-  constructor(root) { this.root = root; this.recents = []; this.discovered = []; this.queue = Promise.resolve(); this.children = new Set(); }
+  constructor(root) { this.root = root; this.recents = []; this.library = []; this.discovered = []; this.queue = Promise.resolve(); this.children = new Set(); }
   async close() {
     for (const child of this.children) {
       if (child.exitCode !== null || child.signalCode !== null) continue;
@@ -289,9 +289,14 @@ export class PathsService {
   }
   async initialize() {
     try {
-      const value = JSON.parse((await readBounded(join(this.root, 'launcher-paths.json'), 128 * 1024)).toString('utf8'));
+      const value = JSON.parse((await readBounded(join(this.root, 'launcher-paths.json'), 1024 * 1024)).toString('utf8'));
       if (value.format !== 'world-hub.launcher-paths/v1' || !Array.isArray(value.recents) || value.recents.length > 32) throw fault('PATH_RECENTS_INVALID', 'Inspect the private recent-path registry.');
       this.recents = value.recents.map(row => ({ path: absolute(row.path), purpose: purposeOf(row.purpose), usedAt: short(row.usedAt) ?? '' }));
+      if (value.library !== undefined && (!Array.isArray(value.library) || value.library.length > knownLimits.objects)) throw fault('PATH_LIBRARY_INVALID', 'Inspect the private downloaded-resource library.');
+      this.library = (value.library ?? []).map(row => {
+        if (!['module', 'pack', 'template'].includes(row.purpose)) throw fault('PATH_LIBRARY_INVALID', 'Unsupported downloaded-resource library kind.');
+        return { path: absolute(row.path), purpose: row.purpose, usedAt: short(row.usedAt) ?? '' };
+      });
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
   async roots() {
@@ -334,9 +339,17 @@ export class PathsService {
   async remember(input) {
     const purpose = purposeOf(input.purpose), checked = await this.check({ path: input.path, purpose });
     if ((!purpose.startsWith('save-') && !checked.exists) || checked.kind === 'blocked') throw fault('PATH_UNAVAILABLE', 'This path is unavailable.');
+    if (input.library === true && (!['module', 'pack', 'template'].includes(purpose) || checked.object?.kind !== purpose)) throw fault('PATH_LIBRARY_INVALID', 'Choose a complete downloaded resource directory for its library kind.');
     const action = this.queue.then(async () => {
-      this.recents = [{ path: checked.path, purpose, usedAt: new Date().toISOString() }, ...this.recents.filter(row => !same(row.path, checked.path) || row.purpose !== purpose)].slice(0, 32);
-      await privateJson(join(this.root, 'launcher-paths.json'), { format: 'world-hub.launcher-paths/v1', recents: this.recents });
+      const row = { path: checked.path, purpose, usedAt: new Date().toISOString() };
+      const recents = [row, ...this.recents.filter(row => !same(row.path, checked.path) || row.purpose !== purpose)].slice(0, 32);
+      const retained = this.library.filter(row => !same(row.path, checked.path) || row.purpose !== purpose);
+      if (input.library === true && retained.length >= knownLimits.objects) throw fault('PATH_LIBRARY_FULL', 'The downloaded-resource library is full (128 resources). Retain existing resources; no library entry was removed.');
+      const library = input.library === true ? [row, ...retained] : this.library;
+      const registry = { format: 'world-hub.launcher-paths/v1', recents, library };
+      if (Buffer.byteLength(JSON.stringify(registry)) > 1024 * 1024) throw fault('PATH_LIBRARY_LIMIT', 'The downloaded-resource and path registry exceeds its 1 MiB limit. No previous entry was removed.');
+      await privateJson(join(this.root, 'launcher-paths.json'), registry);
+      this.recents = recents; this.library = library;
       return { remembered: true, path: checked.path };
     }); this.queue = action.catch(() => {}); return action;
   }
@@ -385,11 +398,11 @@ export class PathsService {
     const objects = [], seen = new Set(), started = Date.now(); let scannedEntries = 0, scannedDirectories = 0, partial = false, skipped = 0;
     const exhausted = () => objects.length >= knownLimits.objects || scannedEntries >= knownLimits.entries
       || scannedDirectories >= knownLimits.directories || Date.now() - started >= knownLimits.milliseconds;
-    const add = async path => {
+    const add = async (path, metadata = {}) => {
       if (exhausted()) { partial = true; return; }
       if (seen.has(process.platform === 'win32' ? path.toLowerCase() : path)) return;
       seen.add(process.platform === 'win32' ? path.toLowerCase() : path);
-      try { const canonical = await ordinaryPath(path), info = await lstat(canonical); const object = info.isDirectory() ? await identifyDirectory(canonical) : info.isFile() ? await identifyFile(canonical, 'file', info) : null; if (object) objects.push({ ...object, ...(canonicalCache && same(dirname(canonical), canonicalCache) ? { origin: 'cache' } : {}) }); } catch {}
+      try { const canonical = await ordinaryPath(path), info = await lstat(canonical); const object = info.isDirectory() ? await identifyDirectory(canonical) : info.isFile() ? await identifyFile(canonical, 'file', info) : null; if (object) objects.push({ ...object, ...(canonicalCache && same(dirname(canonical), canonicalCache) ? { origin: 'cache' } : {}), ...metadata }); } catch {}
     };
     const scan = async directory => {
       if (exhausted()) { partial = true; return; }
@@ -404,9 +417,17 @@ export class PathsService {
         }
       } catch { skipped++; }
     };
-    const builtin = await this.builtinTemplates(manager);
+    // Explicitly downloaded resources persist independently of the 32-entry
+    // path history and precede opportunistic scans that can exhaust the budget.
+    for (const item of this.library) await add(item.path, { libraryRegistered: true });
+    const recents = [];
+    for (const recent of this.recents) {
+      let exists = false; try { await ordinaryPath(recent.path); exists = true; } catch {}
+      recents.push({ ...recent, exists }); if (exists) await add(recent.path);
+    }
+    const builtin = exhausted() ? { candidates: [], partial: true, scannedEntries: 0 } : await this.builtinTemplates(manager);
     partial ||= builtin.partial; scannedEntries += builtin.scannedEntries ?? 0;
-    for (const candidate of builtin.candidates) { if (exhausted()) { partial = true; break; } objects.push(candidate); seen.add(process.platform === 'win32' ? candidate.path.toLowerCase() : candidate.path); }
+    for (const candidate of builtin.candidates) { if (exhausted()) { partial = true; break; } const key = process.platform === 'win32' ? candidate.path.toLowerCase() : candidate.path; if (!seen.has(key)) { objects.push(candidate); seen.add(key); } }
     if (manager.defaults.packDirectory) {
       await add(manager.defaults.packDirectory);
       await scan(join(manager.defaults.packDirectory, 'modules'));
@@ -417,11 +438,6 @@ export class PathsService {
       const pkgDir = join(this.root, 'instances', row.instanceId, row.detached ? 'detached-package' : 'package');
       await add(pkgDir);
       await scan(join(pkgDir, 'modules'));
-    }
-    const recents = [];
-    for (const recent of this.recents) {
-      let exists = false; try { await ordinaryPath(recent.path); exists = true; } catch {}
-      recents.push({ ...recent, exists }); if (exists) await add(recent.path);
     }
     for (const object of this.discovered) { if (exhausted()) { partial = true; break; } await add(object.path); }
     await scan(cache);

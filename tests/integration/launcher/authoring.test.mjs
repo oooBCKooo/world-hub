@@ -5,7 +5,7 @@ import { join, dirname, basename, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { inspectAuthoring, derivePackage, rebuildPackage, exportProposal, applyProposal, readComments, addComment, exportComments, importComments } from '../../../scripts/runtime/authoring.mjs';
-import { readSourceIndex, publishArtifact, fetchSourceArtifact, validateSourceIndex } from '../../../scripts/runtime/sources.mjs';
+import { readSourceIndex, publishArtifact, fetchSourceArtifact, validateSourceIndex, validateArtifactBytes } from '../../../scripts/runtime/sources.mjs';
 import { createLock, importPackage } from '../../../scripts/runtime/package.mjs';
 import { startInstance } from '../../../scripts/runtime/runtime.mjs';
 import { hash } from '../../../scripts/runtime/paths.mjs';
@@ -116,11 +116,20 @@ test('SOURCES-01 pack and module publication, retrieval and offline cache work w
   const app = await setup(t); const cacheRoot = join(app.root, 'cache');
   const marker = join(app.root, 'entry-was-executed');
   await writeFile(join(app.directory, 'modules/one/program.mjs'), `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'unauthorized execution');\n`);
-  await createLock(app.directory, environment); app.model = await inspectAuthoring(app.directory, environment);
+  await createLock(app.directory, environment);
+  const lock = await json(join(app.directory, 'pack.lock')); lock.hubVersion = '0.18.0';
+  await save(join(app.directory, 'pack.lock'), lock); app.model = await inspectAuthoring(app.directory, environment);
   for (const kind of ['pack', 'module']) {
     const publication = await publishArtifact(kind === 'pack' ? app.directory : join(app.directory, 'modules/one'),
       { ...agreed, destination: join(app.root, `${kind}-publication`), kind });
     assert.equal(publication.publishedRemotely, false);
+    if (kind === 'pack') {
+      const bytes = await readFile(publication.artifactPath), artifact = JSON.parse(bytes), locked = artifact.files.find(f => f.path === 'pack.lock');
+      assert.equal(validateArtifactBytes(bytes).artifact.kind, 'pack');
+      const obsolete = JSON.parse(Buffer.from(locked.base64, 'base64')); obsolete.format = 'world-hub.pack-lock/v1'; delete obsolete.hubCompatibility;
+      const changed = Buffer.from(JSON.stringify(obsolete)); locked.base64 = changed.toString('base64'); locked.sha256 = hash(changed);
+      assert.throws(() => validateArtifactBytes(artifact), /Unsupported lock format/);
+    }
     const source = await readSourceIndex(publication.indexPath), entry = source.index.entries[0];
     const fetched = await fetchSourceArtifact(publication.indexPath, source.digest, entry.entryId, { cacheRoot });
     assert.equal(fetched.kind, kind); assert.equal(fetched.startsModules, false); assert.equal(fetched.cached, false);
@@ -188,11 +197,12 @@ test('CREATOR-06 cancelled authoring and publication do not create destinations'
   await assert.rejects(lstat(destination), { code: 'ENOENT' });
 });
 
-test('CREATOR-07 explicit old-lock rebuild copies verified files into a new current-environment package', options, async t => {
+test('CREATOR-07 explicit environment relock copies current-format verified files into a new package', options, async t => {
   const app = await setup(t), lockFile = join(app.directory, 'pack.lock');
-  const old = await json(lockFile); old.hubVersion = '0.1.0'; old.runtimes.node.version = '1.0.0'; await save(lockFile, old);
+  const old = await json(lockFile);
+  old.hubVersion = '0.1.0'; old.runtimes.node.version = '1.0.0'; await save(lockFile, old);
   const before = await readFile(lockFile);
-  await assert.rejects(inspectAuthoring(app.directory, environment), /Hub version mismatch/);
+  await assert.rejects(inspectAuthoring(app.directory, environment), /node version mismatch/i);
   await assert.rejects(rebuildPackage(app.directory, { ...environment, destination: join(app.root, 'no-ack') }), /redistribution rights/);
   const rebuilt = await rebuildPackage(app.directory, { ...agreed, destination: join(app.root, 'rebuilt') });
   assert.equal(rebuilt.oldRequirements.hubVersion, '0.1.0'); assert.equal(rebuilt.oldRequirements.runtimes.node.version, '1.0.0');

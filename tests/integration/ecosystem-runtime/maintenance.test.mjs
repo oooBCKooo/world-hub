@@ -72,6 +72,50 @@ async function altered(app, source, change) {
   const file = join(app.directory, `altered-${randomUUID()}.whbackup`); await writeFile(file, encode(archive)); return file;
 }
 
+test('MAINTENANCE-CURRENT-01 backup records the actual state writer instead of lock-generation release metadata', options, async t => {
+  const app = await workspace(t), lock = await json(join(app.pack, 'pack.lock'));
+  lock.hubVersion = '0.18.0'; await save(join(app.pack, 'pack.lock'), lock);
+  const imported = await importPackage(app.pack, { root: app.root, instanceId: 'metadata', ...environment });
+  const identity = await json(join(imported.stateDir, 'instance.json'));
+  assert.equal(identity.hubVersion, (await json(join(ROOT, 'package.json'))).version);
+  const destination = join(app.directory, 'metadata.whbackup');
+  await backupInstance({ root: app.root, instanceId: 'metadata', destination, ...environment });
+  const checked = await inspectBackup(destination);
+  assert.equal(checked.compatible, true);
+  assert.equal(checked.backup.hubVersion, identity.hubVersion);
+  const restored = await restoreInstance({ root: app.root, instanceId: 'metadata-restored', backup: destination, ...environment });
+  assert.equal((await json(join(restored.stateDir, 'instance.json'))).hubVersion, identity.hubVersion);
+  assert.equal((await json(join(restored.stateDir, 'package/pack.lock'))).hubVersion, '0.18.0');
+});
+
+test('MAINTENANCE-CURRENT-02 unknown or different state writers cannot start, back up or reattach', options, async t => {
+  const app = await workspace(t), identityFile = join(app.imported.stateDir, 'instance.json'), original = await json(identityFile);
+  for (const hubVersion of [undefined, '999.0.0']) {
+    const identity = { ...original }; if (hubVersion === undefined) delete identity.hubVersion; else identity.hubVersion = hubVersion;
+    await save(identityFile, identity);
+    await assert.rejects(app.start(app.imported.instanceId, app.imported.digest), { code: 'INSTANCE_HUB_STATE_VERSION' });
+    const destination = join(app.directory, `writer-${hubVersion ?? 'unknown'}.whbackup`);
+    await assert.rejects(backupInstance({ root: app.root, instanceId: 'original', destination, ...environment }), { code: 'INSTANCE_HUB_STATE_VERSION' });
+    assert.equal(await exists(destination), false);
+  }
+  await save(identityFile, original); await detachInstance({ root: app.root, instanceId: 'original', ...environment });
+  await save(identityFile, { ...original, hubVersion: '999.0.0' });
+  await assert.rejects(reattachInstance({ root: app.root, instanceId: 'original', ...environment }), { code: 'INSTANCE_HUB_STATE_VERSION' });
+  assert.equal(await exists(join(app.imported.stateDir, 'package')), false);
+});
+
+test('MAINTENANCE-CURRENT-03 archived obsolete lock formats are rejected before restoring any data', options, async t => {
+  const app = await workspace(t), snapshot = await app.archive();
+  const obsolete = await altered(app, snapshot.destination, v => {
+    const index = v.header.files.findIndex(f => f.path === 'package/pack.lock'), lock = JSON.parse(v.bodies[index]);
+    lock.format = 'world-hub.pack-lock/v1'; delete lock.hubCompatibility;
+    const body = Buffer.from(JSON.stringify(lock)); v.bodies[index] = body; v.header.files[index].bytes = body.length; v.header.files[index].sha256 = sha(body);
+  });
+  await assert.rejects(inspectBackup(obsolete), { code: 'PACK_LOCK_OBSOLETE' });
+  await assert.rejects(restoreInstance({ root: app.root, instanceId: 'obsolete', backup: obsolete, ...environment }), { code: 'PACK_LOCK_OBSOLETE' });
+  assert.equal(await exists(join(app.root, 'instances/obsolete')), false);
+});
+
 test('MAINTENANCE-01 confirmed-stop backup and new-root restore preserve real JS/Python business data and regenerate runtime secrets', options, async t => {
   const app = await workspace(t), first = await app.start('original', app.imported.digest);
   const text = '持久业务 🌍\nIndependent modules';

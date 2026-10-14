@@ -23,20 +23,35 @@ test('PHASE18-WORKSHOP real author/user HTTP closure, immutable updates, indepen
   const report = { format: 'world-hub.workshop-closure-report/v1', version: JSON.parse(await readFile(new URL('../../../package.json', import.meta.url))).version,
     passed: false, humanIndependentAcceptance: 'pending', transport: 'real-loopback-HTTP-to-static-local-mirror',
     limitations: ['Local actors are automated test roles, not two independent human authors.', 'Production HTTPS download, browser usability and publisher signature identity are separate acceptance scopes.'], checks: [], failures: [] };
-  let workshop, launcher; const ownedPids = new Set();
+  let workshop, launcher; const ownedProcesses = new Map();
   const rememberProcesses = instance => {
-    if (instance.status.hub?.pid) ownedPids.add(instance.status.hub.pid);
-    for (const component of instance.status.components ?? []) if (component.pid) ownedPids.add(component.pid);
+    const session = launcher.manager.sessions.get(instance.id);
+    assert.ok(session, 'The started instance must retain its actual Runtime ownership session');
+    assert.equal(session.ready.instanceId, instance.id);
+    const pids = [instance.status.hub?.pid, ...instance.status.components.map(component => component.pid)];
+    assert.equal(session.children.length, pids.length, 'Remember every owned Hub and module process');
+    for (const handle of session.children) {
+      assert.ok(pids.includes(handle.pid), 'Process handle must belong to this reported Runtime run');
+      ownedProcesses.set(instance.status.runId + ':' + handle.pid, { runId: instance.status.runId, handle });
+    }
   };
   t.after(async () => {
     if (launcher) await launcher.close(); if (workshop) await workshop.close();
-    report.processes = [...ownedPids].map(pid => { let aliveAfterCleanup = false; try { process.kill(pid, 0); aliveAfterCleanup = true; } catch {} return { pid, aliveAfterCleanup }; });
+    report.processes = [...ownedProcesses.values()].map(({ runId, handle }) => {
+      // A numeric PID may already belong to another concurrent test's child.
+      // Require the retained child object's actual close receipt instead of
+      // identifying an owned process through a reusable operating-system ID.
+      const exitConfirmed = Boolean(handle.exit && !handle.cleanupIncomplete
+        && (handle.child.exitCode !== null || handle.child.signalCode !== null));
+      let pidPresentAfterCleanup = false; try { process.kill(handle.pid, 0); pidPresentAfterCleanup = true; } catch {}
+      return { pid: handle.pid, runId, exit: handle.exit, exitConfirmed, pidPresentAfterCleanup, aliveAfterCleanup: !exitConfirmed };
+    });
     if (report.processes.some(value => value.aliveAfterCleanup)) report.passed = false;
     await saveJson(join(evidence.directory, 'report.json'), report); await saveLatestEvidence(evidence, report);
     t.diagnostic('WORKSHOP_PHASE18_EVIDENCE ' + JSON.stringify({ report: join(evidence.directory, 'report.json'), checks: report.checks.length }));
     assert.equal(dirname(directory), resolve(tmpdir())); assert.ok(basename(directory).startsWith('world-hub-workshop-phase18-'));
     await rm(directory, { recursive: true, force: true });
-    for (const process of report.processes) assert.equal(process.aliveAfterCleanup, false, `Owned runtime process ${process.pid} survived cleanup`);
+    for (const process of report.processes) assert.equal(process.exitConfirmed, true, `Owned runtime process ${process.pid} in run ${process.runId} has no confirmed close receipt`);
   });
   const check = (step, details = {}) => report.checks.push({ step, ...details });
   const serverRoot = join(directory, 'workshop-private'), localRoot = join(directory, 'launcher-private');

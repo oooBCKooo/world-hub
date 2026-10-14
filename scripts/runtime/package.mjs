@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { hash, relativePath, ordinaryPath, readBounded, privateJson, processCwd, processPath, checkPythonExecutablePath } from './paths.mjs';
 import { readSourceManifest, collectSourceFiles } from './source-guidance.mjs';
 import { inspectDeployment } from './deployment.mjs';
+import { PACK_LOCK_FORMAT_V2, currentHubCompatibility, validateHubCompatibility, checkHubCompatibility } from './compatibility.mjs';
 
 export const repository = fileURLToPath(new URL('../../', import.meta.url));
 const idPattern = /^[a-z0-9][a-z0-9._-]{0,63}$/;
@@ -125,8 +126,10 @@ async function interpreter(command, kind, packages = {}) {
   return actual;
 }
 export function validateLock(lock) {
-  closed(lock, ['format', 'pack', 'hubVersion', 'platform', 'runtimes', 'modules'], 'lock');
-  if (lock.format !== 'world-hub.pack-lock/v1') throw new Error('Unsupported lock format');
+  object(lock, 'lock');
+  if (lock.format !== PACK_LOCK_FORMAT_V2) throw Object.assign(new Error('Unsupported lock format. Obtain a current package from its publisher; older lock formats are not supported.'), { code: 'PACK_LOCK_OBSOLETE' });
+  closed(lock, ['format', 'pack', 'hubVersion', 'hubCompatibility', 'platform', 'runtimes', 'modules'], 'lock');
+  validateHubCompatibility(lock.hubCompatibility);
   closed(lock.pack, ['id', 'version', 'sha256'], 'locked pack'); safeId(lock.pack.id); version(lock.pack.version);
   if (!sha.test(lock.pack.sha256)) throw new Error('Invalid pack hash');
   version(lock.hubVersion); closed(lock.platform, ['os', 'arch'], 'locked platform');
@@ -147,6 +150,7 @@ export function validateLock(lock) {
     for (const f of m.files) { closed(f, ['path', 'sha256'], 'locked file'); relativePath(f.path); if (!sha.test(f.sha256)) throw new Error('Invalid file hash'); }
   }
   for (const a of lock.modules) for (const b of lock.modules) if (a !== b && b.source.toLowerCase().startsWith(a.source.toLowerCase() + '/')) throw new Error('Overlapping module source trees');
+  return lock;
 }
 async function loadJson(file) { const raw = ['module.json', 'pack.json'].includes(file.split(/[\\/]/).at(-1))
   ? await readSourceManifest(dirname(file), file.split(/[\\/]/).at(-1)) : await readBounded(file);
@@ -169,7 +173,7 @@ export async function inspectPackage(packDirectory, options = {}) {
   if (lock.pack.id !== pack.id || lock.pack.version !== pack.version || lock.pack.sha256 !== hash(packBytes)) throw new Error('Pack lock identity or content hash mismatch');
   if (lock.platform.os !== process.platform || lock.platform.arch !== process.arch) throw new Error(`Incompatible platform: requires ${lock.platform.os}-${lock.platform.arch}`);
   const hubVersion = JSON.parse(await readFile(join(repository, 'package.json'), 'utf8')).version;
-  if (lock.hubVersion !== hubVersion) throw new Error(`Hub version mismatch: expected ${lock.hubVersion}, installed ${hubVersion}`);
+  const hubCompatibility = checkHubCompatibility(lock, hubVersion);
   const modules = [];
   for (const locked of lock.modules) {
     const source = join(directory, locked.source);
@@ -205,8 +209,10 @@ export async function inspectPackage(packDirectory, options = {}) {
     if (environment[kind].version !== pinned.version) throw new Error(`${kind} version mismatch: expected ${pinned.version}, found ${environment[kind].version}`);
   }
   if(modules.some(module=>module.deployment?.dependencies?.recipes.includes('electron')) && (Number(environment.node.version.split('.')[0])<22 || environment.node.version.startsWith('22.')&&Number(environment.node.version.split('.')[1])<12))throw new Error('The Electron deployment recipe requires Node 22.12.0 or newer');
-  const digest = hash(JSON.stringify({ packBytes: hash(packBytes), lockBytes: hash(lockBytes), modules, environment }));
-  return { format: 'world-hub.review/v1', digest, directory, pack, lock, modules, order: ordered.map(c => c.id), environment,
+  // A contract-compatible release upgrade still needs a fresh execution review.
+  // Trust from a different installed release never carries over silently.
+  const digest = hash(JSON.stringify({ packBytes: hash(packBytes), lockBytes: hash(lockBytes), modules, environment, hubVersion, hubCompatibility }));
+  return { format: 'world-hub.review/v1', digest, directory, pack, lock, modules, order: ordered.map(c => c.id), environment, hubVersion, hubCompatibility,
     startsModules: false, sandbox: false, permissions: modules.map(m => ({ module: m.manifest.id, declared: m.manifest.permissions, enforced: false })) };
 }
 export async function createLock(packDirectory, options = {}) {
@@ -226,8 +232,9 @@ export async function createLock(packDirectory, options = {}) {
     const packages = options.pythonPackages ?? { websockets: '15.0.1' };
     const python = await interpreter(options.pythonPath, 'python', packages); runtimes.python = { version: python.version, packages: python.packages };
   }
-  const lock = { format: 'world-hub.pack-lock/v1', pack: { id: pack.id, version: pack.version, sha256: hash(raw) },
+  const lock = { format: PACK_LOCK_FORMAT_V2, pack: { id: pack.id, version: pack.version, sha256: hash(raw) },
     hubVersion: JSON.parse(await readFile(join(repository, 'package.json'), 'utf8')).version,
+    hubCompatibility: currentHubCompatibility(),
     platform: { os: process.platform, arch: process.arch }, runtimes, modules: modules.sort((a, b) => a.id.localeCompare(b.id, 'en')) };
   validateLock(lock);
   if (options.write !== false) await privateJson(join(directory, 'pack.lock'), lock);
@@ -255,6 +262,6 @@ export async function importPackage(packDirectory, options) {
   const copied = await inspectPackage(join(stateDir, 'package'), options);
   // Digest excludes deployment location; copies with identical bytes/environment have identical reviews.
   if (copied.digest !== plan.digest) throw new Error('Source package changed while importing; review the incomplete import before removing it');
-  await privateJson(join(stateDir, 'instance.json'), { format: 'world-hub.instance/v1', instanceId: options.instanceId, digest: plan.digest, importedAt: new Date().toISOString() }, { exclusive: true });
+  await privateJson(join(stateDir, 'instance.json'), { format: 'world-hub.instance/v1', instanceId: options.instanceId, digest: plan.digest, hubVersion: plan.hubVersion, importedAt: new Date().toISOString() }, { exclusive: true });
   return { instanceId: options.instanceId, stateDir, digest: plan.digest, plan: copied };
 }

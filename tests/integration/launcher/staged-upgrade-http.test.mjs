@@ -22,7 +22,8 @@ test('STAGED-HTTP stopped old instance, exact preview, new registered candidate 
   const review = await call('/api/review', { directory }); await call('/api/instances', { reviewId: review.reviewId, instanceId: 'old' });
   const start = async id => {
     const reviewed = await call(`/api/instances/${id}/review`, {});
-    const result = await finish(await call(`/api/instances/${id}/start`, { reviewId: reviewed.reviewId, accepted: true }, 202)); app.observe(result.status); return result;
+    const result = await finish(await call(`/api/instances/${id}/start`, { reviewId: reviewed.reviewId, accepted: true }, 202));
+    app.observe(result.status); app.trackSession(server.manager.sessions.get(id)); return result;
   };
   const old = await start('old'); await analyze(old.links.entryUrl, 'retain private old state 🌍');
   const candidate = join(app.directory, 'candidate'); await cp(directory, candidate, { recursive: true });

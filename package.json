@@ -60,6 +60,7 @@
     "examples/templates/*/base/pack.json",
     "examples/templates/*/base/pack.lock",
     "examples/templates/*/base/modules/*/module.json",
+    "examples/templates/*/base/modules/*/deployment.json",
     "examples/templates/*/base/modules/*/*.mjs",
     "examples/templates/*/base/modules/*/*.py",
     "examples/templates/*/base/modules/*/*.txt",

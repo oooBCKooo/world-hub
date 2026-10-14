@@ -9,6 +9,7 @@ import { createLock, inspectPackage, importPackage, startInstance, statusInstanc
 import { createTemplate, inspectTemplate, previewTemplate, instantiateTemplate, validateTemplate, validateTemplateFiles } from '../../../scripts/runtime/template.mjs';
 import { publishArtifact, readSourceIndex, fetchSourceArtifact, validateArtifactBytes } from '../../../scripts/runtime/sources.mjs';
 import { WorkshopStore } from '../../../tools/workshop/store.mjs';
+import { PACK_LOCK_FORMAT_V2, currentHubCompatibility } from '../../../scripts/runtime/compatibility.mjs';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -37,8 +38,9 @@ async function fixture(directory) {
     bindings: [], entry: { component: 'fixture' }, startupTimeoutMs: 1000, healthTimeoutMs: 1000, stopTimeoutMs: 1000 };
   await save(join(source, 'pack.json'), pack);
   const files = await Promise.all(['module.json', 'program.mjs'].map(async path => ({ path, sha256: hash(await readFile(join(module, path))) })));
-  await save(join(source, 'pack.lock'), { format: 'world-hub.pack-lock/v1', pack: { id: pack.id, version: pack.version, sha256: hash(await readFile(join(source, 'pack.json'))) },
-    hubVersion: JSON.parse(await readFile(join(root, 'package.json'))).version, platform: { os: process.platform, arch: process.arch }, runtimes: { node: { version: process.versions.node } }, modules: [{ id: 'template.fixture', version: '1.0.0', source: 'modules/fixture', files }] });
+  await save(join(source, 'pack.lock'), { format: PACK_LOCK_FORMAT_V2, pack: { id: pack.id, version: pack.version, sha256: hash(await readFile(join(source, 'pack.json'))) },
+    hubVersion: JSON.parse(await readFile(join(root, 'package.json'))).version, hubCompatibility: currentHubCompatibility(),
+    platform: { os: process.platform, arch: process.arch }, runtimes: { node: { version: process.versions.node } }, modules: [{ id: 'template.fixture', version: '1.0.0', source: 'modules/fixture', files }] });
   const template = join(directory, 'template'); await createTemplate(source, { destination: template, template: declaration(), redistributionAcknowledged: true });
   return { source, template, sentinel, pack };
 }

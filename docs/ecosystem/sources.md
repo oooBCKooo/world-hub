@@ -6,6 +6,10 @@ Verified fetches produce backend provenance receipts bound to the actual index a
 
 Software sources are optional distribution inputs. Local package inspection, import, start, stop and export continue to work when every source is unavailable. They have no role in Hub routing or program business logic. Third parties can implement the following formats without an official account, website or GUI.
 
+Pack artifacts and Template base packs must use the current `world-hub.pack-lock/v2`. Obsolete formats are rejected at artifact validation and local execution, without conversion or fallback. `hubVersion` records lock generation; the exact current wire and Runtime configuration contracts determine whether the package can run. A source refresh can withdraw an obsolete listing without modifying a downloaded file or a running instance.
+
+整合包及模板的基础包必须使用当前 `world-hub.pack-lock/v2`。制品校验与本地运行都拒绝旧格式，不转换、不降级。`hubVersion` 只记录生成锁时的发行版本，当前通信与运行配置契约决定能否运行。官方资源更新后，在软件源中刷新并获取当前版本；旧缓存不会自动变成新版，也不会自动更新已启动程序。
+
 ## Index version 1
 
 The optional [hosted Workshop](workshop.md) serves the same open index and artifact formats at `https://peros.cn/workshop/index.json`. Community accounts are required for publication and collaboration; reading and fetching this source require no login. Local execution remains a separate review and authorization step.

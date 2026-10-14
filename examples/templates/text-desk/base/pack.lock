@@ -1,11 +1,15 @@
 {
-  "format": "world-hub.pack-lock/v1",
+  "format": "world-hub.pack-lock/v2",
   "pack": {
     "id": "demo.polyglot",
-    "version": "1.1.4",
-    "sha256": "1be051d13cb507bf690f31e24630ebc9137d9b1bc45c2fc7cf7e0ccba72a76fa"
+    "version": "1.1.5",
+    "sha256": "83910166aab54370909b2b02fe10fbaf038fb82705fab4352c2ba073b4370274"
   },
   "hubVersion": "0.19.0",
+  "hubCompatibility": {
+    "wireVersion": "0.1",
+    "runtimeApi": "world-hub.run/v1"
+  },
   "platform": {
     "os": "win32",
     "arch": "x64"
@@ -24,7 +28,7 @@
   "modules": [
     {
       "id": "demo.desk",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "source": "modules/desk",
       "files": [
         {
@@ -36,6 +40,10 @@
           "sha256": "29d48753667397ebde47d492f2d366b7fc646161f7115b5355e2923f871038c7"
         },
         {
+          "path": "deployment.json",
+          "sha256": "3fea92e9f5740f5d25577c508331f70f4cd8e8b4a446427ac02bf8f877503b6b"
+        },
+        {
           "path": "index.html",
           "sha256": "10903595a45b46be324e2a0e27659e29133d7c08dfda2d691609bb417e57b521"
         },
@@ -45,11 +53,11 @@
         },
         {
           "path": "module.json",
-          "sha256": "eeea5e2e6a53516494a5e42309be98207b365811352df9676e666bd2967a6255"
+          "sha256": "54f8f2e101f1460dfd42ec039f91d1996738d089f49e7bc7ee3fee9b689ccd7f"
         },
         {
           "path": "program.mjs",
-          "sha256": "4bd8a53248d6e045aebb7ea85287e257f4137ce785880c8510c410f0a816bff0"
+          "sha256": "50ba329460f724c5c7444e4eac02dab3174137f1dde76e0712f569deeacfa692"
         },
         {
           "path": "ui.js",
@@ -59,7 +67,7 @@
     },
     {
       "id": "demo.source",
-      "version": "1.0.0",
+      "version": "1.0.3",
       "source": "modules/source",
       "files": [
         {
@@ -71,24 +79,32 @@
           "sha256": "29d48753667397ebde47d492f2d366b7fc646161f7115b5355e2923f871038c7"
         },
         {
+          "path": "deployment.json",
+          "sha256": "c5ca49038362c625c6ab39265698ef8d0ada352a8aa5b357e1767aa32a0db7dd"
+        },
+        {
           "path": "LICENSE",
           "sha256": "e8ea5d5d1c47a3e1987afb046d86b55f4d3ef5bcb56ca0eb37ac7c7830a768c8"
         },
         {
           "path": "module.json",
-          "sha256": "28fa03b397c8c7ec5a27611bf38ce6d2a5d771beebcea3daf825779af69b8dd9"
+          "sha256": "a31a90160bd1083ca2ca1ea00526dfcfe1685f43d5ac1512e50b27661d2853da"
         },
         {
           "path": "program.mjs",
-          "sha256": "80ae991e817c6dc3321191c30ddffb4189fe65bc7b7750c64c0b3428b9f3f276"
+          "sha256": "d1e7f364414c47b12adfac1aa9e505698606b9dc9e0a4d4215d04cd38803c0f8"
         }
       ]
     },
     {
       "id": "demo.stats",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "source": "modules/stats",
       "files": [
+        {
+          "path": "deployment.json",
+          "sha256": "39e83f11911425c7f7683c346b2c91254ab6ea15cd7b0bc090deddb65b4dcdee"
+        },
         {
           "path": "hub_bridge.py",
           "sha256": "6ce792c5f440b871faa9a5961a00ede742e8d32f746a66257d296286eee6aae0"
@@ -99,11 +115,11 @@
         },
         {
           "path": "module.json",
-          "sha256": "2cd0a5f9629358666f2af5d20928acd3b7a20c67b0331cc1fec09369bec14c73"
+          "sha256": "8a63ed33a1f9c314bb5259ecd4a487b8d1e6f8bfe3d02ab7e1cc56b4ad6d7296"
         },
         {
           "path": "program.py",
-          "sha256": "4322a51627aab836d4552585c24778b399762a8977c4638e095b71e7676c34ae"
+          "sha256": "321acbe1a4bca99bfb4ee9b612dfd887376bb84e69b6469099bb3d6efebfbefe"
         },
         {
           "path": "requirements.txt",

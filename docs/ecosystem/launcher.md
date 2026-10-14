@@ -59,6 +59,8 @@ world-hub ui --inspect-lock --root F:\hub-instances
 
 检查使用宿主的平台／架构和 pack.lock 的要求，核对已选择解释器的真实路径、版本、二进制 SHA-256 及预安装依赖版本。Node 默认使用运行工具的 Node；Python 依照 Runtime 的默认查找规则或用户明确选择的路径解析。
 
+整合包只支持当前 `world-hub.pack-lock/v2`。`hubVersion` 表示生成锁时所用的产品发布版本；通信协议与启动配置 API 的要求写在 `hubCompatibility` 中。二者与当前实现一致时，不会只因生成版本记录不同而拒绝导入。旧格式、未知格式及不支持的契约拒绝，需由作者提供当前整合包；Launcher 不保留旧协议或自动转换旧锁。平台、解释器、依赖和源码摘要检查保持严格。
+
 Windows 自动准备的私有 venv，其规范化 `Scripts/python.exe` 完整路径须少于 248 字符。超过时在生成计划前明确拒绝，不下载或创建环境；可选择较短的 Launcher root，或使用短目录中已准备的解释器。实例和模块源码目录独立支持长路径。选择已有的长目录 Windows venv 也会在探测／启动前拒绝，避免系统重定向器挂起。
 
 **检查会执行所选解释器的固定版本和依赖探针。** 探针不执行包入口或安装脚本。解释器本身必须受信任；检查不是完全不执行程序的文件扫描。
@@ -69,7 +71,7 @@ Windows 自动准备的私有 venv，其规范化 `Scripts/python.exe` 完整路
 
 准备完成后，用户仍须明确选择新 Python 路径，再检查包并导入新实例；旧的实例和执行授权不会自动迁移。venv 隔离 Python 依赖，不是 OS 沙箱，不能强制限制模块文件或网络访问。Node 使用已安装解释器或便携包内的 Node，其他依赖准备仍由用户完成。
 
-锁定要求不符合新宿主时，由包作者通过 `world-hub-pack lock` 明确重建并验收 package。创作工作台还提供“复制并重建锁”：即使旧包的 Hub 或解释器版本已经不匹配，也先验证其旧锁对应的源文件，再经用户审阅原始来源、当前环境、许可和新目录，复制并生成当前环境的新锁。原包保持不变；新包须重新检查和授权。重新锁定改变审阅对象，Launcher 不在检查、导入或启动中静默修改锁文件。
+当前 v2 包的锁定环境不符合新宿主时，由包作者通过 `world-hub-pack lock` 明确重新生成并验收 package。创作工作台还提供“复制并重建锁”：先验证当前 v2 锁对应的完整源文件，再经用户审阅来源、所选环境、许可和新目录，复制并生成新锁。旧格式或未知格式不能走此重建接口，应向作者取得当前包。原包保持不变；新包须重新检查和授权。重新锁定改变审阅对象，Launcher 不在检查、导入或启动中静默修改锁文件。
 
 ## 对当前审阅内容授权
 
@@ -85,7 +87,7 @@ Windows 自动准备的私有 venv，其规范化 `Scripts/python.exe` 完整路
 
 私有备份保存锁定软件包、业务持久状态和必要配置，排除 Runtime 生成的 runs、control、status、owner 文件及顶层临时目录。程序可能把个人数据或凭据自行写入业务状态，所以备份仍可能包含秘密，必须放在私有目录，不能作为公开整合包发布。备份校验摘要用于检测损坏，不能保证内容安全。
 
-“从私有备份恢复”先检查备份清单、内容摘要、平台与 Hub／锁定环境兼容性，再显示来源实例、时间、内容数量和 SHA-256。明确授权后只恢复到新的实例 ID 与尚不存在的目录，拒绝覆盖已有实例；恢复前再次核对显示的摘要。新实例使用新的实际 Hub 身份和运行凭据，之后仍需重新审阅并授权启动。受限参考 profile 不承诺不同平台或硬件环境间无条件迁移。
+“从私有备份恢复”先检查备份清单、内容摘要、平台与实际 Hub 发布版本，再显示来源实例、时间、内容数量和 SHA-256。已有 Hub 数据继续使用保守的实际发布版本检查，不能由源包的通信契约推断存储迁移。明确授权后只恢复到新的实例 ID 与尚不存在的目录，拒绝覆盖已有实例；恢复前再次核对显示的摘要。新实例使用新的实际 Hub 身份和运行凭据，之后仍需重新审阅并授权启动。受限参考 profile 不承诺不同平台或硬件环境间无条件迁移。
 
 “保留数据卸载”将软件移入当前实例的私有 `detached-package` 隔离目录，保留业务数据和软件，不删除文件，也不声称释放磁盘空间。重新关联先审阅隔离目录中当前的软件与环境，用户确认后恢复 package；不会自动启动。公开导出与私人备份含义不同，导出仅复制可共享软件组合。
 
@@ -185,7 +187,7 @@ Launcher 使用独立的 UI 会话 bearer 和 CSRF token。页面读取启动地
 | `POST /api/backups/inspect`、`restore` | 检查 `{backup}`；恢复 `{backup,sha256,instanceId,nodePath?,pythonPath?,accepted:true}` 到新实例 |
 | `POST /api/authoring/inspect`、`derive` | 读取 `{directory,...environment}`；派生含完整 edited `pack`、`replacements`、`expectedRevision`、新的 `destination` 和 `redistributionAcknowledged:true` |
 | `POST /api/authoring/addition-preview` | `{directory,componentId,moduleDirectory,pack?,component?,replacements?,expectedRevision?,...environment}` 检查新增模块、桥槽、设置、依赖与环境，不执行模块 |
-| `POST /api/authoring/rebuild` | `{directory,destination,redistributionAcknowledged:true,...environment}` 核对旧锁源码，再复制到新目录并生成当前环境的新锁，不执行 |
+| `POST /api/authoring/rebuild` | `{directory,destination,redistributionAcknowledged:true,...environment}` 核对当前 v2 锁源码，再复制到新目录并生成所选环境的新锁，不执行 |
 | `POST /api/authoring/proposal`、`apply-proposal` | 导出草稿提案；在 `proposalDirectory` 指定提案并核对基线后生成新目录 |
 | `POST /api/authoring/read-comments`、`comments` | 读取目录评论；添加 `{directory,author,text,expectedRevision}` |
 | `POST /api/authoring/export-comments`、`import-comments` | 导出到新文件；按 `{directory,source,expectedRevision}` 导入并拒绝版本冲突 |

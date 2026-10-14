@@ -10,7 +10,7 @@ import { detectEnvironment, discoverEnvironment } from './environment.mjs';
 import { planPythonEnvironment, preparePythonEnvironment, cleanupPreparedEnvironment } from './environment-prepare.mjs';
 import { backupInstance, inspectBackup, restoreInstance, storageInstance, detachInstance, reattachInstance, withStoppedInstance } from '../../scripts/runtime/maintenance.mjs';
 import { inspectAuthoring, previewReplacement, previewAddition, derivePackage, rebuildPackage, exportProposal, applyProposal, addComment, readComments, exportComments, importComments } from '../../scripts/runtime/authoring.mjs';
-import { readSourceIndex, fetchSourceArtifact, publishArtifact } from '../../scripts/runtime/sources.mjs';
+import { readSourceIndex, fetchSourceArtifact, publishArtifact, validateArtifactBytes } from '../../scripts/runtime/sources.mjs';
 import { loopbackUrl, mapTopology, managementLink } from './topology.mjs';
 import { diagnose } from './diagnostics.mjs';
 import { SourceRegistry } from './source-registry.mjs';
@@ -86,7 +86,7 @@ export class LauncherManager {
   environment(input = {}) { return { nodePath: input.nodePath ?? this.defaults.nodePath, pythonPath: input.pythonPath ?? this.defaults.pythonPath }; }
   async importArtifact(input) {
     const result=await importLocalArtifact({root:this.root,...input});
-    await this.paths.remember({path:result.object.path,purpose:result.object.kind});return result;
+    await this.paths.remember({path:result.object.path,purpose:result.object.kind,library:true});return result;
   }
   async compositionPreview(input) {
     const preview=await previewComposition(input),reviewId=randomUUID();
@@ -594,7 +594,16 @@ export class LauncherManager {
       } else if (input.sourceId) throw launcherError('SOURCE_REVIEW_REQUIRED', 'Inspect the registered source and supply its current receiptId.');
       const result = await fetchSourceArtifact(chosen.source, indexDigest, input.entryId, { cacheRoot: join(this.root, 'source-cache'), publisherTrustRoot: this.root, allowPrivateNetwork: chosen.allowPrivateNetwork, signal });
       await this.sourceRegistry.assertCurrent(chosen);
-      return { ...result, sourceReceipt: await this.sourceRegistry.recordFetch(chosen, { ...result, indexDigest }) };
+      const bytes = await readBounded(join(this.root, 'source-cache', `${result.entry.sha256}.artifact.json`), 96 * 1024 * 1024);
+      const validated = validateArtifactBytes(bytes);
+      if (validated.entry.sha256 !== result.entry.sha256 || validated.artifact.kind !== result.kind
+          || validated.manifest.id !== result.entry.id || validated.manifest.version !== result.entry.version)
+        throw launcherError('SOURCE_CONTENT_CHANGED', 'Fetched artifact identity or contents changed before library registration.');
+      const sourceReceipt = await this.sourceRegistry.recordFetch(chosen, { ...result, indexDigest });
+      await this.paths.remember({ path: result.directory, purpose: result.kind, library: true });
+      return { ...result, id: validated.manifest.id, version: validated.manifest.version, title: result.entry.title,
+        ...(result.kind === 'module' ? { runtime: validated.manifest.runtime, provides: validated.manifest.provides, requires: validated.manifest.requires } : {}),
+        libraryRegistered: true, sourceReceipt };
     });
   }
   async logs(id) {

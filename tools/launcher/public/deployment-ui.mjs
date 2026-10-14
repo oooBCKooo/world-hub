@@ -18,7 +18,8 @@ export function createDeploymentUi(ctx) {
   const field=(title,input)=>el('label',{},[el('span',{},title),input]);
   function settingsFields(deployment,settings) {
     return (deployment?.settings??[]).map(item=>{
-      const input=el('input',{type:item.type==='number'?'number':item.type==='boolean'?'checkbox':'text',...(item.min!==undefined?{min:item.min}:{}),...(item.max!==undefined?{max:item.max}:{}),'aria-label':label(item.label)});
+      const multiline=item.type==='string'&&/[\r\n]/.test(item.default);
+      const input=el(multiline?'textarea':'input',{...(multiline?{rows:4}:{type:item.type==='number'?'number':item.type==='boolean'?'checkbox':'text'}),...(item.min!==undefined?{min:item.min}:{}),...(item.max!==undefined?{max:item.max}:{}),'aria-label':label(item.label)});
       if(item.type==='boolean')input.checked=settings[item.key];else input.value=settings[item.key];
       input.addEventListener('change',()=>{settings[item.key]=item.type==='boolean'?input.checked:item.type==='number'?Number(input.value):input.value;});
       return field(label(item.label),input);

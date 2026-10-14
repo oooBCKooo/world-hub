@@ -6,6 +6,7 @@ import { LauncherManager, launcherError } from './manager.mjs';
 import { ordinaryPath, readBounded } from '../../scripts/runtime/paths.mjs';
 import { diagnose } from './diagnostics.mjs';
 import { acquireLauncherOwner, defaultLauncherRoot } from './owner-lock.mjs';
+import { currentHubCompatibility } from '../../scripts/runtime/compatibility.mjs';
 
 const secret = () => randomBytes(32).toString('base64url');
 const equals = (a, b) => typeof a === 'string' && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -39,7 +40,10 @@ async function requirements(directory) {
     await ordinaryPath(directory);
     const value = JSON.parse((await readBounded(join(resolve(directory), 'pack.lock'))).toString('utf8'));
     const short = text => typeof text === 'string' ? text.slice(0, 128) : null;
-    return { hubVersion: short(value.hubVersion), platform: { os: short(value.platform?.os), arch: short(value.platform?.arch) },
+    const installedHubVersion = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')).version;
+    return { format: short(value.format), generatedWithHubVersion: short(value.hubVersion), installedHubVersion,
+      hubCompatibility: value.hubCompatibility ? { wireVersion: short(value.hubCompatibility.wireVersion), runtimeApi: short(value.hubCompatibility.runtimeApi) } : null,
+      currentHubCompatibility: currentHubCompatibility(), platform: { os: short(value.platform?.os), arch: short(value.platform?.arch) },
       runtimes: Object.fromEntries(['node', 'python'].filter(kind => value.runtimes?.[kind]).map(kind => [kind, { version: short(value.runtimes[kind].version),
         ...(kind === 'python' ? { packages: Object.fromEntries(Object.entries(value.runtimes[kind].packages ?? {}).slice(0, 32).map(([name, version]) => [name.slice(0, 64), short(version)])) } : {}) }])) };
   } catch { return null; }
@@ -190,9 +194,14 @@ export async function createLauncherServer(options = {}) {
       send(response, status, { ok: true, ...result });
     } catch (error) {
       const reqs = directory ? await requirements(directory) : null;
+      const diagnostic = diagnose(error);
       send(response, error.status ?? (directory ? 422 : 409), { ok: false, error: { code: error.code ?? (directory ? 'REVIEW_FAILED' : 'LAUNCHER_ERROR'), message: String(error.message).slice(0, 2048),
-        ...(error.incompleteDestination ? { incompleteDestination: error.incompleteDestination } : {}) }, diagnostic: diagnose(error),
-        ...(reqs ? { requirements: reqs, guidance: ['Choose a matching preinstalled interpreter and dependency version, or explicitly rebuild the package lock as its author; inspect again.'] } : {}) });
+        ...(error.compatibility ? { compatibility: error.compatibility } : {}),
+        ...(error.incompleteDestination ? { incompleteDestination: error.incompleteDestination } : {}) }, diagnostic,
+        ...(reqs ? { requirements: reqs, ...(['missing-interpreter', 'dependency', 'compatibility'].includes(diagnostic.kind) ? { guidance: [{
+          zh: '在“环境”中选择与锁要求匹配的已安装解释器和依赖，然后重新检查资源。',
+          en: 'Select installed interpreters and dependencies matching the lock in Environment, then inspect the resource again.'
+        }] } : {}) } : {}) });
     }
   });
   server.requestTimeout = 15000; server.headersTimeout = 15000; server.keepAliveTimeout = 1000;

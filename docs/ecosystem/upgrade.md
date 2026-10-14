@@ -35,6 +35,10 @@ await trial.close();
 
 这是可选外部 Runtime 的维护事务，Hub Core 不解释程序的数据格式或选择迁移策略。候选 Pack 必须已完整锁定，当前与候选组件 ID 集合保持相同，Hub 精确版本及宿主环境兼容。需要更改组件集合或 Hub 版本时，先使用私人备份、新实例恢复与作者明确的迁移方案。
 
+这里只接受当前 `pack-lock/v2`，没有旧格式运行分支。`pack.lock.hubVersion` 是生成记录；原位升级核对的是实例 `instance.json.hubVersion` 记录的实际 Hub 状态写入版本与当前安装版本。两个包的生成记录不同本身不阻止升级，但未知或不同的状态写入版本会拒绝升级、启动与备份。通信契约一致不代表旧状态可直接交给当前实现。
+
+**English — current format and state ownership.** Only current `pack-lock/v2` packages are accepted. The lock's `hubVersion` is generation metadata. In-place upgrades check the actual Hub state writer recorded in `instance.json.hubVersion` against the installed release. Different generation metadata does not block an upgrade; an unknown or different state writer blocks upgrade, start and backup. Matching communication contracts does not establish state compatibility.
+
 每个组件必须提供一种明确策略，工具不猜测兼容性：
 
 ```json

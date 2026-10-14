@@ -2,7 +2,7 @@
 import { lstat, mkdir, open, readdir, rename, rm, unlink } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { instancePath, inspectPackage, repository, safeId, validateModule, validatePack } from './package.mjs';
+import { instancePath, inspectPackage, repository, safeId, validateModule, validatePack, validateLock } from './package.mjs';
 import { ordinaryPath, privateJson, readBounded, relativePath } from './paths.mjs';
 
 const MAGIC = Buffer.from('WORLD-HUB-INSTANCE-BACKUP/1\n', 'ascii');
@@ -165,6 +165,7 @@ export async function backupInstance(options) {
 export async function backupStoppedInstance(directory, stopped, options) {
     const source = await exists(join(directory, 'detached.json')) ? 'detached-package' : 'package';
     const plan = await inspectPackage(join(directory, source), options);
+    if (stopped.identity.hubVersion !== plan.hubVersion) throw fault('INSTANCE_HUB_STATE_VERSION', 'Hub state belongs to another or unknown installed release; state migration must be explicit.');
     const destination = await ordinaryPath(options.destination, { allowMissing: true });
     if (within(directory, destination)) {
       const transactionId = options.maintenanceTransactionId;
@@ -177,7 +178,7 @@ export async function backupStoppedInstance(directory, stopped, options) {
     const contents = await persistentFiles(directory, plan, options.signal), { files, directories } = contents;
     const createdAt = new Date().toISOString();
     const header = { format: FORMAT, private: true, excludesGeneratedRuntimeFiles: true, mayIncludeApplicationSecrets: true, createdAt,
-      sourceInstanceId: options.instanceId, platform: plan.lock.platform, hubVersion: plan.lock.hubVersion,
+      sourceInstanceId: options.instanceId, platform: plan.lock.platform, hubVersion: stopped.identity.hubVersion,
       pack: { id: plan.pack.id, version: plan.pack.version },
       consistency: stopped.status ? 'confirmed-stopped' : 'never-started',
       directories, files: files.map(({ sourcePath, ...file }) => file) };
@@ -296,8 +297,8 @@ async function readArchive(file, options = {}, visitor) {
 function validateArchivedPackage(header, manifests) {
   const pack = manifests.get('package/pack.json'), lock = manifests.get('package/pack.lock');
   validatePack(pack);
-  if (!lock || lock.format !== 'world-hub.pack-lock/v1' || lock.hubVersion !== header.hubVersion
-      || JSON.stringify(lock.platform) !== JSON.stringify(header.platform) || lock.pack?.id !== pack.id || lock.pack?.version !== pack.version
+  validateLock(lock);
+  if (JSON.stringify(lock.platform) !== JSON.stringify(header.platform) || lock.pack?.id !== pack.id || lock.pack?.version !== pack.version
       || header.pack.id !== pack.id || header.pack.version !== pack.version || !Array.isArray(lock.modules) || lock.modules.length < 1 || lock.modules.length > 32)
     throw fault('BACKUP_INVALID', 'Backup and package lock metadata disagree');
   const packFile = header.files.find(f => f.path === 'package/pack.json');
@@ -389,7 +390,7 @@ export async function restoreInstance(options) {
     }
     const plan = await inspectPackage(join(stateDir, 'package'), options);
     await privateJson(join(stateDir, 'instance.json'), { format: 'world-hub.instance/v1', instanceId: options.instanceId,
-      digest: plan.digest, importedAt: new Date().toISOString(), restoredFrom: { sha256: checked.sha256,
+      digest: plan.digest, hubVersion: plan.hubVersion, importedAt: new Date().toISOString(), restoredFrom: { sha256: checked.sha256,
         sourceInstanceId: checked.backup.sourceInstanceId, createdAt: checked.backup.createdAt } }, { exclusive: true });
     complete = true;
     return { instanceId: options.instanceId, stateDir, digest: plan.digest, plan,
@@ -449,6 +450,7 @@ export async function reattachInstance(options) {
       throw fault('INSTANCE_INVALID', 'Detached instance metadata is invalid');
     if (await exists(join(directory, 'package'))) throw fault('INSTANCE_INVALID', 'Active package already exists');
     const plan = await inspectPackage(join(directory, 'detached-package'), options);
+    if (stopped.identity.hubVersion !== plan.hubVersion) throw fault('INSTANCE_HUB_STATE_VERSION', 'Hub state belongs to another or unknown installed release; state migration must be explicit.');
     if (options.trust !== undefined && options.trust !== plan.digest) throw fault('REVIEW_CHANGED', 'Detached software differs from the reviewed content and environment');
     await rename(join(directory, 'detached-package'), join(directory, 'package'));
     try {

@@ -18,6 +18,10 @@ world-hub-pack start --root F:\hub-instances --instance desk-one --trust $review
 
 `plan` 读取 pack、锁、module 及完整源文件，检查平台、契约绑定、部署依赖、来源路径与内容，并返回权限声明和 review digest。摘要包括 pack／锁／完整模块文件字节、权限、环境探针结果，以及所选解释器解析后的真实路径与二进制 SHA-256。`import` 完成同样验证后将锁定包复制到新实例目录，拒绝覆盖已有实例。导入不启动模块或安装依赖。`start` 在前台监督进程；`--trust` 必须准确匹配当前已审阅的摘要，所有内容和运行环境在启动前再次校验。修改接线、源码、权限或所选解释器后需要重新审阅。
 
+当前只接受 `world-hub.pack-lock/v2`。锁中的 `hubVersion` 是生成时产品发布版本记录；实际核对的是 `hubCompatibility` 中的当前通信协议 `0.1` 和启动配置 API `world-hub.run/v1`。产品发布版本记录不同本身不阻止导入。旧格式、缺少契约或不支持的契约均拒绝，不降级运行、不自动迁移。源码摘要、OS／架构、解释器和依赖版本要求保持严格。
+
+**English — current lock only.** Runtime accepts only `world-hub.pack-lock/v2`. The recorded `hubVersion` is generation metadata, while the exact current `hubCompatibility` wire and run-configuration contracts govern import and start. Obsolete/unknown formats and unsupported contracts are rejected with no fallback. Source hashes, platform, interpreter and dependency checks remain strict. Existing Hub data and backup restore have a separate conservative check against the actual Hub product release; communication compatibility alone never implies a state migration.
+
 检查为了核对宿主依赖，会启动用户选择的解释器，执行固定的版本和依赖探针；这是受信任解释器的运行，不是“完全不执行任何程序”。探针不运行包入口、不读取安装脚本、不自动修复环境。Python 依赖应在用户管理的环境中先准备好。检查失败提供具体环境或锁不匹配原因，不能把缺依赖误报成模块业务失败。
 
 作者在修改源码或明确选择另一个环境后，使用 `world-hub-pack lock <pack-directory> --node <node-executable> --python <python-executable>` 显式重建 `pack.lock`。这个动作改变后续审阅摘要，不能替代用户检查新内容；不在 import／start 中自动执行。
@@ -168,7 +172,7 @@ console.log(await session.closed);
 
 | API | 参数与稳定结果 |
 | --- | --- |
-| `inspectPackage(packDirectory, {nodePath?,pythonPath?})` | plan：`format:"world-hub.review/v1"`、`digest`、`directory`、`pack`、`lock`、`modules`、`order`、`environment`、`startsModules:false`、`sandbox:false`、`permissions` |
+| `inspectPackage(packDirectory, {nodePath?,pythonPath?})` | plan：`format:"world-hub.review/v1"`、`digest`、`directory`、`pack`、`lock`、`modules`、`order`、`environment`、`hubVersion`、`hubCompatibility`、`startsModules:false`、`sandbox:false`、`permissions` |
 | `createLock(packDirectory, {nodePath?,pythonPath?,moduleSources?,pythonPackages?,write?})` | 默认扫描 `modules` 直接子目录并写锁；`write:false` 仅返回 lock；`pythonPackages` 指定待核对的预安装包版本，默认 `websockets:15.0.1` |
 | `importPackage(packDirectory, {root,instanceId,nodePath?,pythonPath?})` | 新实例 `{instanceId,stateDir,digest,plan}`；不覆盖已有实例 |
 | `startInstance({root,instanceId,trust,nodePath?,pythonPath?,signal?,isolation?,isolationTrust?})` | session：`ready`、`status()`、`close()`、`closed` Promise；`signal` 是可选 AbortSignal，可停止启动等待；可选容器执行须同时提供策略及单独审阅摘要，见[隔离 profile](isolation.md)；重复 close 复用当前停止过程，清理未确认可再次请求；closed 返回停止尝试的状态，仍须核对 stoppedAt／cleanupIncomplete |
@@ -177,7 +181,7 @@ console.log(await session.closed);
 | `stopInstance({root,instanceId})` | 请求停止并返回确认过的终态；完成 deadline 有限 |
 | `exportInstance({root,instanceId,destination,nodePath?,pythonPath?})` | `{destination,digest,includesRuntimeState:false}`；目标必须尚不存在 |
 
-`modules` 的条目为 `{manifest,source,files}`；`environment` 的 Node／Python条目含 `executable`、`version`、`packages`、`sha256`。`permissions` 条目包含 module ID、`declared` 和 `enforced:false`。review digest 绑定当前环境与内容，不绑定导入目录，因此完整复制后可以保持同一审阅摘要。
+`modules` 的条目为 `{manifest,source,files}`；`environment` 的 Node／Python条目含 `executable`、`version`、`packages`、`sha256`。review 的 `hubVersion` 是当前实际安装版本，锁中的同名字段是生成版本记录；`hubCompatibility` 给出所需与当前契约、两份版本记录及检查结果。`permissions` 条目包含 module ID、`declared` 和 `enforced:false`。review digest 绑定当前安装版本、环境与内容，不绑定导入目录，因此完整复制后可以保持同一审阅摘要。Hub 发布版本升级后，即使契约相同也需要新的执行审阅，旧授权不自动沿用。
 
 `pack-ready` 含 `instanceId`、`entryUrl`（没有 HTTP 入口可为 null）、`hubUrl`、`hubEndpoint`、`controlUrl`、`stateDir`、`pids`。runtime-status 的 format 为 `world-hub.runtime-status/v1`，`state` 为 `starting`／`running`／`stopping`／`stopped`／`failed`，并包含本次 runId、reviewDigest、components 与 hub。每组件分别报告 process、communication、readiness、health、预期桥及实际桥连接／session。实际桥项区分 `declaredId`（模块声明的桥名）与 Hub 快照的 `bridgeId`。`failure` 包含诊断 code／message。`stoppedAt` 用于确认本次所属进程已经实际退出，不能由旧状态推断新运行已停止。没有 stoppedAt 且 `cleanupIncomplete:true` 表示清理未能确认，不能显示为已停止。Launcher 不能只根据 `pack-stopped` 事件名、failed 状态或 closed Promise 完成就判定所有进程已退出。
 
@@ -213,9 +217,9 @@ Hub ACL 只授予通信范围；能力契约的 permissions 只声明业务要�
 
 Runtime 不自动重试业务、重放未确认请求、release 消息或回滚应用数据。程序停止、本地等待超时和探针失败不证明请求未执行；SDK ACK 不代表成果完成，更不释放提供者信息。程序自主管理幂等、恢复、迟到结果和释放。
 
-更新可以显式检查新 package 并导入新实例，或者对已停止实例使用[审阅升级与完整数据回滚](upgrade.md)。所有数据兼容或转换策略由程序作者提供。创作工具可校验旧源锁后复制到新目录并明确重建当前环境的锁；它不会替旧运行授权。私人备份与恢复另有停止一致性和精确版本约束，不解释程序的数据格式。源码版本回退不保证业务数据回退；导出 package 也不是数据备份。离线运行仍需本地环境满足锁定依赖，Workshop 或其他线上社区不是启动依赖。
+更新可以显式检查新 package 并导入新实例，或者对已停止实例使用[审阅升级与完整数据回滚](upgrade.md)。所有数据兼容或转换策略由程序作者提供。创作工具只读取当前 v2 源锁，核对完整源码后复制到新目录并明确重建所选环境的锁；它不会替新副本授予运行授权。私人备份与恢复另有停止一致性和实际 Hub 发布版本检查，不因源包通信契约匹配而放开已有存储的迁移。源码版本回退不保证业务数据回退；导出 package 也不是数据备份。离线运行仍需本地环境满足锁定依赖，Workshop 或其他线上社区不是启动依赖。
 
-实例维护接口与 CLI 见[私人备份、恢复及存储](maintenance.md)，新目录派生、旧锁重建、评论与协作 API 见[创作工具](authoring.md)，可替换分发来源见[开放软件源](sources.md)。这些接口也由 `world-hub/runtime` 导出。
+实例维护接口与 CLI 见[私人备份、恢复及存储](maintenance.md)，新目录派生、当前格式环境重锁、评论与协作 API 见[创作工具](authoring.md)，可替换分发来源见[开放软件源](sources.md)。这些接口也由 `world-hub/runtime` 导出。
 
 继续阅读：[pack 声明与源码锁](pack-spec.md)、[Python 桥](../../sdk/python/README.md)、[JavaScript 桥](../../sdk/javascript/README.md)、[Hub 边界](../specs/boundaries.md)。
 

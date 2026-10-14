@@ -34,10 +34,17 @@ try {
   if (process.argv.length !== 4 || process.argv[2] !== '--runtime-config') throw fault('CLI_INVALID');
   const config = JSON.parse(await readFile(resolve(process.argv[3]), 'utf8'));
   const connection = config.bridges?.find(item => item.slot === 'main');
-  const caller = config.peers?.desk?.principal, topic = config.topics?.source;
+  const topic = config.topics?.source;
   if (config.format !== 'world-hub.run/v1' || !connection || typeof config.stateDir !== 'string'
-      || typeof caller !== 'string' || typeof topic !== 'string'
+      || typeof config.componentId !== 'string' || !Array.isArray(config.bindings) || !object(config.peers)
+      || typeof topic !== 'string'
       || !connection.publish.includes(topic) || !connection.subscribe.includes(topic)) throw fault('CONFIG_INVALID');
+  const callers = new Set(config.bindings.filter(binding => binding.from === config.componentId
+    && binding.contract?.id === contract.id && binding.contract.version === contract.version).map(binding => {
+    const principal = config.peers[binding.to]?.principal;
+    if (typeof principal !== 'string' || !principal) throw fault('CONFIG_INVALID');
+    return principal;
+  }));
   await mkdir(config.stateDir, { recursive: true });
   const filename = join(config.stateDir, 'source.json');
   let state;
@@ -63,7 +70,7 @@ try {
       const failure = code => ({ ok: false, kind: 'ecosystem.text-result', contract, invocationId,
         provider: config.module.id, error: { code, retryable: false } });
       let result;
-      if (message.fromPrincipal !== caller) result = failure('PERMISSION_DENIED');
+      if (!callers.has(message.fromPrincipal)) result = failure('PERMISSION_DENIED');
       else if (!object(body?.contract) || Object.keys(body.contract).length !== 2
           || body.contract.id !== contract.id || body.contract.version !== contract.version) result = failure('CONTRACT_MISMATCH');
       else if (!object(body) || !['read', 'set'].includes(body.command) || !invocationId

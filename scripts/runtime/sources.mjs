@@ -155,7 +155,7 @@ function validateArtifact(artifact) {
   const manifest = getJson(artifact.kind === 'pack' ? 'pack.json' : artifact.kind === 'template' ? 'template.json' : 'module.json');
   if (artifact.kind === 'pack') {
     validatePack(manifest); const lock = getJson('pack.lock'); validateLock(lock);
-    if (lock.format !== 'world-hub.pack-lock/v1' || lock.pack?.sha256 !== hash(decoded.find(v => v.path === 'pack.json').bytes)
+    if (lock.pack?.sha256 !== hash(decoded.find(v => v.path === 'pack.json').bytes)
         || lock.pack.id !== manifest.id || lock.pack.version !== manifest.version || !Array.isArray(lock.modules)
         || lock.modules.length < 1 || lock.modules.length > 32 || !lock.platform || typeof lock.platform.os !== 'string' || typeof lock.platform.arch !== 'string') throw new Error('Invalid distributed pack lock');
     const allowed = new Set(['pack.json', 'pack.lock']);

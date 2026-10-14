@@ -9,6 +9,7 @@ import { ordinaryPath, privateJson, readBounded, hash } from '../../scripts/runt
 import { collectSourceFiles } from '../../scripts/runtime/source-guidance.mjs';
 import { ownProcess } from '../../scripts/runtime/process.mjs';
 import { validateDeploymentSettings } from '../../scripts/runtime/deployment.mjs';
+import { RUNTIME_API } from '../../scripts/runtime/compatibility.mjs';
 
 const FORMAT = 'world-hub.launcher-local-programs/v1', REVIEW_AGE = 10 * 60000;
 const error = (code, message, status = 409) => Object.assign(new Error(message), { code, status });
@@ -229,7 +230,7 @@ export class LocalPrograms {
       const bridges = Object.entries(row.bridges).map(([slot, acl]) => ({ slot, endpoint, bridgeId: `local.${hash(id + ':' + slot).slice(0, 24)}`, credential: identity.principal, principal: identity.principal,
         token: secret, publish: acl.publish.map(alias => row.topics[alias]), subscribe: acl.subscribe.map(alias => row.topics[alias]) }));
       const configFile = join(runDirectory, 'runtime.json');
-      await privateJson(configFile, { format: 'world-hub.run/v1', instanceId: 'launcher-local', componentId: id, module: row.module, stateDir,
+      await privateJson(configFile, { format: RUNTIME_API, instanceId: 'launcher-local', componentId: id, module: row.module, stateDir,
         settings: row.settings, topics: row.topics, peers: saved.review.peers, bindings: saved.review.capabilityBindings, bridges,
         ...(prepared?.directory ? { deployment: { directory: prepared.directory } } : {}) });
       checkAbort(); const runtime = saved.inspected.environment[row.manifest.runtime.kind];

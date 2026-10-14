@@ -24,12 +24,12 @@ export const ECOSYSTEM_SCHEMA_FILES = Object.freeze(['docs/ecosystem/module.sche
 // These are editable source templates, never automatically executed by Hub or
 // Launcher. Keep an explicit list so runtime/private material is not bundled.
 export const BUNDLED_TEMPLATE_FILES = Object.freeze(['template.json', 'base/pack.json', 'base/pack.lock',
-  ...['module.json', 'program.mjs', 'bridge-kit.mjs', 'blob-client.mjs', 'LICENSE'].map(file => 'base/modules/source/' + file),
-  ...['module.json', 'program.py', 'hub_bridge.py', 'requirements.txt', 'LICENSE'].map(file => 'base/modules/stats/' + file),
-  ...['module.json', 'program.mjs', 'bridge-kit.mjs', 'blob-client.mjs', 'index.html', 'ui.js', 'LICENSE'].map(file => 'base/modules/desk/' + file)]
+  ...['module.json', 'deployment.json', 'program.mjs', 'bridge-kit.mjs', 'blob-client.mjs', 'LICENSE'].map(file => 'base/modules/source/' + file),
+  ...['module.json', 'deployment.json', 'program.py', 'hub_bridge.py', 'requirements.txt', 'LICENSE'].map(file => 'base/modules/stats/' + file),
+  ...['module.json', 'deployment.json', 'program.mjs', 'bridge-kit.mjs', 'blob-client.mjs', 'index.html', 'ui.js', 'LICENSE'].map(file => 'base/modules/desk/' + file)]
   .map(file => 'examples/templates/text-desk/' + file));
 export const ECOSYSTEM_RUNTIME_FILES = Object.freeze(['bin/world-hub-pack.mjs',
-  ...['index', 'runtime', 'package', 'paths', 'source-guidance', 'deployment', 'dependency-prepare', 'host-process', 'host-owner-linux', 'process', 'hub-process', 'maintenance', 'authoring', 'sources', 'developer', 'template', 'upgrade', 'staged-upgrade', 'completion-cli', 'publisher-trust', 'publisher-store', 'publisher-cli', 'isolation', 'isolation-wrapper', 'isolation-channel', 'isolation-http', 'isolation-user', 'isolation-user-supervisor'].map(name => `scripts/runtime/${name}.mjs`),
+  ...['index', 'runtime', 'package', 'compatibility', 'paths', 'source-guidance', 'deployment', 'dependency-prepare', 'host-process', 'host-owner-linux', 'process', 'hub-process', 'maintenance', 'authoring', 'sources', 'developer', 'template', 'upgrade', 'staged-upgrade', 'completion-cli', 'publisher-trust', 'publisher-store', 'publisher-cli', 'isolation', 'isolation-wrapper', 'isolation-channel', 'isolation-http', 'isolation-user', 'isolation-user-supervisor'].map(name => `scripts/runtime/${name}.mjs`),
   'scripts/runtime/host-owner-windows.ps1', 'scripts/runtime/host-profile.mjs',
   'scripts/runtime/isolation-wrapper.py',
   'scripts/runtime/templates/node/program.mjs', 'scripts/runtime/templates/node/logic.mjs', 'scripts/runtime/templates/node/logic.test.mjs',

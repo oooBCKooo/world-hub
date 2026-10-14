@@ -22,11 +22,16 @@ async function apiFor(app) {
 
 test('EXTENDED-01 environment plan review, stale inputs, cancellation and exact local authorization', { timeout: 120000 }, async t => {
   const app = await workspace(t), api = await apiFor(app), directory = await samplePackage(app);
+  const compatibleLock = await json(join(directory, 'pack.lock'));
+  assert.equal(compatibleLock.format, 'world-hub.pack-lock/v2');
+  compatibleLock.hubVersion = '0.18.0'; await save(join(directory, 'pack.lock'), compatibleLock);
   const discovered = await api.call('/api/environment', {});
   assert.ok(discovered.candidates.node.some(v => v.path === process.execPath));
   assert.ok(discovered.candidates.python.every(v => v.probed === false));
   const planned = await api.call('/api/environment/plan', { directory });
   assert.equal(planned.plan.download.sha256, PYTHON_RECIPE.sha256);
+  assert.equal(planned.plan.hubCompatibility.recordedHubVersion, '0.18.0');
+  assert.equal(planned.plan.hubCompatibility.compatible, true);
   assert.equal(planned.plan.changesSystemEnvironment, false); assert.equal(planned.plan.executesModuleScripts, false);
   await api.call('/api/environment/prepare', { planId: planned.planId, accepted: false }, 409);
   await api.call('/api/environment/prepare', { planId: planned.planId, accepted: 'true' }, 400);
@@ -38,6 +43,9 @@ test('EXTENDED-01 environment plan review, stale inputs, cancellation and exact 
   assert.ok(failed.error.diagnostic.zh && failed.error.diagnostic.en);
   await api.call('/api/environment/prepare', { planId: planned.planId, accepted: true }, 409);
   assert.deepEqual((await api.call('/api/instances')).instances, []);
+  lock.hubCompatibility.runtimeApi = 'world-hub.run/v999'; await save(join(directory, 'pack.lock'), lock);
+  const unsupported = await api.call('/api/environment/plan', { directory }, 422);
+  assert.equal(unsupported.error.code, 'PACK_HUB_CONTRACT_UNSUPPORTED');
   app.record('plan-bound-to-current-lock', { reviewDigest: planned.plan.digest, failed: failed.error.code });
 });
 
