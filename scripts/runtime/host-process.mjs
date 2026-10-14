@@ -14,6 +14,7 @@ export async function ownHostedProcess(executable, argv, options = {}) {
   let programExited = false, retired = false, ownerReady = false;
   const onFailure = issue => { if (ownerReady && !retired && handle) handle.cleanupIncomplete = true; options.onFailure?.(issue); };
   const onEvent = frame => {
+    if (frame.event === 'host-owner-bootstrap' && ['script-started', 'compiler-ready'].includes(frame.stage)) handle.bootstrapStage = frame.stage;
     if (frame.event === 'host-owner-ready') { ownerReady = true; handle.hostOwner = frame; }
     if (frame.event === 'host-program-exit') { programExited = true; handle.programExit = frame; if (!handle.stopping) { handle.error = 'Owned hosted program exited; its tree owner is retained for cleanup.'; options.onFailure?.(failure('HOST_PROGRAM_EXITED', handle.error)); } }
     if (frame.event === 'host-tree-retired') retired = true;
@@ -49,10 +50,14 @@ export async function ownHostedProcess(executable, argv, options = {}) {
     if (!handle.exit || ownerReady && !retired) { handle.cleanupIncomplete = true; throw failure('HOST_CLEANUP_INCOMPLETE', 'Hosted tree exit remains unconfirmed.'); }
     handle.hostedLifecycle.retired = true; delete handle.cleanupIncomplete; return handle.exit;
   };
-  const startupDeadline = Date.now() + 30000;
+  // Hosted Windows runners can spend over 30 seconds initializing the fixed
+  // PowerShell/.NET Job adapter. Bound this infrastructure phase separately;
+  // application readiness and health deadlines remain unchanged.
+  const startupTimeoutMs = process.platform === 'win32' ? 90000 : 30000;
+  const startupDeadline = Date.now() + startupTimeoutMs;
   while (!ownerReady) {
     if (options.signal?.aborted || handle.exit || handle.error || Date.now() >= startupDeadline) {
-      const issue = failure('HOST_OWNER_START_FAILED', `The trusted child-process owner did not initialize. ${handle.stderr} ${handle.stdout}`);
+      const issue = failure('HOST_OWNER_START_FAILED', `The trusted child-process owner did not initialize within ${startupTimeoutMs} ms (last stage: ${handle.bootstrapStage ?? 'process-start'}). ${handle.stderr} ${handle.stdout}`);
       try { await handle.stop(1000); } catch (cleanup) { throw Object.assign(cleanup, { cause: issue }); }
       throw issue;
     }

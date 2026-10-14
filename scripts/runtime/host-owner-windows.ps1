@@ -1,5 +1,7 @@
 param([Parameter(Mandatory=$true)][string]$Configuration)
 $ErrorActionPreference = 'Stop'
+[Console]::Out.WriteLine('{"event":"host-owner-bootstrap","stage":"script-started"}')
+[Console]::Out.Flush()
 Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
@@ -60,6 +62,8 @@ public sealed class WorldHubOwnedJob : IDisposable {
   public void Dispose() { if(input!=null) { input.Dispose(); input=null; } if(job!=IntPtr.Zero) { CloseHandle(job); job=IntPtr.Zero; } if(process!=IntPtr.Zero) { CloseHandle(process); process=IntPtr.Zero; } }
 }
 '@
+[Console]::Out.WriteLine('{"event":"host-owner-bootstrap","stage":"compiler-ready"}')
+[Console]::Out.Flush()
 $configurationBytes = [Convert]::FromBase64String($Configuration)
 $configurationValue = [Text.Encoding]::UTF8.GetString($configurationBytes) | ConvertFrom-Json
 $job = [WorldHubOwnedJob]::new($configurationValue.executable, $configurationValue.command, $configurationValue.cwd)

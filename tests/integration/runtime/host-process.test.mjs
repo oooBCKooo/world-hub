@@ -27,7 +27,7 @@ async function fixture(mode) {
   await handle.waitFor(frame => frame.event === 'module-ready', 10000); const descendant = JSON.parse(await readFile(file, 'utf8')).pid;
   return { handle, descendant, failures };
 }
-if (supported) for (const mode of ['graceful', 'forced', 'orphan']) test(`owned Host ${mode} retires its current child tree`, { timeout: 60000 }, async () => {
+if (supported) for (const mode of ['graceful', 'forced', 'orphan']) test(`owned Host ${mode} retires its current child tree`, { timeout: 120000 }, async () => {
   const { handle, descendant, failures } = await fixture(mode);
   try {
     assert.equal(alive(descendant), true); assert.ok(handle.hostOwner.programPid);
