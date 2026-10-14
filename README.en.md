@@ -4,13 +4,15 @@
 
 **Connect everything. Compose freely. Decouple systems. Make hardcoded connections adaptable. Plug and unplug everything. Route information freely. Extend with open-ended modules.**
 
-For example, an editor provides the current file, a chat program provides the conversation, a knowledge program provides reference material, an executor calls models and tools, and another program supplies the interface. Each program communicates with the Hub through its own bidirectional mod bridge. A composition program chooses sources, makes calls, and combines results according to its own rules.
+For example, an editor provides the current file, a chat program provides the conversation, a knowledge program provides reference material, an executor calls models and tools, and another program supplies the interface. Each program communicates with the Hub through its own bidirectional module bridge. A composition program chooses sources, makes calls, and combines results according to its own rules.
 
 ```text
-External program ↔ its mod bridge ↔ World Hub ↔ another mod bridge ↔ another program
+External program ↔ its module bridge ↔ World Hub ↔ another module bridge ↔ another program
 ```
 
 World Hub is their shared communications crossroads: it accepts, addresses, retains, and forwards information. Each program owns its business logic, state, and implementation.
+
+A **module bridge** is a bidirectional communication adapter between a program and the Hub. A program can use multiple module bridges and choose how to implement them, including embedded adapters or separate processes. Using a module bridge does not require turning the program into a Hub Core plugin.
 
 ## Start with the unified interface
 
@@ -21,13 +23,15 @@ world-hub ui --open
 
 The interface opens **My packs**. Inspect a local pack and its required environment, import an independent instance, then review the actual code and declared permissions before starting. Instance details show processes, health, readiness, real bridge connections, and logs, with links to that instance's Hub topology and communication workbench. Stop, review and restart, or export package sources and their lock. Simplified Chinese and English are available. Program state stays in the instance directory; exported packages exclude runtime data.
 
-For a first experiment, clone this repository, install the versions of Node, Python, and websockets specified by the [cross-language text desk](examples/ecosystem-pack/README.md), run `npm run ui -- --open`, and import `examples/ecosystem-pack`. Three real programs perform JavaScript source → Python statistics → JavaScript interface calls. The npm installation does not include example programs; import your own pack or use a [source pack bundle](docs/releases.md).
+For a first experiment, clone this repository, install the versions of Node, Python, and websockets specified by the [cross-language text desk](examples/ecosystem-pack/README.md), run `npm run ui -- --open`, and import `examples/ecosystem-pack`. Three real programs perform JavaScript source → Python statistics → JavaScript interface calls. The npm installation also includes an optional text-desk template: inspect it in the workbench and create your own new pack. It requires the declared interpreters and dependencies, followed by separate import and execution review. You can also import your own pack or use a [source pack bundle](docs/releases.md).
 
 Instances also provide storage accounting, private backups, restoration into new instances, and data-retaining uninstall and reattachment. The creator workspace displays real components and capability bindings, with public settings edits, compatible module replacements, and derived packs with fresh locks. Old environment locks can be explicitly reviewed and rebuilt in a new directory. Optional software sources distinguish Packs, Modules and Templates and filter public contract metadata, platform and license before verified caching. Fill in a Template's parameters to generate a new Pack. Creators can produce shareable indexes and artifacts and exchange plain-text comments and proposals with revision conflict checks. These operations do not automatically execute third-party programs.
 
-Launcher is an optional local deployment and navigation tool that calls the external Runtime. Hub Core continues to handle communication. Independent programs, `world-hub --open`, and headless deployment remain available on their own. Discover installed interpreters, then explicitly review a limited recipe to prepare an independent environment for the supported locked Python dependency. Prepare other environments yourself. Permission declarations and Python venvs are not operating-system sandboxes. Local instances work without online sources, and generating a publication directory does not upload to a hosted community. See the [unified interface guide](docs/ecosystem/launcher.md), currently in Chinese.
+Launcher is an optional local deployment and navigation tool that calls the external Runtime. Hub Core continues to handle communication. Independent programs, `world-hub --open`, and headless deployment remain available on their own. Discover installed interpreters, then explicitly review a limited recipe to prepare an independent environment for the supported locked Python dependency. Prepare other environments yourself. Permission declarations and Python venvs are not operating-system sandboxes. Local instances work without online sources, and generating a publication directory does not upload to a hosted community. See the [unified interface guide](docs/ecosystem/launcher.en.md).
 
-![Unified interface: a running cross-language pack and its independent programs](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-launcher-en.jpg?v=0.16.1)
+Path fields offer local folder and file selection, recent locations, and bounded candidate discovery. Creator follows **Source → Compose & configure → Check & create** with recoverable private drafts. The task center retains progress and results in the current Launcher process across page refreshes. Chinese, English, and small screens provide the same operation entry points. See [paths, drafts, and task results](docs/launcher-ux.md#english).
+
+![Unified interface: a running cross-language pack and its independent programs](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-launcher-en.jpg?v=0.19.0)
 
 ## Write and deliver an independent module
 
@@ -63,7 +67,7 @@ These are directions for composition. External programs implement model inferenc
 
 ## Try four hands-on demos
 
-All four demos start real, independent programs that exchange information through real mod bridges. Their interfaces display data, context sources, world rounds, and capability discovery. Raw JSON and communication receipts can be expanded for inspection.
+All four demos start real, independent programs that exchange information through real module bridges. Their interfaces display data, context sources, world rounds, and capability discovery. Raw JSON and communication receipts can be expanded for inspection.
 
 | Demo | Try this | Expected result |
 | --- | --- | --- |
@@ -120,18 +124,18 @@ You can also build standalone source bundles or Windows portable bundles. See th
 
 | Principle | What it means in World Hub |
 | --- | --- |
-| Interconnection | Programs exchange information and access each other's capabilities through bidirectional mod bridges. |
+| Interconnection | Programs exchange information and access each other's capabilities through bidirectional module bridges. |
 | Free composition | Users and external programs combine modules and capabilities according to communication contracts, choosing their relationships and uses. |
 | Decoupling | Programs own their business logic, state, and implementation, and can be composed and replaced according to communication contracts. |
 | Adaptability | Fixed wiring and communication arrangements between programs become configurable, replaceable, and extensible bridges and contracts. |
-| Pluggability | Programs and mod bridges can be connected, disconnected, and replaced according to communication contracts; the composer decides their wiring and uses. |
+| Pluggability | Programs and module bridges can be connected, disconnected, and replaced according to communication contracts; the composer decides their wiring and uses. |
 | Freedom | Programs choose information sources, topics, and routes, combining bidirectional, many-to-many, and multi-round information flows. |
 | Open-ended extension | Business modules, information types, and uses are not exhaustively listed in advance, leaving room for new integrations. |
 
 ## Why these compositions can keep growing
 
 - **Programs supply the sources:** system instructions, conversations, documents, events, and state can come from different programs and be combined for each use.
-- **Mods declare topics:** adding business topics and payload types does not require changing the Hub. Participants agree on what the information means.
+- **Module bridges declare topics:** adding business topics and payload types does not require changing the Hub. Participants agree on what the information means.
 - **Programs and bridges support many-to-many arrangements:** a program can connect through multiple bridges, and a bridge can adapt multiple programs. Bridges can send, receive, or communicate in both directions.
 - **Information can wait for later consumers:** programs can publish without a current consumer. Other programs can later retrieve information by topic and cursor. The provider decides when to permit reclamation.
 - **External programs arrange multiple rounds:** A can call B through the Hub, and B can call C in turn. A workflow program can also request several programs per round and combine their results.
@@ -144,16 +148,16 @@ Run `world-hub --open` to open the communications management interface. Purpose 
 
 The management canvas, communication workbench, and all four purpose demos offer Simplified Chinese / English switching and remember your choice in the browser. Switching changes interface wording and display formats; user-provided names, annotations, topics, application content, and original communication records retain their original text.
 
-![English interface: Hub management canvas with programs, bidirectional mod bridges, the Hub, and actual information flow](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-topology-en.jpg?v=0.16.1)
+![English interface: Hub management canvas with programs, bidirectional module bridges, the Hub, and actual information flow](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-topology-en.jpg?v=0.16.1)
 
 The management canvas displays programs, bridges, the Hub, and information flow. It supports enabling and disabling connections and editing association annotations. Program annotations do not represent the actual execution state of external programs.
 
 <details>
-<summary>See the bidirectional mod communication workbench</summary>
+<summary>See the bidirectional module bridge communication workbench</summary>
 
 ![English interface: communication workbench with dynamic topics, original messages, and actual send/receive records](https://raw.githubusercontent.com/oooBCKooo/world-hub/main/docs/images/hub-workbench-en.jpg?v=0.16.1)
 
-The workbench uses its own mod to publish, subscribe, and retrieve information. It also supports requests and replies, injection, channel declarations, and attachment transfer. The screenshot shows an actual publication and the Hub's acceptance receipt.
+The workbench uses its own module bridge to publish, subscribe, and retrieve information. It also supports requests and replies, injection, channel declarations, and attachment transfer. The screenshot shows an actual publication and the Hub's acceptance receipt.
 
 </details>
 
@@ -176,7 +180,7 @@ npm run check
 npm start
 ```
 
-Open the `/manage` address printed by the launcher; the default local port is 8790. The communication workbench uses its own real mod to publish, subscribe, make requests and replies, inject information, transfer attachments, and send ACKs manually. Connection management controls communication principals or connections and edits program/bridge annotations. Annotations do not determine identity, addressing, or permissions.
+Open the `/manage` address printed by the launcher; the default local port is 8790. The communication workbench uses its own real module bridge to publish, subscribe, make requests and replies, inject information, transfer attachments, and send ACKs manually. Connection management controls communication principals or connections and edits program/bridge annotations. Annotations do not determine identity, addressing, or permissions.
 
 The [reference configuration](config/hub.json) listens only on `127.0.0.1` and rejects unregistered identities. `ui.manual` is a local reference credential; without a token, the interface shows an unauthenticated state. For your deployment, edit the configuration generated on the first npm start, or copy the reference configuration in a source checkout and configure permissions for your own program identities and topics:
 
@@ -199,7 +203,7 @@ The npm package contains the Hub, management interface, SDKs for three languages
 
 ## Deploy independent programs as a pack
 
-The optional `world-hub-pack` tool imports reviewed local program packages into separate instances, then starts, observes, stops, restarts, and exports them. A module may carry several mod bridges. `module.json` declares program deployment, `pack.json` describes the composition, and `pack.lock` pins files, versions, platform, and preinstalled environments. These are [open external deployment declarations](docs/ecosystem/pack-spec.md); ordinary Hub programs do not have to adopt them.
+The optional `world-hub-pack` tool imports reviewed local program packages into separate instances, then starts, observes, stops, restarts, and exports them. A module may carry several module bridges. `module.json` declares program deployment, `pack.json` describes the composition, and `pack.lock` pins files, versions, platform, and preinstalled environments. These are [open external deployment declarations](docs/ecosystem/pack-spec.md); ordinary Hub programs do not have to adopt them.
 
 ```powershell
 $review = world-hub-pack plan ./my-pack | ConvertFrom-Json
@@ -209,7 +213,7 @@ world-hub-pack start --root ./pack-runtime --instance one --trust $review.digest
 
 Review the contents, dependencies, and declared permissions before starting with the actual digest. Each instance has its own Hub, ports, credentials, and program state. Process status, self-reported health, and real bridge connections are observed separately. The [cross-language text desk pack](examples/ecosystem-pack/README.md) contains three real programs: a JavaScript text source, a Python statistics provider, and a JavaScript browser desk. The desk requests the source and statistics through the Hub and saves its own results, with Chinese and English UI. Its reference lock requires preinstalled Node 22.23.2, Python 3.14.0, and websockets 15.0.1.
 
-Runtime is an external deployment layer; the Hub remains a communication crossroads. Each instance has a separate Hub. Default trusted-local permissions are declarations; a limited Node container profile is optional. Programs still decide business retries. Launcher can prepare the supported fixed Python dependency through an explicitly reviewed recipe, and provides static source distribution and local creator collaboration. It does not host an online community. See the [external Runtime guide](docs/ecosystem/runtime.md) for the CLI, public API, explicit re-locking, and data boundaries.
+Runtime is an external deployment layer; the Hub remains a communication crossroads. Each instance has a separate Hub. Default trusted-local permissions are declarations; optional profiles protect Node/Python components in containers or separate them under an existing Linux user. Programs still decide business retries. Launcher can prepare the supported fixed Python dependency through an explicitly reviewed recipe, and provides static source distribution and local creator collaboration. It does not host an online community. See the [external Runtime guide](docs/ecosystem/runtime.md) for the CLI, public API, explicit re-locking, and data boundaries.
 
 ## Repository structure
 

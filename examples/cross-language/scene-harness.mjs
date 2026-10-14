@@ -105,7 +105,13 @@ export class Scene {
     const peer = new Peer(language, child, args); this.peers.push(peer);
     const proof = { language, executable, pid: child.pid, bridge, ...(credential ? { credential } : {}) }; this.processes.push(proof);
     peer.proof = proof;
-    if (expectReady) { peer.ready = await peer.wait((row) => row.event === 'ready', { timeoutMs: 15000 }); proof.version = peer.ready.version; proof.dependencyVersion = peer.ready.dependencyVersion; proof.principal = peer.ready.welcome.principal; }
+    if (expectReady) {
+      // PowerShell ready includes pwsh startup and Add-Type compilation on a cold runner.
+      // Keep this process-initialization budget separate from commands and wire requests.
+      const readyTimeoutMs = language === 'powershell' ? 45000 : 15000;
+      peer.ready = await peer.wait((row) => row.event === 'ready', { timeoutMs: readyTimeoutMs });
+      proof.version = peer.ready.version; proof.dependencyVersion = peer.ready.dependencyVersion; proof.principal = peer.ready.welcome.principal;
+    }
     return peer;
   }
   async workflow() {

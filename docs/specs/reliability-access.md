@@ -54,7 +54,7 @@ release只能操作当前通讯身份归属的保留消息。读取主题权限�
 
 ## 本机通讯管理
 
-`GET /manage` 与 `/manage/api/state` 提供通讯管理界面与元数据；选择记录时通过 `/manage/api/message?seq=N` 按需查看保留中的原文。`POST /manage/api/bridge` 只接受暂停、恢复和精确连接断开；`POST /manage/api/annotation` 只保存桥名称与 N:M 程序关系注记。管理不执行程序、不修改 ACL、不代发 ACK 或 release。暂停凭据主体会断开其全部实例并拒绝新实例；恢复仍采用原 ACL，程序由自己的 mod 决定是否重连。
+`GET /manage` 与 `/manage/api/state` 提供通讯管理界面与元数据；选择记录时通过 `/manage/api/message?seq=N` 按需查看保留中的原文。`POST /manage/api/bridge` 只接受暂停、恢复和精确连接断开；`POST /manage/api/annotation` 只保存桥名称与 N:M 程序关系注记。管理不执行程序、不修改 ACL、不代发 ACK 或 release。暂停凭据主体会断开其全部实例并拒绝新实例；恢复仍采用原 ACL，程序由自己的模块桥决定是否重连。
 
 这些入口仅接受回环来源，校验本机 Host、同源 Origin 与跨站请求标记；变更必须携带当前管理操作令牌，JSON 请求体上限 16KiB。不返回 ACL token 或配置秘密。它面向可信本机运维，不提供同机不同账号或程序的权限隔离。畸形请求 URL 返回 400，不导致枢纽退出。
 

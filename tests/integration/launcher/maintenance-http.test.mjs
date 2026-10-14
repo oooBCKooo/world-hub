@@ -203,3 +203,22 @@ test('MAINTENANCE-HTTP-07 missing control files for an existing external supervi
   await api.operate('/api/instances/original/stop', {});
   app.record('missing-control-is-unconfirmed-until-exact-owner-stops', { stoppedAt: (await api.state('original')).status.stoppedAt });
 });
+
+test('MAINTENANCE-HTTP-08 instance deletion removes registered instance and state directory', options, async t => {
+  const app = await workspace(t), api = await launcher(app), directory = await samplePackage(app);
+  await api.importPack(directory, 'delete-me');
+  const instance = await api.state('delete-me');
+  assert.equal(instance.instanceId, 'delete-me');
+  assert.equal(await exists(instance.directory), true);
+
+  await api.rejected('/api/instances/delete-me/delete', { accepted: false }, 'TRUST_REQUIRED');
+  assert.equal(await exists(instance.directory), true);
+  const res = await api.call('/api/instances/delete-me/delete', { accepted: true });
+  assert.equal(res.ok, true);
+  assert.equal(res.deleted, true);
+  assert.equal(await exists(instance.directory), false);
+
+  const list = (await api.call('/api/instances')).instances;
+  assert.equal(list.some(i => i.instanceId === 'delete-me'), false);
+  await api.rejected('/api/instances/delete-me', undefined, 'INSTANCE_NOT_FOUND');
+});

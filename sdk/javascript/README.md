@@ -1,4 +1,4 @@
-# Node JavaScript mod 桥
+# Node JavaScript 模块桥
 
 本 SDK 采用仓库 [MIT 许可](../../LICENSE)。通过 npm 的稳定导出入口使用时，安装与导入方法见[npm 包](../../docs/npm.md)；下文相对路径用于源码仓库。
 
@@ -11,7 +11,7 @@
 | 接口 | 意义 |
 | --- | --- |
 | `connect()`、`close()` | 等握手、有限关闭；SDK 可在断线后按自己的策略重连 |
-| `registerChannels(channels)` | mod 声明合法主题与方向，不建立业务 handler 或扩大 ACL |
+| `registerChannels(channels)` | 模块桥声明合法主题与方向，不建立业务 handler 或扩大 ACL |
 | `publish()`、`publishConfirmed()` | 本地发送与等待 Hub 接纳是不同接口 |
 | `subscribe()`、`replay()`、`unsubscribe()`、`cursorOf()` | 订阅、显式重读、清理和本地已处理游标 |
 | `ack(message)`、`flushAcks()` | 确认本连接订阅的实际投递，不释放消息 |

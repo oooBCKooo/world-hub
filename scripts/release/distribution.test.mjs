@@ -1,13 +1,13 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, readdir, cp, writeFile, rm, access } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, cp, writeFile, rm, access, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { buildPackage, APPLICATION_FILES, SDK_FILES, SDK_DOCUMENTATION_FILES, MODULE_CONTRACT_FILES, DOCUMENTATION_IMAGE_FILES,
-  ECOSYSTEM_SCHEMA_FILES, ECOSYSTEM_RUNTIME_FILES, LAUNCHER_FILES, WORKSHOP_FILES } from './build-package.mjs';
+  ECOSYSTEM_SCHEMA_FILES, ECOSYSTEM_RUNTIME_FILES, LAUNCHER_FILES, WORKSHOP_FILES, BUNDLED_TEMPLATE_FILES } from './build-package.mjs';
 import { verifyPackage } from './verify-package.mjs';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
@@ -33,7 +33,7 @@ test('source distribution is independent of local runtime caches and copies only
   assert.equal(manifest.runtime, null);
   assert.equal(built.runtimeVerified, false);
   assert.equal((await verifyPackage(bundle)).passed, true);
-  for (const path of [...APPLICATION_FILES, ...SDK_FILES, ...DOCUMENTATION_IMAGE_FILES, ...ECOSYSTEM_SCHEMA_FILES, ...ECOSYSTEM_RUNTIME_FILES, ...LAUNCHER_FILES, ...WORKSHOP_FILES]) {
+  for (const path of [...APPLICATION_FILES, ...SDK_FILES, ...DOCUMENTATION_IMAGE_FILES, ...ECOSYSTEM_SCHEMA_FILES, ...ECOSYSTEM_RUNTIME_FILES, ...LAUNCHER_FILES, ...WORKSHOP_FILES, ...BUNDLED_TEMPLATE_FILES]) {
     assert.equal(hash(await readFile(join(bundle, path))), hash(await readFile(join(repository, path))), path);
   }
   assert.ok(manifest.files.every(item => !/(?:\.local|\.artifacts|node_modules|__pycache__|\.bak|worker\.py|ProtocolWorker\.cs|harness-program|programs\.config)/.test(item.path)));
@@ -92,6 +92,20 @@ test('source package check works from an unrelated cwd without creating persiste
   assert.ok([checked.storage.log.path, checked.storage.blobs.path, checked.storage.management.path].every(path => path.startsWith(resolve(bundle) + sep)));
   assert.deepEqual(await readdir(cwd), []);
   assert.equal((await verifyPackage(bundle)).passed, true);
+});
+
+test('source bundle resolves its real built-in template from an unrelated cwd without execution', async () => {
+  const cwd = join(temporaryRoot, '工作目录');
+  const script = 'const {LauncherManager}=await import(process.env.WH_TEST_MANAGER);const m=new LauncherManager({root:process.env.WH_TEST_ROOT});await m.initialize();const r=await m.builtinTemplates();const checks=[];for(const c of r.candidates){const x=await m.templateInspect({directory:c.directory});checks.push({directory:c.directory,id:x.inspection.manifest.id,startsModules:x.inspection.startsModules})}await m.close();console.log(JSON.stringify(checks))';
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd, shell: false, windowsHide: true, encoding: 'utf8', timeout: 15000,
+    env: { ...process.env, WH_TEST_MANAGER: pathToFileURL(join(bundle, 'tools/launcher/manager.mjs')).href,
+      WH_TEST_ROOT: join(temporaryRoot, 'private-template-root') } });
+  assert.equal(result.status, 0, result.stderr);
+  const templates = JSON.parse(result.stdout); assert.equal(templates.length, 1); assert.equal(templates[0].id, 'demo.text-template');
+  // Windows runner temp paths can contain 8.3 aliases. The chooser returns
+  // the canonical directory, which must still be this bundle's exact template.
+  assert.equal(await realpath(templates[0].directory), await realpath(join(bundle, 'examples/templates/text-desk')));
+  assert.equal(templates[0].startsModules, false);
 });
 
 test('building over an existing target or archive is refused without modifying the existing package', async () => {

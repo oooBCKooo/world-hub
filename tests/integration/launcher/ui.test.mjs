@@ -1,42 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { dirname, posix } from 'node:path';
+import { readFile, mkdtemp, mkdir, cp, rm } from 'node:fs/promises';
+import { dirname, posix, join, resolve, basename } from 'node:path';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { inspectAuthoring, previewAddition, previewReplacement, derivePackage } from '../../../scripts/runtime/authoring.mjs';
+import { createLock, importPackage } from '../../../scripts/runtime/package.mjs';
+import { initModule } from '../../../scripts/runtime/developer.mjs';
+import { CreatorDrafts } from '../../../tools/launcher/creator-drafts.mjs';
+import { startInstance } from '../../../scripts/runtime/runtime.mjs';
 import { createAdvancedUi } from '../../../tools/launcher/public/advanced.mjs';
 import { APPLICATION_FILES, SDK_FILES, ECOSYSTEM_RUNTIME_FILES, LAUNCHER_FILES } from '../../../scripts/release/build-package.mjs';
 
-// A small inert DOM exercises the actual UI handlers without executing any pack or browser content.
-class Element {
-  constructor(tag = '#text', text = '') { this.tagName = tag; this.children = []; this.attributes = {}; this.listeners = {}; this.value = ''; this.text = text; this.dataset = {}; }
-  setAttribute(name, value) { this.attributes[name] = String(value); if (name === 'class') this.className = value; if (name === 'id') this.id = value; if (name === 'value') this.value = String(value); if (name.startsWith('data-')) this.dataset[name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = value; }
-  append(...items) { for (let child of items) { if (child === null || child === undefined) continue; if (!(child instanceof Element)) child = new Element('#text', String(child)); child.parent = this; this.children.push(child); } if (this.tagName === 'select' && !this.value) this.value = this.children[0]?.value ?? ''; }
-  replaceChildren(...items) { this.children = []; this.text = ''; this.append(...items); }
-  prepend(...items) { const old = this.children; this.children = []; this.append(...items); this.children.push(...old); }
-  insertBefore(child, next) { child.parent = this; const index = this.children.indexOf(next); this.children.splice(index < 0 ? this.children.length : index, 0, child); }
-  get textContent() { return this.text + this.children.map(child => child.textContent).join(''); }
-  set textContent(value) { this.text = String(value); this.children = []; }
-  get elements() { return Object.fromEntries(this.querySelectorAll('[name]').map(child => [child.attributes.name, child])); }
-  matches(selector) { if (selector.startsWith('#')) return this.id === selector.slice(1); if (selector.startsWith('.')) return this.className?.split(' ').includes(selector.slice(1)); if (selector.startsWith('[')) { const [, name, value] = selector.match(/^\[([^=\]]+)(?:=([^\]]+))?\]$/) ?? []; return value ? this.attributes[name] === value.replaceAll('"', '') : name in this.attributes; } return this.tagName === selector; }
-  querySelectorAll(selector) { const segments = selector.split(' '), found = []; const visit = node => { for (const child of node.children) { if (child.matches(segments.at(-1)) && (segments.length === 1 || hasAncestor(child, segments[0]))) found.push(child); visit(child); } }; visit(this); return found; }
-  querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
-  addEventListener(kind, action) { (this.listeners[kind] ??= []).push(action); }
-  async dispatch(kind) { if (kind === 'click' && this.disabled) return; for (const action of this.listeners[kind] ?? []) await action({ preventDefault() {}, target: this }); }
-  showModal() { this.open = true; }
-  close() { this.open = false; for (const action of this.listeners.close ?? []) action({}); }
-}
-function hasAncestor(element, selector) { for (let ancestor = element.parent; ancestor; ancestor = ancestor.parent) if (ancestor.matches(selector)) return true; return false; }
-function element(tag, attributes = {}, children = []) {
-  const node = new Element(tag);
-  for (const [key, value] of Object.entries(attributes)) { if (value === false || value === undefined || value === null) continue; if (key.startsWith('on')) node.addEventListener(key.slice(2), value); else if (['checked', 'disabled', 'hidden'].includes(key)) node[key] = value; else node.setAttribute(key, value); }
-  node.append(...(Array.isArray(children) ? children : [children])); return node;
-}
+import { element } from './ui-dom.mjs';
+
 function harness(api, overrides = {}) {
   const body = element('body');
   globalThis.document = { body, querySelector: selector => body.querySelector(selector), querySelectorAll: selector => body.querySelectorAll(selector) };
   globalThis.localStorage = { getItem() { return null; }, setItem() {} };
+  globalThis.window = { addEventListener() {} }; globalThis.location = { origin: 'http://127.0.0.1:32100' };
   const environment = element('form', { id: 'environment-form' }, ['nodePath', 'pythonPath'].map(name => element('input', { name })));
   body.append(element('section', { id: 'view-environment' }, environment), element('section', { id: 'view-packs' }, element('div', { class: 'page-heading' })), ...['sources-content', 'creator-content', 'detail-content'].map(id => element('div', { id })), element('form', { id: 'import-form' }, element('input', { name: 'directory' })));
-  const selected = [], imports = [], state = { language: 'en', environmentSelection: {}, view: 'packs', selected: 'first', tab: 'storage' };
+  const selected = [], imports = [], state = { language: 'en', environmentSelection: {}, view: 'packs', selected: 'first', tab: 'storage', reviews: new Map(), trustReview: null };
   const ctx = { state, api, el: element, button: (title, action, className = 'button', disabled = false) => element('button', { type: 'button', class: className, onclick: action, disabled }, title), pill: title => element('span', {}, title), t: key => key, toast() {}, definition: pairs => element('dl', {}, pairs.flatMap(([key, value]) => [element('dt', {}, key), element('dd', {}, typeof value === 'object' ? JSON.stringify(value) : String(value ?? ''))])), display: String, date: String, errorContents: failure => [element('p', {}, failure.message)], current() {}, idOf: instance => instance.instanceId ?? instance.id, endpoint: (id, action) => `/api/instances/${id}/${action}`, operationFor: instance => instance.operation, exitUnconfirmed: instance => Boolean(instance.status?.runId && !instance.status.stoppedAt), refresh: async () => {}, renderDetail() {}, navigate() {}, selectInstance: async id => selected.push(id), openImport() { imports.push(true); }, replaceInstance() {}, reviewView: data => [element('pre', {}, JSON.stringify(data.review))] };
   Object.assign(ctx, overrides);
   const ui = createAdvancedUi(ctx); return { body, ui, ctx, state, selected, imports, mount: nodes => body.querySelector('#detail-content').replaceChildren(...nodes) };
@@ -127,7 +112,7 @@ test('replacement needs a current second preview and displays the actual candida
   });
   ui.navigate('creator'); const root = body.querySelector('#creator-content'), inspect = root.querySelector('form');
   inspect.elements.directory.value = 'source-pack'; await inspect.dispatch('submit');
-  await byText(root, 'Edit settings & module').dispatch('click');
+  await byText(root, 'Edit public settings').dispatch('click');
   const dialog = body.querySelectorAll('dialog').find(node => node.open), editor = dialog.querySelector('form');
   editor.elements.moduleDirectory.value = 'new-module'; await editor.dispatch('submit');
   assert.equal(dialog.open, true); assert.match(root.querySelector('.composition-graph').textContent, /old.stats/);
@@ -207,8 +192,235 @@ test('software source network policy defaults closed and fetch uses the inspecte
   }
 });
 
+test('storage inputs survive observation redraw and remain isolated between instances', async () => {
+  const calls = [], scene = harness(async path => { calls.push(path); return {}; });
+  const first = { instanceId: 'first', status: { state: 'imported' } }, second = { instanceId: 'second', status: { state: 'imported' } };
+  scene.mount(scene.ui.renderStorage(first));
+  const original = scene.body.querySelector('#detail-content').querySelectorAll('form');
+  original.find(form => form.elements.destination).elements.destination.value = 'F:\\private\\first.json';
+  original.find(form => form.elements.newInstanceId).elements.candidate.value = 'F:\\candidate\\first';
+  scene.mount(scene.ui.renderStorage(first));
+  let forms = scene.body.querySelector('#detail-content').querySelectorAll('form');
+  assert.equal(forms.find(form => form.elements.destination).elements.destination.value, 'F:\\private\\first.json');
+  assert.equal(forms.find(form => form.elements.newInstanceId).elements.candidate.value, 'F:\\candidate\\first');
+  scene.mount(scene.ui.renderStorage(second));
+  assert.equal(scene.body.querySelector('#detail-content').querySelectorAll('form').find(form => form.elements.destination).elements.destination.value, '');
+  scene.mount(scene.ui.renderStorage(first));
+  forms = scene.body.querySelector('#detail-content').querySelectorAll('form');
+  assert.equal(forms.find(form => form.elements.destination).elements.destination.value, 'F:\\private\\first.json'); assert.deepEqual(calls, []);
+});
+
+test('creator edits survive component selection and language redraw; saved drafts restore only against the same base', async () => {
+  const pack = { id: 'sample', version: '1.0.0', title: 'Original', components: [{ id: 'provider', module: 'provider', settings: { message: 'original' } }, { id: 'client', module: 'client' }], bindings: [{ from: 'provider', to: 'client', contract: { id: 'echo', version: '1' } }] };
+  let revision = 'a'.repeat(64), savedDraft = null;
+  const calls = [], api = async (path, request) => {
+    calls.push([path, request]);
+    if (path === '/api/creator-drafts') return { drafts: savedDraft ? [structuredClone(savedDraft)] : [] };
+    if (path === '/api/creator-drafts/save') { savedDraft = structuredClone(request.draft); return { draft: savedDraft }; }
+    if (path === '/api/operations') return { operations: [] };
+    if (path === '/api/sources') return { sources: [], conflicts: [] };
+    if (path.endsWith('/inspect')) return { authoring: { revision, pack: structuredClone(pack), modules: [{ id: 'provider', provides: [{ id: 'echo', version: '1' }] }, { id: 'client', requires: [{ id: 'echo', version: '1' }] }] } };
+    throw new Error('Unexpected mutation: ' + path);
+  };
+  let scene = harness(api); scene.ui.navigate('creator');
+  let root = scene.body.querySelector('#creator-content'); root.querySelector('form').elements.directory.value = 'F:\\packs\\source'; await root.querySelector('form').dispatch('submit');
+  let derive = root.querySelectorAll('form').find(form => form.elements.packId); derive.elements.packId.value = 'my.design'; derive.elements.destination.value = 'F:\\outputs\\new-pack'; await derive.dispatch('input');
+  const node = root.querySelector('.composition-nodes').children[1]; await (byText(node, 'Select & trace bindings') ?? node).dispatch('click');
+  derive = root.querySelectorAll('form').find(form => form.elements.packId); assert.equal(derive.elements.packId.value, 'my.design'); assert.equal(derive.elements.destination.value, 'F:\\outputs\\new-pack');
+  await byText(root, 'Remove binding').dispatch('click'); assert.equal(root.querySelectorAll('.binding-row').length, 0); await byText(root, 'Undo removal').dispatch('click'); assert.equal(root.querySelectorAll('.binding-row').length, 1);
+  await (root.querySelector('.composition-nodes').children[0]).dispatch('click');
+  await byText(root, 'Edit public settings').dispatch('click'); const editor = scene.body.querySelectorAll('dialog').find(dialog => dialog.open).querySelector('form'); editor.elements.settings.value = '{"message":"saved draft"}'; await editor.dispatch('submit');
+  scene.state.language = 'zh'; scene.state.view = 'creator'; scene.ui.languageChanged();
+  derive = root.querySelectorAll('form').find(form => form.elements.packId); assert.equal(derive.elements.packId.value, 'my.design'); assert.equal(derive.elements.destination.value, 'F:\\outputs\\new-pack');
+  await byText(root, '立即保存草稿').dispatch('click'); assert.equal(savedDraft.pack.components[0].settings.message, 'saved draft'); assert.equal(savedDraft.pack.id, 'my.design');
+  assert.equal(Object.hasOwn(savedDraft, 'reviewId'), false); assert.deepEqual(savedDraft.replacements, []);
+  scene = harness(api); scene.ui.sessionReady(); await new Promise(resolve => setImmediate(resolve)); scene.ui.navigate('creator'); root = scene.body.querySelector('#creator-content');
+  await byText(root, 'Recheck and restore').dispatch('click'); derive = root.querySelectorAll('form').find(form => form.elements.packId); assert.equal(derive.elements.packId.value, 'my.design'); assert.equal(derive.elements.destination.value, 'F:\\outputs\\new-pack');
+  assert.match(root.textContent, /saved draft/); await byText(root, 'Save draft now').dispatch('click');
+  revision = 'b'.repeat(64); scene = harness(api); scene.ui.sessionReady(); await new Promise(resolve => setImmediate(resolve)); scene.ui.navigate('creator'); root = scene.body.querySelector('#creator-content');
+  await byText(root, 'Recheck and restore').dispatch('click'); assert.equal(root.querySelector('.composition-graph'), null); assert.ok(byText(root, 'Recheck and restore')); assert.match(scene.body.textContent, /Source contents changed/);
+  assert.ok(calls.every(([path]) => !path.endsWith('/start') && !path.endsWith('/derive')));
+});
+
+test('restoring a saved draft refuses a replacement which became incompatible without applying or executing it', async () => {
+  const calls = [], revision = 'a'.repeat(64), directory = 'F:\\packs\\source';
+  const pack = { id: 'sample', version: '1.0.0', components: [{ id: 'provider', module: 'new.provider' }], bindings: [] };
+  const draft = { format: 'world-hub.creator-draft/v1', directory, baseRevision: revision, pack, replacements: [{ componentId: 'provider', moduleDirectory: 'F:\\modules\\replacement' }], formValues: {}, selection: '', updatedAt: '2026-10-11T00:00:00Z' };
+  const scene = harness(async (path, request) => {
+    calls.push([path, request]);
+    if (path === '/api/creator-drafts') return { drafts: [draft] };
+    if (path === '/api/operations') return { operations: [] };
+    if (path === '/api/sources') return { sources: [], conflicts: [] };
+    if (path.endsWith('/inspect')) return { authoring: { revision, pack: { ...pack, components: [{ id: 'provider', module: 'old.provider' }] }, modules: [] } };
+    if (path.endsWith('/preview')) return { preview: { compatible: false } };
+    throw new Error('Unexpected mutation: ' + path);
+  });
+  scene.ui.sessionReady(); await new Promise(resolve => setImmediate(resolve)); scene.ui.navigate('creator');
+  const root = scene.body.querySelector('#creator-content'); await byText(root, 'Recheck and restore').dispatch('click');
+  assert.match(scene.body.textContent, /Candidate provider changed or is incompatible/);
+  assert.equal(root.querySelector('.composition-graph'), null); assert.ok(byText(root, 'Recheck and restore'));
+  assert.deepEqual(calls.find(([path]) => path.endsWith('/preview'))[1], { directory, componentId: 'provider', moduleDirectory: 'F:\\modules\\replacement', pack, replacements: draft.replacements, expectedRevision: revision });
+  assert.ok(calls.every(([path]) => !path.endsWith('/derive') && !path.endsWith('/save') && !path.endsWith('/start')));
+});
+
+test('creator draft can be discarded and returns to launchpad, or safely exited back to launchpad with draft preserved', async () => {
+  const directory = 'F:\\packs\\source', revision = 'a'.repeat(64);
+  const pack = { id: 'sample', version: '1.0.0', title: 'Original', components: [{ id: 'provider', module: 'provider' }], bindings: [] };
+  const calls = [];
+  let drafts = [];
+  const api = async (path, request) => {
+    calls.push([path, request]);
+    if (path === '/api/creator-drafts') return { drafts: structuredClone(drafts) };
+    if (path === '/api/creator-drafts/save') { drafts = [request.draft]; return { draft: request.draft }; }
+    if (path === '/api/creator-drafts/delete') { drafts = drafts.filter(d => d.directory !== request.directory); return { deleted: true }; }
+    if (path === '/api/operations') return { operations: [] };
+    if (path === '/api/sources') return { sources: [], conflicts: [] };
+    if (path.endsWith('/inspect')) return { authoring: { revision, directory, pack: structuredClone(pack), modules: [{ id: 'provider', provides: [] }] } };
+    throw new Error('Unexpected mutation: ' + path);
+  };
+  const scene = harness(api);
+  scene.ui.navigate('creator');
+  const root = scene.body.querySelector('#creator-content');
+  root.querySelector('form').elements.directory.value = directory;
+  await root.querySelector('form').dispatch('submit');
+
+  assert.ok(root.querySelector('.creator-pack-top-actions'));
+  assert.equal(root.querySelector('.studio-launchpad'), null);
+
+  await byText(root, 'Discard draft').dispatch('click');
+
+  assert.ok(calls.some(([path, body]) => path === '/api/creator-drafts/delete' && body.directory === directory));
+  assert.equal(root.querySelector('.creator-pack-top-actions'), null);
+  assert.ok(root.querySelector('.studio-launchpad'));
+
+  root.querySelector('form').elements.directory.value = directory;
+  await root.querySelector('form').dispatch('submit');
+  assert.ok(root.querySelector('.creator-pack-top-actions'));
+
+  await byText(root, '← Back to Launchpad').dispatch('click');
+  assert.equal(root.querySelector('.creator-pack-top-actions'), null);
+  assert.ok(root.querySelector('.studio-launchpad'));
+  assert.ok(calls.some(([path]) => path === '/api/creator-drafts/save'));
+});
+
+test('creator removal requires confirmation and removes exactly its component, bindings, dependencies and draft source', async () => {
+  const directory = 'F:\\packs\\source', revision = 'a'.repeat(64);
+  const pack = { id: 'sample', version: '1.0.0', title: 'Original', components: [{ id: 'provider', module: 'provider', after: ['consumer'] }, { id: 'consumer', module: 'consumer', after: [] }], entry: { component: 'consumer' }, bindings: [{ from: 'provider', to: 'consumer', contract: { id: 'test', version: '1.0.0' } }] };
+  const calls = [];
+  const api = async (path, request) => {
+    calls.push([path, request]);
+    if (path === '/api/creator-drafts') return { drafts: [] };
+    if (path === '/api/creator-drafts/save') return { draft: request.draft };
+    if (path === '/api/operations') return { operations: [] };
+    if (path === '/api/sources') return { sources: [], conflicts: [] };
+    if (path === '/api/paths/known') return { objects: [{ kind: 'module', id: 'extra.mod', title: 'Extra Module', runtime: { kind: 'node' } }] };
+    if (path.endsWith('/inspect')) return { authoring: { revision, directory, pack: structuredClone(pack), modules: [{ id: 'provider', provides: [] }, { id: 'consumer', requires: [] }] } };
+    throw new Error('Unexpected mutation: ' + path);
+  };
+  let confirmation;
+  const scene = harness(api, { confirmDialog: options => { confirmation = options; } });
+  scene.ui.navigate('creator');
+  const root = scene.body.querySelector('#creator-content');
+  root.querySelector('form').elements.directory.value = directory;
+  await root.querySelector('form').dispatch('submit');
+
+  const scrollWrap = root.querySelector('.composition-nodes-scroll-wrap');
+  assert.ok(scrollWrap, 'composition-nodes-scroll-wrap should be rendered');
+  const addTriggerBtn = scrollWrap.querySelector('.node-add-trigger-btn');
+  assert.ok(addTriggerBtn, 'Add module trigger button should exist in nodes bar');
+
+  const deleteBtns = scrollWrap.querySelectorAll('.composition-node-delete-btn');
+  assert.equal(deleteBtns.length, 2, 'Each component should have a delete button');
+
+  // Trigger delete on consumer node
+  await deleteBtns[1].dispatch('click');
+  assert.ok(confirmation, 'Removal must open a confirmation');
+  assert.equal(root.querySelectorAll('.composition-node').length, 2, 'No changes before confirmation');
+  await confirmation.onConfirm();
+  assert.deepEqual(root.querySelectorAll('.composition-node-id').map(node => node.textContent), ['provider']);
+  await byText(root, 'Save draft now').dispatch('click');
+  const saved = calls.filter(([path]) => path === '/api/creator-drafts/save').at(-1)[1].draft;
+  assert.deepEqual(saved.pack.components.map(component => component.id), ['provider']);
+  assert.deepEqual(saved.pack.components[0].after, []);
+  assert.deepEqual(saved.pack.bindings, []);
+  assert.equal(saved.pack.entry.component, 'provider');
+  assert.deepEqual(saved.replacements, []);
+});
+
+
+test('save and delete failures preserve Creator edits, report failure and never claim a successful save or discard', async () => {
+  const directory = 'F:\\packs\\save-failure', pack = { id: 'sample', version: '1.0.0', title: 'Original', components: [{ id: 'provider', module: 'provider' }], bindings: [] };
+  let failure = 'save', persisted = [], toasts = [];
+  const scene = harness(async (path, request) => {
+    if (path.endsWith('/inspect')) return { authoring: { directory, revision: 'a'.repeat(64), pack: structuredClone(pack), modules: [{ id: 'provider', provides: [] }] } };
+    if (path === '/api/creator-drafts/save') { if (failure === 'save') throw new Error('Disk unavailable'); persisted = [structuredClone(request.draft)]; return { draft: request.draft }; }
+    if (path === '/api/creator-drafts/delete') { if (failure === 'delete') throw new Error('Authentication expired'); persisted = []; return { deleted: true }; }
+    return {};
+  }, { toast: text => toasts.push(text) });
+  scene.ui.navigate('creator'); const root = scene.body.querySelector('#creator-content'); root.querySelector('form').elements.directory.value = directory; await root.querySelector('form').dispatch('submit');
+  let derive = root.querySelector('#creator-derive-form'); derive.elements.packTitle.value = 'Unsaved changes'; await derive.dispatch('input');
+  await byText(root, 'Save draft now').dispatch('click');
+  assert.ok(root.querySelector('.creator-pack-top-actions')); assert.match(scene.body.textContent, /Disk unavailable/);
+  assert.equal(persisted.length, 0); assert.equal(toasts.includes('Draft saved'), false);
+  await byText(root, '← Back to Launchpad').dispatch('click');
+  assert.ok(root.querySelector('.creator-pack-top-actions')); assert.equal(root.querySelector('#creator-derive-form').elements.packTitle.value, 'Unsaved changes');
+  failure = ''; await byText(root, 'Save draft now').dispatch('click'); assert.equal(persisted[0].pack.title, 'Unsaved changes');
+  failure = 'delete'; await byText(root, 'Discard draft').dispatch('click');
+  assert.equal(persisted.length, 1); assert.ok(root.querySelector('.creator-pack-top-actions')); assert.match(scene.body.textContent, /Authentication expired/);
+  assert.equal(toasts.some(text => /Draft discarded/.test(text)), false);
+  failure = ''; await byText(root, '← Back to Launchpad').dispatch('click'); assert.ok(root.querySelector('.studio-launchpad')); assert.equal(persisted[0].pack.title, 'Unsaved changes');
+});
+
+test('new module completes real preflight, persistent draft restore, derivation, import and an explicitly started four-module runtime', { timeout: 90000 }, async t => {
+  const temporary = await mkdtemp(join(tmpdir(), 'world-hub-creator-ui-'));
+  t.after(async () => { assert.equal(dirname(resolve(temporary)), resolve(tmpdir())); assert.ok(basename(temporary).startsWith('world-hub-creator-ui-')); await rm(temporary, { recursive: true, force: true }); });
+  const repository = fileURLToPath(new URL('../../../', import.meta.url)), directory = join(temporary, 'source'), moduleDirectory = join(temporary, 'additional-module'), privateRoot = join(temporary, 'launcher');
+  const environment = { nodePath: process.execPath, pythonPath: process.env.WORLD_HUB_RUNTIME_TEST_PYTHON ?? (process.platform === 'win32' ? 'python.exe' : 'python3') };
+  await cp(join(repository, 'examples/ecosystem-pack'), directory, { recursive: true }); await createLock(directory, environment);
+  await initModule({ directory: moduleDirectory, id: 'thirdparty.additional', runtime: 'node' }); await mkdir(privateRoot);
+  let registry = new CreatorDrafts(privateRoot); await registry.initialize(); let result;
+  const calls = [], api = async (path, request) => {
+    calls.push([path, request]);
+    if (path === '/api/creator-drafts') return registry.list();
+    if (path === '/api/creator-drafts/save') return registry.save(request.draft);
+    if (path === '/api/creator-drafts/delete') return registry.delete(request.directory);
+    if (path === '/api/paths/known') return { objects: [{ kind: 'module', id: 'thirdparty.additional', path: moduleDirectory, runtime: { kind: 'node' } }] };
+    if (path === '/api/authoring/inspect') return { authoring: await inspectAuthoring(request.directory, request) };
+    if (path === '/api/authoring/addition-preview') return { preview: await previewAddition(request.directory, request) };
+    if (path === '/api/authoring/preview') return { preview: await previewReplacement(request.directory, request) };
+    if (path === '/api/authoring/derive') { result = await derivePackage(request.directory, request); return result; }
+    return {};
+  };
+  let scene = harness(api); Object.assign(scene.state.environmentSelection, environment); await scene.ui.loadKnown(); scene.ui.navigate('creator');
+  let root = scene.body.querySelector('#creator-content'); root.querySelector('form').elements.directory.value = directory; await root.querySelector('form').dispatch('submit');
+  await root.querySelector('.node-add-trigger-btn').dispatch('click'); await byText(scene.body.querySelector('.add-module-dialog'), 'Add to Assembly').dispatch('click');
+  const dialog = scene.body.querySelectorAll('dialog').find(dialog => dialog.open && dialog.attributes['aria-label'] === 'Configure and review a new module'); assert.ok(dialog);
+  const addition = dialog.querySelector('form'); assert.deepEqual(JSON.parse(addition.elements.bridges.value), { main: { publish: [], subscribe: [] } });
+  addition.elements.bridges.value = JSON.stringify({ main: { publish: ['stats'], subscribe: ['stats'] } });
+  addition.elements.settings.value = JSON.stringify({ topicKey: 'stats', callerId: 'desk' });
+  await addition.dispatch('submit'); assert.equal(root.querySelectorAll('.composition-node').length, 3, 'Changes require reviewing the updated preflight first');
+  await addition.dispatch('submit'); assert.equal(root.querySelectorAll('.composition-node').length, 4);
+  await byText(root, 'Save draft now').dispatch('click');
+  const saved = (await registry.list()).drafts[0]; assert.equal(saved.pack.components.find(component => component.id === 'additional').module, 'thirdparty.additional'); assert.match(saved.replacements[0].candidateDigest, /^[a-f0-9]{64}$/);
+  registry = new CreatorDrafts(privateRoot); await registry.initialize(); scene = harness(api); Object.assign(scene.state.environmentSelection, environment); scene.ui.sessionReady(); await new Promise(resolve => setImmediate(resolve)); scene.ui.navigate('creator');
+  root = scene.body.querySelector('#creator-content'); await byText(root, 'Recheck and restore').dispatch('click');
+  assert.equal(root.querySelectorAll('.composition-node').length, 4); assert.equal(scene.state.reviews.size, 0); assert.equal(scene.state.trustReview, null);
+  const derive = root.querySelector('#creator-derive-form'); derive.elements.destination.value = join(temporary, 'derived'); await derive.dispatch('submit'); assert.equal(result, undefined);
+  await (await consent(scene.body)).dispatch('click'); assert.ok(result?.directory); assert.equal(result.pack.components.length, 4);
+  assert.equal(result.pack.components.find(component => component.id === 'additional').module, 'thirdparty.additional');
+  assert.equal((await inspectAuthoring(directory, environment)).pack.components.length, 3, 'Original source remains unchanged');
+  assert.ok(calls.every(([path]) => !path.endsWith('/start')), 'Authoring grants no execution consent');
+  const runtimeRoot = join(temporary, 'runtime'), imported = await importPackage(result.directory, { root: runtimeRoot, instanceId: 'four-modules', ...environment });
+  assert.equal(imported.instanceId, 'four-modules');
+  await assert.rejects(readFile(join(runtimeRoot, 'instances', 'four-modules', 'status.json')), { code: 'ENOENT' }, 'Import must not create a running status or start processes');
+  const session = await startInstance({ root: runtimeRoot, instanceId: 'four-modules', trust: imported.digest, ...environment }); t.after(() => session.close());
+  const status = await session.status(); assert.equal(status.state, 'running'); assert.equal(status.components.length, 4);
+  const response = await fetch(new URL('/analyze', session.ready.entryUrl), { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); assert.equal(response.status, 200);
+  await session.close(); assert.equal((await session.status()).state, 'stopped');
+});
+
 test('UI source modules have no markup execution sinks or private credential links', async () => {
-  for (const filename of ['app.mjs', 'advanced.mjs']) { const source = await readFile(new URL(`../../../tools/launcher/public/${filename}`, import.meta.url), 'utf8'); assert.doesNotMatch(source, /\.innerHTML\s*=|\.outerHTML\s*=|insertAdjacentHTML|document\.write|\beval\s*\(|new Function/); }
+  for (const filename of ['app.mjs', 'advanced.mjs', 'icons.mjs']) { const source = await readFile(new URL(`../../../tools/launcher/public/${filename}`, import.meta.url), 'utf8'); assert.doesNotMatch(source, /\.innerHTML\s*=|\.outerHTML\s*=|insertAdjacentHTML|document\.write|\beval\s*\(|new Function/); }
   const app = await readFile(new URL('../../../tools/launcher/public/app.mjs', import.meta.url), 'utf8'); assert.match(app, /url\.hostname !== '127\.0\.0\.1'/); assert.match(app, /noopener noreferrer/); assert.match(app, /redirect: 'error'/);
 });
 

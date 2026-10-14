@@ -21,7 +21,9 @@ const closed = (value, names) => value && typeof value === 'object' && !Array.is
 export async function canonicalSource(value) {
   if (typeof value !== 'string' || !value.trim() || value.length > 4096 || value.includes('\0')) throw fault('SOURCE_INPUT', 'Use a local index path or a HTTPS index URL.', 400);
   if (/^https?:/i.test(value)) {
-    const url = new URL(value);
+    let raw = value.trim();
+    if (/^https:\/\/peros\.cn\/workshop\/?$/i.test(raw)) raw = 'https://peros.cn/workshop/index.json';
+    const url = new URL(raw);
     if (url.protocol !== 'https:' || url.username || url.password || url.hash || (url.port && url.port !== '443')) throw fault('SOURCE_INPUT', 'Sources require HTTPS 443 without credentials or fragments.', 400);
     return url.href;
   }
@@ -45,7 +47,23 @@ export class SourceRegistry {
       const state = await json(this.file);
       if (!closed(state, ['format', 'sources']) || state.format !== 'world-hub.launcher-sources/v1' || !Array.isArray(state.sources) || state.sources.length > 32) throw fault('SOURCE_REGISTRY_INVALID', 'Unsupported source registry.');
       const ids = new Set(), addresses = new Set();
-      for (const row of state.sources) { validateRecord(row); const canonical = await canonicalSource(row.source); if (canonical !== row.source || ids.has(row.id) || addresses.has(keyOf(row.source))) throw fault('SOURCE_REGISTRY_INVALID', 'Source registry contains aliases or duplicate identities.'); ids.add(row.id); addresses.add(keyOf(row.source)); }
+      let modified = false;
+      for (const row of state.sources) {
+        validateRecord(row);
+        const canonical = await canonicalSource(row.source);
+        if (canonical !== row.source) {
+          if (/^https:\/\/peros\.cn\/workshop\/?$/i.test(row.source) && canonical === 'https://peros.cn/workshop/index.json') {
+            row.source = canonical;
+            modified = true;
+          } else {
+            throw fault('SOURCE_REGISTRY_INVALID', 'Source registry contains aliases or duplicate identities.');
+          }
+        }
+        if (ids.has(row.id) || addresses.has(keyOf(row.source))) throw fault('SOURCE_REGISTRY_INVALID', 'Source registry contains aliases or duplicate identities.');
+        ids.add(row.id);
+        addresses.add(keyOf(row.source));
+      }
+      if (modified) await privateJson(this.file, { format: 'world-hub.launcher-sources/v1', sources: state.sources });
       this.records = state.sources;
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }

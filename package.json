@@ -1,6 +1,6 @@
 {
   "name": "world-hub",
-  "version": "0.18.1",
+  "version": "0.19.0",
   "license": "MIT",
   "author": "oooBCKooo",
   "repository": {
@@ -12,7 +12,7 @@
     "url": "https://github.com/oooBCKooo/world-hub/issues"
   },
   "keywords": [
-    "mod",
+    "module-bridge",
     "bridge",
     "websocket",
     "messaging",
@@ -45,6 +45,16 @@
     "scripts/runtime/isolation-wrapper.py",
     "scripts/runtime/templates/**/*.mjs",
     "scripts/runtime/templates/**/*.py",
+    "examples/templates/*/template.json",
+    "examples/templates/*/base/pack.json",
+    "examples/templates/*/base/pack.lock",
+    "examples/templates/*/base/modules/*/module.json",
+    "examples/templates/*/base/modules/*/*.mjs",
+    "examples/templates/*/base/modules/*/*.py",
+    "examples/templates/*/base/modules/*/*.txt",
+    "examples/templates/*/base/modules/*/*.html",
+    "examples/templates/*/base/modules/*/*.js",
+    "examples/templates/*/base/modules/*/LICENSE",
     "docs/ecosystem/*.json",
     "docs/ecosystem/publisher-vector-check.py",
     "src/**/*.mjs",
@@ -92,7 +102,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "type": "module",
-  "description": "Communications crossroads for external programs connected through bidirectional mod bridges.",
+  "description": "Communications crossroads for external programs connected through bidirectional module bridges.",
   "engines": {
     "node": ">=22.4.0"
   },

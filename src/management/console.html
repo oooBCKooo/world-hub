@@ -694,7 +694,7 @@
         <g id="guides-g">
           <circle cx="0" cy="0" r="380" class="orbit-circle" />
           <circle cx="0" cy="0" r="700" class="orbit-circle" />
-          <text x="0" y="-390" class="orbit-label" data-i18n="MOD BRIDGES · 通讯主体环">MOD BRIDGES · 通讯主体环</text>
+          <text x="0" y="-390" class="orbit-label" data-i18n="MODULE BRIDGES · 通讯主体环">MODULE BRIDGES · 通讯主体环</text>
           <text x="0" y="-710" class="orbit-label" data-i18n="PROGRAM ANNOTATIONS · 外部程序注记环">PROGRAM ANNOTATIONS · 外部程序注记环</text>
         </g>
 
@@ -707,7 +707,7 @@
         <!-- External Program Nodes (Outer orbit) -->
         <g id="program-nodes-g"></g>
 
-        <!-- Mod Bridge Nodes (Inner orbit) -->
+        <!-- Module Bridge Nodes (Inner orbit) -->
         <g id="bridge-nodes-g"></g>
 
         <!-- Telemetry Particles Group -->
@@ -772,7 +772,7 @@
         <option value="zh-CN">中文</option>
         <option value="en">English</option>
       </select>
-      <button type="button" class="hud-btn" id="btn-manual-console" title="用界面自己的 mod 手动操作通讯">↗ 通讯工作台</button>
+      <button type="button" class="hud-btn" id="btn-manual-console" title="用界面自己的模块桥手动操作通讯">↗ 通讯工作台</button>
       <div class="hud-search-box" id="hud-search-box">
         <input type="text" id="hud-search-input" class="hud-search-input" placeholder="🔍 快速定位 (桥/程序)…" autocomplete="off" spellcheck="false" aria-label="搜索并定位桥或程序" data-i18n-placeholder="🔍 快速定位 (桥/程序)…" data-i18n-aria-label="搜索并定位桥或程序">
         <div id="hud-search-dropdown" class="hud-search-dropdown hidden"></div>
@@ -845,7 +845,7 @@
 
         <!-- Mod Channels -->
         <div class="section-block">
-          <h3 data-i18n="Mod 注册的通道">Mod 注册的通道</h3>
+          <h3 data-i18n="模块桥注册的通道">模块桥注册的通道</h3>
           <div id="ins-channels">
             <div class="muted" style="font-size:11px;" data-i18n="暂无在线通道声明。">暂无在线通道声明。</div>
           </div>
@@ -893,8 +893,8 @@
       <div id="ins-program-content" class="drawer-content-group hidden">
         <div class="section-block">
           <h3 data-i18n="外部程序注记">外部程序注记</h3>
-          <p class="action-help-text" data-i18n="外部程序通过 Mod 桥接入世界枢纽进行事件通讯。枢纽只做接线与路由，外部程序由其自身独立承载，其生命周期与内部状态不可直接观测。">
-            外部程序通过 Mod 桥接入世界枢纽进行事件通讯。枢纽只做接线与路由，外部程序由其自身独立承载，其生命周期与内部状态不可直接观测。
+          <p class="action-help-text" data-i18n="外部程序通过模块桥接入世界枢纽进行事件通讯。枢纽只做接线与路由，外部程序由其自身独立承载，其生命周期与内部状态不可直接观测。">
+            外部程序通过模块桥接入世界枢纽进行事件通讯。枢纽只做接线与路由，外部程序由其自身独立承载，其生命周期与内部状态不可直接观测。
           </p>
           <div class="btn-group" style="margin-top: 10px;">
             <button type="button" class="action-btn" id="btn-prog-fly" style="background: rgba(0, 210, 180, 0.12); color: var(--teal); border: 1px solid var(--teal);" data-i18n="🎯 定位此程序">🎯 定位此程序</button>
@@ -903,7 +903,7 @@
 
         <div class="section-block">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
-            <h3 style="margin:0;" data-i18n="关联的 Mod 桥接入点">关联的 Mod 桥接入点</h3>
+            <h3 style="margin:0;" data-i18n="关联的模块桥接入点">关联的模块桥接入点</h3>
             <span class="muted" id="ins-prog-bridge-count" style="font-size:11px;">—</span>
           </div>
           <div id="ins-prog-bridges-list"></div>
@@ -1433,7 +1433,7 @@
         guidesG.append(
           svgEl('circle', { cx: 0, cy: 0, r: bridgeOrbitR, class: 'orbit-circle' }),
           svgEl('circle', { cx: 0, cy: 0, r: progOrbitR, class: 'orbit-circle' }),
-          svgEl('text', { x: 0, y: -(bridgeOrbitR + 10), class: 'orbit-label' }, t('MOD BRIDGES · 通讯主体集群环')),
+          svgEl('text', { x: 0, y: -(bridgeOrbitR + 10), class: 'orbit-label' }, t('MODULE BRIDGES · 通讯主体集群环')),
           svgEl('text', { x: 0, y: -(progOrbitR + 10), class: 'orbit-label' }, t('PROGRAM ANNOTATIONS · 外部程序注记矩阵'))
         );
       }
@@ -1488,7 +1488,7 @@
 
       const activeProg = selProg || hovProg;
 
-      // 1. Mod Bridges & Communication Rails
+      // 1. Module Bridges & Communication Rails
       for (const b of bridges()) {
         const isSel = b.key === selKey;
         const isHov = b.key === hovBridge;
@@ -1891,7 +1891,7 @@
         }
 
         if (bCount === 0) {
-          listEl.append(el('div', 'muted', t('暂无关联的 Mod 桥。')));
+          listEl.append(el('div', 'muted', t('暂无关联的模块桥。')));
         } else {
           for (const bKey of p.bridgeKeys) {
             const br = bridges().find(item => item.key === bKey);
@@ -2013,7 +2013,7 @@
       for (const i of asArray(b.instances)) {
         for (const c of asArray(i.channels)) {
           const badge = el('div', 'channel-badge');
-          const dir = c.publish && c.subscribe ? t('双向通讯') : c.publish ? t('输入枢纽') : c.subscribe ? t('从枢纽抽取') : t('Mod 声明');
+          const dir = c.publish && c.subscribe ? t('双向通讯') : c.publish ? t('输入枢纽') : c.subscribe ? t('从枢纽抽取') : t('模块桥声明');
           badge.append(
             el('span', 'topic', c.topic || c.name || c.id || t('未命名通道')),
             el('span', 'dir', t('{direction}{kind} · 实例: {id}', { direction: dir, kind: c.kind ? ' · ' + c.kind : '', id: i.bridgeId }))
@@ -2022,7 +2022,7 @@
           chanCount++;
         }
       }
-      if (!chanCount) chanContainer.append(el('div', 'muted', t('暂无通道注册。通道由 mod 动态声明。')));
+      if (!chanCount) chanContainer.append(el('div', 'muted', t('暂无通道注册。通道由模块桥动态声明。')));
 
       // ACL Whitelist
       const aclPub = $('ins-acl-pub'); aclPub.replaceChildren();
@@ -2233,8 +2233,8 @@
         const msg = actName === 'pause'
           ? ['{name} 已持久暂停接入，全部实例已断开；留存信息继续受保护。', { name: label(b) }]
           : actName === 'resume'
-          ? ['{name} 接入许可已恢复，等待 mod 自行重连。', { name: label(b) }]
-          : ['{name} 已断开 {count} 个当前连接；mod 可自动重连。', { name: label(b), count: formatCount(res.disconnected) }];
+          ? ['{name} 接入许可已恢复，等待模块桥自行重连。', { name: label(b) }]
+          : ['{name} 已断开 {count} 个当前连接；模块桥可自动重连。', { name: label(b), count: formatCount(res.disconnected) }];
 
         toast(msg[0], 'neutral', true, msg[1]);
         await refresh({ afterMutation: true });
@@ -3058,7 +3058,7 @@
         if (sub) sub.textContent = program.unmarked ? t('待标注程序') : program.bridgeKeys.size > 1 ? t('关联 {count} 座桥 · 业务自理', { count: formatCount(program.bridgeKeys.size) }) : t('不可观测 · 用户注记');
       }
       const guides = $('guides-g')?.querySelectorAll('.orbit-label');
-      if (guides?.[0]) guides[0].textContent = t('MOD BRIDGES · 通讯主体集群环');
+      if (guides?.[0]) guides[0].textContent = t('MODULE BRIDGES · 通讯主体集群环');
       if (guides?.[1]) guides[1].textContent = t('PROGRAM ANNOTATIONS · 外部程序注记矩阵');
     }
 

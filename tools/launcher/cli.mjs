@@ -13,7 +13,7 @@ async function openLauncherPage(url) {
   if (!response.ok || !response.headers.get('content-type')?.includes('text/html')) throw new Error('Launcher page is unavailable');
   await response.body?.cancel();
   const [command, argv] = process.platform === 'win32'
-    ? [join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'rundll32.exe'), ['url.dll,FileProtocolHandler', target.href]]
+    ? [join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe'), ['/c', 'start', '', target.href]]
     : process.platform === 'darwin' ? ['open', [target.href]] : ['xdg-open', [target.href]];
   await new Promise((yes, no) => { const child = spawn(command, argv, { cwd: processCwd(), shell: false, windowsHide: true, detached: true, stdio: 'ignore' });
     child.once('error', no); child.once('spawn', () => { child.unref(); yes(); }); });

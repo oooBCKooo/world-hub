@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { APPLICATION_FILES, SDK_FILES, SDK_DOCUMENTATION_FILES, MODULE_CONTRACT_FILES,
-  ECOSYSTEM_SCHEMA_FILES, ECOSYSTEM_RUNTIME_FILES, LAUNCHER_FILES, WORKSHOP_FILES, INTEROP_FILES } from './build-package.mjs';
+  ECOSYSTEM_SCHEMA_FILES, ECOSYSTEM_RUNTIME_FILES, LAUNCHER_FILES, WORKSHOP_FILES, INTEROP_FILES, BUNDLED_TEMPLATE_FILES } from './build-package.mjs';
 import { zipDirectory } from './zip.mjs';
 import { verifyPackage } from './verify-package.mjs';
 import { collectFiles, ordinaryPath, readBounded, relativePath } from '../runtime/paths.mjs';
@@ -31,7 +31,7 @@ const documentation = ['README.en.md', ...SDK_DOCUMENTATION_FILES,
   'docs/modules/provider-contract.md', 'docs/ecosystem/developer.md', 'docs/ecosystem/developer.en.md', 'docs/ecosystem/phase17.md', 'docs/ecosystem/pack-spec.md', 'docs/ecosystem/runtime.md', 'docs/ecosystem/launcher.md', 'docs/ecosystem/authoring.md', 'docs/ecosystem/sources.md', 'docs/ecosystem/workshop.md', 'docs/ecosystem/templates.md', 'docs/ecosystem/upgrade.md', 'docs/ecosystem/isolation.md', 'docs/independent-author-acceptance.md'];
 export const ECOSYSTEM_SOURCE_FILES = Object.freeze([...new Set([
   ...APPLICATION_FILES, ...SDK_FILES, ...MODULE_CONTRACT_FILES, ...ECOSYSTEM_SCHEMA_FILES,
-  ...ECOSYSTEM_RUNTIME_FILES, ...LAUNCHER_FILES, ...WORKSHOP_FILES, ...INTEROP_FILES, ...ECOSYSTEM_PACK_FILES, ...documentation,
+  ...ECOSYSTEM_RUNTIME_FILES, ...LAUNCHER_FILES, ...WORKSHOP_FILES, ...INTEROP_FILES, ...ECOSYSTEM_PACK_FILES, ...BUNDLED_TEMPLATE_FILES, ...documentation,
   'docs/ecosystem/interop.md', 'docs/ecosystem/trust.md', 'docs/ecosystem/phase18.md', 'docs/ecosystem/phase18-workshop.md',
   'bin/world-hub.mjs', 'scripts/launcher.mjs', 'scripts/launcher-support.mjs',
   'scripts/release/verify-package.mjs', 'config/hub.json', 'LICENSE',
@@ -140,7 +140,7 @@ export async function buildEcosystemPackage({ sourceRoot = repository, output } 
             : local === 'config/hub.json' ? 'configuration' : 'application';
     await add(local, bytes, role);
   }
-  await add('README.md', readme(version, lock) + '\n\n## 可选统一 Launcher\n\n运行 `node bin/world-hub.mjs ui --root ./data/launcher --open`，从一次性授权入口进入“我的整合包”。选择包内 `examples/ecosystem-pack` 本机目录，检查锁定环境和模块来源后创建实例；点击启动，审阅当前权限并明确授权即可运行，无需手工输入审阅摘要。界面提供停止、重启、四种状态、组件日志、Hub 拓扑与工作台双向导航及公开包导出，还提供私人备份／新实例恢复、保留数据卸载、可视化组合／派生／重建锁、静态软件源缓存与发布、评论和提案交换。上述 Runtime CLI 继续可用。Launcher 与 Runtime 都在 Hub 通信内核之外；检查不安装依赖，有限依赖准备须另行审阅授权，默认 trusted-local 无 OS 沙箱；可选有限 Linux Docker 隔离仅支持 Node headless 程序。详情见[统一 Launcher](docs/ecosystem/launcher.md)。\n', 'documentation');
+  await add('README.md', readme(version, lock) + '\n\n## 可选统一 Launcher\n\n运行 `node bin/world-hub.mjs ui --root ./data/launcher --open`，从一次性授权入口进入“我的整合包”。选择包内 `examples/ecosystem-pack` 本机目录，检查锁定环境和模块来源后创建实例；点击启动，审阅当前权限并明确授权即可运行，无需手工输入审阅摘要。界面提供停止、重启、四种状态、模块日志、Hub 拓扑与工作台双向导航及公开包导出，还提供私人备份／新实例恢复、保留数据卸载、可视化组合／派生／重建锁、静态软件源缓存与发布、评论和提案交换。上述 Runtime CLI 继续可用。Launcher 与 Runtime 都在 Hub 通信内核之外；检查不安装依赖，有限依赖准备须另行审阅授权，默认 trusted-local 无 OS 沙箱；可选有限 Linux Docker 隔离仅支持 Node headless 程序。详情见[统一 Launcher](docs/ecosystem/launcher.md)。\n', 'documentation');
   await add('package.json', JSON.stringify({ name: 'world-hub', version, private: true,
     type: 'module', license: 'MIT', engines: { node: '>=22.4.0' }, exports: { '.': './sdk/javascript/bridge-kit.mjs', './bridge': './sdk/javascript/bridge-kit.mjs', './blob': './sdk/javascript/blob-client.mjs', './runtime': './scripts/runtime/index.mjs', './workshop': './tools/workshop/server.mjs' },
     scripts: { ui: 'node bin/world-hub.mjs ui --open', check: 'node scripts/launcher.mjs --check', 'verify:package': 'node scripts/release/verify-package.mjs --root .' } }, null, 2) + '\n', 'tooling');

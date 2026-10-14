@@ -20,14 +20,21 @@ export const SDK_FILES = ['sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-
 export const SDK_DOCUMENTATION_FILES = Object.freeze(['sdk/javascript/README.md', 'sdk/python/README.md', 'sdk/powershell/README.md']);
 export const MODULE_CONTRACT_FILES = Object.freeze(['docs/modules/text-statistics.contract.json']);
 export const ECOSYSTEM_SCHEMA_FILES = Object.freeze(['docs/ecosystem/module.schema.json', 'docs/ecosystem/pack.schema.json', 'docs/ecosystem/pack-lock.schema.json', 'docs/ecosystem/template.schema.json', 'docs/ecosystem/template.example.json', 'docs/ecosystem/publisher-vectors.json', 'docs/ecosystem/publisher-vector-check.py']);
+// These are editable source templates, never automatically executed by Hub or
+// Launcher. Keep an explicit list so runtime/private material is not bundled.
+export const BUNDLED_TEMPLATE_FILES = Object.freeze(['template.json', 'base/pack.json', 'base/pack.lock',
+  ...['module.json', 'program.mjs', 'bridge-kit.mjs', 'blob-client.mjs', 'LICENSE'].map(file => 'base/modules/source/' + file),
+  ...['module.json', 'program.py', 'hub_bridge.py', 'requirements.txt', 'LICENSE'].map(file => 'base/modules/stats/' + file),
+  ...['module.json', 'program.mjs', 'bridge-kit.mjs', 'blob-client.mjs', 'index.html', 'ui.js', 'LICENSE'].map(file => 'base/modules/desk/' + file)]
+  .map(file => 'examples/templates/text-desk/' + file));
 export const ECOSYSTEM_RUNTIME_FILES = Object.freeze(['bin/world-hub-pack.mjs',
   ...['index', 'runtime', 'package', 'paths', 'process', 'hub-process', 'maintenance', 'authoring', 'sources', 'developer', 'template', 'upgrade', 'staged-upgrade', 'completion-cli', 'publisher-trust', 'publisher-store', 'publisher-cli', 'isolation', 'isolation-wrapper', 'isolation-channel', 'isolation-http', 'isolation-user', 'isolation-user-supervisor'].map(name => `scripts/runtime/${name}.mjs`),
   'scripts/runtime/isolation-wrapper.py',
   'scripts/runtime/templates/node/program.mjs', 'scripts/runtime/templates/node/logic.mjs', 'scripts/runtime/templates/node/logic.test.mjs',
   'scripts/runtime/templates/python/program.py', 'scripts/runtime/templates/python/logic.py', 'scripts/runtime/templates/python/test_logic.py']);
 export const LAUNCHER_FILES = Object.freeze(['bin/world-hub.mjs',
-  ...['cli', 'server', 'manager', 'source-registry', 'environment', 'environment-prepare', 'diagnostics', 'topology'].map(name => `tools/launcher/${name}.mjs`),
-  ...['index.html', 'app.mjs', 'style.css', 'i18n.mjs', 'advanced.mjs', 'completion-ui.mjs', 'publisher-ui.mjs', 'isolation-ui.mjs'].map(name => `tools/launcher/public/${name}`)]);
+  ...['cli', 'server', 'manager', 'source-registry', 'paths-service', 'creator-drafts', 'environment', 'environment-prepare', 'diagnostics', 'topology'].map(name => `tools/launcher/${name}.mjs`),
+  ...['index.html', 'app.mjs', 'style.css', 'i18n.mjs', 'advanced.mjs', 'completion-ui.mjs', 'publisher-ui.mjs', 'isolation-ui.mjs', 'path-ui.mjs', 'task-ui.mjs', 'icons.mjs'].map(name => `tools/launcher/public/${name}`)]);
 export const WORKSHOP_FILES = Object.freeze(['tools/workshop/cli.mjs', 'tools/workshop/store.mjs', 'tools/workshop/server.mjs',
   ...['index.html', 'app.mjs', 'style.css'].map(name => `tools/workshop/public/${name}`)]);
 export const INTEROP_FILES = Object.freeze(['bin/world-hub-interop.mjs', 'tools/interop/text-statistics.mjs',
@@ -86,6 +93,7 @@ export async function buildPackage({ output, runtimeDirectory = null, sourceRoot
   for (const path of MODULE_CONTRACT_FILES) await copy(path, 'documentation-contract');
   for (const path of ECOSYSTEM_SCHEMA_FILES) await copy(path, 'documentation-contract');
   for (const path of ECOSYSTEM_RUNTIME_FILES) await copy(path, 'tooling');
+  for (const path of BUNDLED_TEMPLATE_FILES) await copy(path, 'optional-template-source');
   for (const path of INTEROP_FILES) await copy(path, 'tooling');
   for (const path of LAUNCHER_FILES) await copy(path, path.startsWith('tools/launcher/public/') ? 'application' : 'tooling');
   for (const path of WORKSHOP_FILES) await copy(path, path.includes('/public/') ? 'application' : 'tooling');

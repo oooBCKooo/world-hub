@@ -1,8 +1,8 @@
 # 分布式上下文示例
 
-系统提示词、对话历史和补充材料由三个独立程序提供。界面程序通过自己的 mod 请求信息、组合上下文，再交给独立 DSH harness 程序处理；结果也经 mod 返回，并由对话来源程序保存下一轮历史。示例中的角色、顺序、模型选择和业务状态都由外部程序管理。
+系统提示词、对话历史和补充材料由三个独立程序提供。界面程序通过自己的 模块桥 请求信息、组合上下文，再交给独立 DSH harness 程序处理；结果也经 模块桥 返回，并由对话来源程序保存下一轮历史。示例中的角色、顺序、模型选择和业务状态都由外部程序管理。
 
-枢纽只转交通讯，不组合提示词、不选择模型、不运行 harness。这个示例用于检验 mod 可连接不同来源和程序，不是随枢纽自动启动的业务。
+枢纽只转交通讯，不组合提示词、不选择模型、不运行 harness。这个示例用于检验 模块桥 可连接不同来源和程序，不是随枢纽自动启动的业务。
 
 ## 显式选择现有 DSH
 
@@ -19,6 +19,6 @@ npm run demo:context
 
 ## 自行配置应用
 
-`programs.config.json` 只含参考主题、示例身份及配置入口；`system-prompt.json`、`dialogue.json`、`context.txt` 都是人工编写的测试材料。`contextProviders` 可增减来源，每个来源选择自己的 mod、文件和状态目录。对应身份与权限写在此示例的 `hub.config.json`。
+`programs.config.json` 只含参考主题、示例身份及配置入口；`system-prompt.json`、`dialogue.json`、`context.txt` 都是人工编写的测试材料。`contextProviders` 可增减来源，每个来源选择自己的 模块桥、文件和状态目录。对应身份与权限写在此示例的 `hub.config.json`。
 
 运行自选模型可使用 `node examples/distributed-context/run-phase2.mjs --config <程序配置文件>`，由程序配置自己的 provider、model、profile、home 与 cwd。相关程序和模型的运行条件由接入方安排。未知执行结果不会自动重试；等待结束、读取和 ACK 都不会释放枢纽保留的信息。

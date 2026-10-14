@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { request as httpRequest } from 'node:http';
-import { appendFile, lstat } from 'node:fs/promises';
+import { appendFile, lstat, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createLock, importPackage, startInstance } from '../../../scripts/runtime/index.mjs';
 import { createLauncherServer } from '../../../tools/launcher/server.mjs';
@@ -437,4 +437,21 @@ test('LAUNCHER-11 actual readiness and initial health failures preserve only a p
     app.record('private-exact-owner-error-handle', { mode, runId: status.runId, error: failure.message,
       handleExcludedFromPublicJson: true, actualChildExitsConfirmed: true });
   }
+});
+
+test('LAUNCHER-12 native path picker returns checked path or cancelled state', options, async t => {
+  const app = await workspace(t), api = await launcher(app);
+  process.env.WH_NATIVE_PICK_RESULT = '';
+  try {
+    const cancelled = await api.call('/api/paths/native-pick', { purpose: 'pack' });
+    assert.equal(cancelled.cancelled, true);
+    process.env.WH_NATIVE_PICK_RESULT = app.root;
+    const selected = await api.call('/api/paths/native-pick', { purpose: 'directory' });
+    assert.equal(selected.cancelled, false);
+    assert.equal(selected.path, await realpath(app.root));
+    assert.equal(selected.kind, 'directory');
+  } finally {
+    delete process.env.WH_NATIVE_PICK_RESULT;
+  }
+  app.record('native-path-picker', { cancelledSupported: true, selectedPathChecked: true });
 });

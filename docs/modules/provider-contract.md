@@ -13,7 +13,7 @@ Python SDK 只提供底层 `send`／`receive`，跨语言作者还应阅读[Pyth
 | 配置 | 含义 |
 | --- | --- |
 | `endpoint` | Hub WebSocket URL，如 `ws://127.0.0.1:8790/bridge` |
-| `bridgeId` | 本 mod 声明的桥名；与部署登记一致 |
+| `bridgeId` | 本模块桥声明的桥名；与部署登记一致 |
 | `credential`、`token` | SDK 的凭据标识和秘密 token；单桥模式可省略 credential，token 仍按部署配置 |
 | `principal` | 期望 `welcome.principal`，握手后核对；本页要求 `welcome.authenticated === true` |
 | `moduleId`、`moduleVersion` | 目录获准登记的模块标识、实现版本；实现版本与业务契约版本各自独立 |

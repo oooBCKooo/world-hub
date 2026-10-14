@@ -37,7 +37,12 @@ try {
   credentials = await request('/api/session', { code });
   assert.equal(credentials.softwareVersion, pkg.version);
   assert.equal((await request('/api/instances')).instances.length, 0);
-  for (const [url, path] of [['/', 'index.html'], ['/app.mjs', 'app.mjs'], ['/style.css', 'style.css'], ['/i18n.mjs', 'i18n.mjs'], ['/advanced.mjs', 'advanced.mjs']]) {
+  const builtin = await request('/api/templates/builtin');
+  assert.equal(builtin.candidates.length, 1);
+  const builtinTemplate = await request('/api/templates/inspect', { directory: builtin.candidates[0].directory });
+  assert.equal(builtinTemplate.inspection.manifest.id, 'demo.text-template');
+  assert.equal(builtinTemplate.inspection.startsModules, false);
+  for (const [url, path] of [['/', 'index.html'], ['/app.mjs', 'app.mjs'], ['/style.css', 'style.css'], ['/i18n.mjs', 'i18n.mjs'], ['/advanced.mjs', 'advanced.mjs'], ['/icons.mjs', 'icons.mjs']]) {
     const response = await fetch(new URL(url, launcher.url), { redirect: 'error', signal: AbortSignal.timeout(5000) });
     assert.equal(response.status, 200); assert.match(response.headers.get('content-security-policy'), /script-src 'self'/);
     assert.equal(hash(Buffer.from(await response.arrayBuffer())), hash(await readFile(join(packageRoot, 'tools/launcher/public', path))), path);

@@ -37,6 +37,6 @@
 
 官方 Node 运行时仅按分发构建选项复制到生成包的 `runtime/`，其完整 `runtime/LICENSE`、来源与 SHA-256 记录独立保留，不由本项目重新许可。Python SDK 引用的 `websockets` 由使用者另行安装；PowerShell SDK 使用 .NET 系统 API；可选 DSH 场景调用用户另外安装的运行时。这些第三方软件遵循各自许可，项目 MIT 许可不替代它们的许可。
 
-npm 包采用明确文件清单，提供 Hub CLI、可选统一 Launcher、外部 Runtime 与 JavaScript、Python、PowerShell 三个 SDK；JavaScript 和 Runtime 提供包导出入口，Python 和 PowerShell 桥按模块文件路径使用，并需要各自运行环境。Launcher 服务与静态页面在 npm、Hub 源码／便携 ZIP 和生态源码 ZIP 中完整携带；仓库测试、下载的运行时和用户数据不随 npm 安装，三程序业务样例仅由源码仓库和独立生态源码 ZIP 提供。源码仓库与 npm 包的操作入口见[npm 包](npm.md)和[开发](development.md)。
+npm 包采用明确文件清单，提供 Hub CLI、可选统一 Launcher、外部 Runtime 与 JavaScript、Python、PowerShell 三个 SDK；JavaScript 和 Runtime 提供包导出入口，Python 和 PowerShell 桥按模块文件路径使用，并需要各自运行环境。Launcher 服务与静态页面在 npm、Hub 源码／便携 ZIP 和生态源码 ZIP 中完整携带；仓库测试、下载的运行时和用户数据不随 npm 安装。三程序样例可从源码仓库或独立生态源码 ZIP 取得；npm 与 Hub ZIP 另带用于创作的可选文本台模板源码，生成和运行均需独立检查与审阅。源码仓库与 npm 包的操作入口见[npm 包](npm.md)和[开发](development.md)。
 
-生态声明里的 module 是可部署的外部程序包，mod 是程序选用的通讯桥。一个 module 可以有多个 mod，普通程序无需采用这个部署 profile。Hub 不读取清单、不装载程序、不选择能力，也不解释程序业务。公开 `examples/ecosystem-pack/pack.lock` 只锁定该样例源码与环境；运行中的实例锁、私有 run 配置和数据仍为部署产物。
+生态声明里的可部署模块（module）是外部程序包；模块桥（module bridge）是程序选用的通信适配层。一个程序可以使用多座模块桥。普通程序无需采用 Runtime 或这套部署 profile，也能通过模块桥接入。Hub 不读取清单、不装载程序、不选择能力，也不解释程序业务。公开 `examples/ecosystem-pack/pack.lock` 只锁定该样例源码与环境；运行中的实例锁、私有 run 配置和数据仍为部署产物。

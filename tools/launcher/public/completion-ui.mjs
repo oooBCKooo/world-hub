@@ -1,7 +1,7 @@
 // Optional static templates and reviewed instance transactions. No Core business.
 export function createCompletionUi(ctx) {
-  const { api, el, button, say, panel, note, field, form, value, jsonView, reviewAction, operation, refresh, openImport, endpoint, selectInstance } = ctx;
-  let templateDirectory = '';
+  const { api, el, button, say, panel, note, field, form, value, jsonView, reviewAction, operation, refresh, openImport, endpoint, selectInstance, createIcon } = ctx;
+  let templateDirectory = '', templateInspection = null;
   const inputJson = (f, key) => JSON.parse(value(f, key));
   const completed = async result => { await refresh({ explicit: true }); return result; };
   function candidateSummary(preview) {
@@ -28,16 +28,20 @@ export function createCompletionUi(ctx) {
   }
   function templatePanel() {
     const results = el('div');
-    const inspect = form([field('directory', say('模板目录', 'Template directory'), templateDirectory)], say('检查模板', 'Inspect template'), async f => {
-      templateDirectory = value(f, 'directory'); const data = await api('/api/templates/inspect', { directory: templateDirectory });
+    if (templateInspection) results.append(note(`${templateInspection.manifest.title} · ${templateInspection.manifest.id}@${templateInspection.manifest.version}`), jsonView(say('模板与参数', 'Template and parameters'), templateInspection), instantiateForm(templateDirectory, templateInspection));
+    const inspect = form([field('directory', say('模板目录', 'Template directory'), templateDirectory, { pathPurpose: 'template' })], say('检查模板', 'Inspect template'), async f => {
+      const dir = value(f, 'directory').trim();
+      if (!dir) throw new Error(say('请先输入或选择包含 template.json 的模板目录。', 'Please enter or select a template directory containing template.json.'));
+      templateDirectory = dir; const data = await api('/api/templates/inspect', { directory: templateDirectory });
+      templateInspection = data.inspection;
       results.replaceChildren(note(`${data.inspection.manifest.title} · ${data.inspection.manifest.id}@${data.inspection.manifest.version} · Hub ${data.inspection.lock.hubVersion}`), jsonView(say('模板与参数', 'Template and parameters'), data.inspection), instantiateForm(templateDirectory, data.inspection));
-    });
+    }, say('输入包含 template.json 和 base 目录的工程模板路径。', 'Enter a template directory containing template.json and base.'), 'template-inspect');
     const create = form([field('directory', say('完整锁定基包目录', 'Complete locked base pack directory')), field('template', say('模板声明 JSON', 'Template declaration JSON'), '', { multiline: true }), field('destination', say('新的模板目录', 'New template directory'))], say('审阅并创建模板', 'Review and create template'), async f => {
       const body = { directory: value(f, 'directory'), template: inputJson(f, 'template'), destination: value(f, 'destination'), redistributionAcknowledged: true };
       reviewAction(say('创建可分发模板', 'Create distributable template'), [note(say('模板包含完整基包与锁。仅公开声明允许调整的业务设置或具体主题；不执行模块。', 'Templates contain a complete base pack and lock. Only declared business settings or concrete topics can vary; modules are not executed.')), jsonView(say('模板声明', 'Template declaration'), body.template, true)], say('我已审阅公开内容、参数范围和再分发许可。', 'I reviewed the public contents, parameter scope, and redistribution licenses.'), async () => {
         await operation(await api('/api/templates/create', body), 'create-template', result => { templateDirectory = result.directory; results.replaceChildren(note(say(`已创建模板：${result.directory}`, `Template created: ${result.directory}`))); });
       });
-    });
+    }, '', 'template-create');
     return panel(say('可分发模板', 'Distributable templates'), [note(say('填入参数生成新的锁定包，再导入、审阅和启动。模板本身不启动程序。', 'Fill in parameters to create a new locked pack, then import, review, and start it. Templates do not start programs.')), inspect, results,
       el('details', { class: 'json-details' }, [el('summary', {}, say('从基包创建模板', 'Create template from a base pack')), create])]);
   }
@@ -55,7 +59,7 @@ export function createCompletionUi(ctx) {
       if (parameter.type === 'number') control.querySelector('input').setAttribute('step', 'any');
       return control;
     });
-    return form([...controls, field('identity', say('新包身份 JSON（可选）', 'New pack identity JSON (optional)'), '', { multiline: true, required: false }), field('destination', say('新包目录', 'New pack directory'))], say('预览并生成新包', 'Preview and create pack'), async f => {
+    return form([...controls, field('identity', say('新包身份 JSON（可选）', 'New pack identity JSON (optional)'), '', { multiline: true, required: false }), field('destination', say('新包目录', 'New pack directory'), '', { pathPurpose: 'save-directory' })], say('预览并生成新包', 'Preview and create pack'), async f => {
       const values = Object.fromEntries(parameters.map((parameter, index) => {
         const chosen = f.elements['parameter_' + index].value, choices = parameter.constraints?.enum ?? (parameter.type === 'boolean' ? [false, true] : null);
         return [parameter.name, choices ? choices[Number(chosen)] : ['number', 'integer'].includes(parameter.type) ? Number(chosen) : chosen];
@@ -69,13 +73,85 @@ export function createCompletionUi(ctx) {
           f.after(notice);
         });
       });
-    });
+    }, '', `template-instantiate-${directory}`);
   }
-  async function openTemplate(directory) {
-    const data = await api('/api/templates/inspect', { directory });
-    const dialog = el('dialog', { class: 'dialog' }); document.body.append(dialog);
-    dialog.append(el('div', { class: 'dialog-heading' }, [el('h2', {}, say('实例化共享模板', 'Instantiate shared template')), button('×', () => dialog.close(), 'icon-button')]), jsonView(say('模板声明', 'Template declaration'), data.inspection.manifest), instantiateForm(directory, data.inspection));
-    dialog.addEventListener('close', () => dialog.remove(), { once: true }); dialog.showModal();
+
+  async function openTemplate(directory = '') {
+    let inspectDir = directory ? directory.trim() : '';
+    if (!inspectDir) {
+      const { candidates = [] } = await api('/api/templates/builtin');
+      if (!candidates.length) throw new Error(say('没有可用的内置模板。请选择并检查本机模板目录。', 'No built-in templates are available. Select and inspect a local template directory.'));
+      if (candidates.length === 1) inspectDir = candidates[0].directory ?? candidates[0].path;
+      else {
+        const title = say('选择已发现的内置模板', 'Choose a discovered built-in template');
+        const chooser = el('dialog', { class: 'dialog template-scaffold-dialog', 'aria-label': title });
+        const close = button(createIcon ? createIcon('close') : '×', () => chooser.close(), 'icon-button');
+        close.setAttribute('aria-label', say('关闭', 'Close'));
+        chooser.append(el('div', { class: 'dialog-heading' }, [el('h2', {}, title), close]),
+          note(say('以下为本机后端实际发现的模板；选择后仍需检查声明、参数与锁。', 'These templates were discovered by the local backend; selection still requires inspection of declarations, parameters, and locks.')),
+          ...candidates.map(candidate => button(`${candidate.title ?? candidate.id} · ${candidate.version} · ${candidate.runtimeKinds?.join(' + ') ?? say('语言未知', 'Runtime unknown')}`, async () => {
+            await openTemplate(candidate.directory ?? candidate.path); chooser.close();
+          }, 'button button-quiet')));
+        document.body.append(chooser); chooser.addEventListener('close', () => chooser.remove(), { once: true }); chooser.showModal(); return chooser;
+      }
+    }
+    const data = await api('/api/templates/inspect', { directory: inspectDir });
+    const title = say('基于模板创建新整合包', 'Scaffold Pack from Template');
+    const dialog = el('dialog', { class: 'dialog template-scaffold-dialog', 'aria-label': title });
+    document.body.append(dialog);
+    const close = button(createIcon ? createIcon('close') : '×', () => dialog.close(), 'icon-button');
+    close.setAttribute('aria-label', say('关闭', 'Close'));
+    dialog.append(
+      el('div', { class: 'dialog-heading' }, [el('h2', {}, title), close]),
+      note(say(`模板：${data.inspection.manifest.title || data.inspection.manifest.id} · 版本 v${data.inspection.manifest.version || '1.0.0'}`, `Template: ${data.inspection.manifest.title || data.inspection.manifest.id} · v${data.inspection.manifest.version || '1.0.0'}`)),
+      instantiateForm(inspectDir, data.inspection),
+      jsonView(say('模板完整声明详情', 'Full Template Declaration'), data.inspection.manifest)
+    );
+    dialog.addEventListener('close', () => dialog.remove(), { once: true });
+    dialog.showModal();
+    return dialog;
+  }
+
+  function createTemplatePanel(baseDirectory = '') {
+    const results = el('div');
+    const create = form([
+      field('directory', say('完整锁定基包目录', 'Complete locked base pack directory'), baseDirectory, { pathPurpose: 'pack' }),
+      field('template', say('模板声明 JSON (声明真实参数、目标与约束)', 'Template declaration JSON (actual parameters, targets, and constraints)'), '', { multiline: true }),
+      field('destination', say('新模板输出目录', 'New template directory'), '', { pathPurpose: 'save-directory' })
+    ], say('审阅并创建模板', 'Review and create template'), async f => {
+      const body = {
+        directory: value(f, 'directory').trim(),
+        template: inputJson(f, 'template'),
+        destination: value(f, 'destination').trim(),
+        redistributionAcknowledged: true
+      };
+      reviewAction(say('创建可分发模板', 'Create distributable template'), [
+        note(say('模板包含完整基包与锁。仅公开声明允许调整的业务设置或具体主题；不执行模块代码。', 'Templates contain a complete base pack and lock. Only declared business settings or concrete topics can vary; modules are not executed.')),
+        jsonView(say('模板声明', 'Template declaration'), body.template, true)
+      ], say('我已审阅公开内容、参数范围和再分发许可。', 'I reviewed the public contents, parameter scope, and redistribution licenses.'), async () => {
+        await operation(await api('/api/templates/create', body), 'create-template', result => {
+          results.replaceChildren(note(say(`已成功创建模板：${result.directory}`, `Template created: ${result.directory}`)));
+        });
+      });
+    }, '', 'template-create');
+
+    return panel(say('制作新模板 · 从整合包导出', 'Create Template · Export from Base Pack'), [
+      note(say('从现有锁定包中选择允许调整的公开设置或主题，并声明真实参数目标与约束。模板声明必须与基包一致；检查和生成均不启动程序。', 'Choose allowed public settings or topics from an existing locked pack and declare their actual parameter targets and constraints. The template declaration must match the base pack; inspection and creation do not start programs.')),
+      create,
+      results
+    ]);
+  }
+
+  function openCreateTemplateModal(baseDirectory = '') {
+    const title = say('制作新模板 · 从整合包导出', 'Create Template · Export from Base Pack');
+    const dialog = el('dialog', { class: 'dialog template-create-dialog', 'aria-label': title });
+    document.body.append(dialog);
+    const close = button(createIcon ? createIcon('close') : '×', () => dialog.close(), 'icon-button');
+    close.setAttribute('aria-label', say('关闭', 'Close'));
+    dialog.append(el('div', { class: 'dialog-heading' }, [el('h2', {}, title), close]), createTemplatePanel(baseDirectory));
+    dialog.addEventListener('close', () => dialog.remove(), { once: true });
+    dialog.showModal();
+    return dialog;
   }
   function maintenance(instance) {
     const id = instance.instanceId, results = el('div');
@@ -98,11 +174,22 @@ export function createCompletionUi(ctx) {
         await operation(await api(endpoint(id, 'upgrade'), { previewId: review.previewId, accepted: true }), 'upgrade', completed);
       });
     });
-    const history = button(say('检查升级与恢复记录', 'Inspect upgrade and recovery history'), async () => {
+    const closeBtn = dialog => {
+      const close = ctx.closeButton ? ctx.closeButton(dialog) : button(createIcon ? createIcon('close') : '×', () => dialog.close(), 'icon-button close-dialog');
+      close.setAttribute('aria-label', say('关闭', 'Close')); return close;
+    };
+
+    const historyDialog = el('dialog', { class: 'dialog storage-modal', id: 'storage-history-dialog', 'aria-label': say('升级历史与回滚记录', 'Upgrade and recovery history') });
+    historyDialog.append(el('div', { class: 'dialog-heading' }, [
+      el('h2', {}, say('升级历史与回滚记录', 'Upgrade and recovery history')),
+      closeBtn(historyDialog)
+    ]), results);
+
+    const history = button(say('查看升级历史与回滚记录', 'Inspect upgrade and recovery history'), async () => {
       const data = await api(endpoint(id, 'upgrade-history')); results.replaceChildren(jsonView(say('事务记录', 'Transaction history'), data.history, true));
       for (const transaction of data.history.transactions ?? []) {
         if (!['committed', 'preparing', 'ready', 'committing', 'restoring', 'cleanup-incomplete', 'conflict'].includes(transaction.state)) continue;
-        results.append(button(`${transaction.transactionId} · ${say('审阅回滚／恢复', 'Review rollback / recovery')}`, async () => {
+        results.append(button(`${transaction.transactionId} · ${say('审阅回滚方案', 'Review rollback / recovery')}`, async () => {
           const review = await api(endpoint(id, 'rollback-plan'), { transactionId: transaction.transactionId }), recovery = review.preview.recoveryRequired;
           const title = recovery ? say('恢复中断事务', 'Recover interrupted transaction') : say('回滚软件与完整数据', 'Roll back software and complete data');
           reviewAction(title, [note(say('回滚恢复原始软件、程序数据与 Hub 数据。运行后的新数据可能被替换，工具先保存最新快照。不会自动启动。', 'Rollback restores original software, program data, and Hub data. Later data can be replaced; the tool first saves a latest-data snapshot. Programs are not started automatically.'), true), jsonView(title, review.preview, true)], say('我已审阅完整数据恢复范围与最新数据的处置，允许执行此事务。', 'I reviewed the complete data restoration scope and handling of latest data and authorize this transaction.'), async () => {
@@ -110,10 +197,39 @@ export function createCompletionUi(ctx) {
           });
         }, 'button button-quiet'));
       }
+      historyDialog.showModal();
     }, 'button button-quiet');
-    const candidateOrigin = instance.stagedFrom ? [note(say(`这是独立候选实例。旧实例 ${instance.stagedFrom} 保留；检查候选业务结果后自行决定是否切换。返回旧实例仍须重新审阅启动。`, `This is an independent candidate. Old instance ${instance.stagedFrom} is retained; decide whether to switch after checking candidate business results. Starting the old instance still requires a fresh review.`)),
-      button(say('返回旧实例', 'Return to old instance'), async () => { await refresh({ explicit: true }); await selectInstance(instance.stagedFrom); }, 'button button-quiet')] : [];
-    return [panel(say('保留旧实例的候选试用', 'Candidate trial with the old instance retained'), [...candidateOrigin, staged]), panel(say('升级与数据回滚', 'Upgrade and data rollback'), [note(say('先停止并确认进程退出。每个组件必须有提供者明确的数据策略；枢纽不定义业务数据格式。', 'Stop and confirm process exit first. Every component requires an explicit provider-defined data policy; the Hub does not define business data formats.')), upgrade, history, results])];
+
+    const candidateOrigin = instance.stagedFrom ? [note(say(`这是独立候选试用实例。原实例 ${instance.stagedFrom} 保留；验证候选业务结果后再决定是否切换。启动原实例仍须重新审阅授权。`, `This is an independent candidate. Old instance ${instance.stagedFrom} is retained; decide whether to switch after checking candidate business results. Starting the old instance still requires a fresh review.`)),
+      button(say('返回原实例', 'Return to old instance'), async () => { await refresh({ explicit: true }); await selectInstance(instance.stagedFrom); }, 'button button-quiet')] : [];
+
+    const trialDialog = el('dialog', { class: 'dialog storage-modal', id: 'storage-trial-dialog', 'aria-label': say('安全灰度试用新版本', 'Candidate trial with the old instance retained') });
+    trialDialog.append(
+      el('div', { class: 'dialog-heading' }, [
+        el('h2', {}, say('安全灰度试用新版本', 'Candidate trial with the old instance retained')),
+        closeBtn(trialDialog)
+      ]),
+      note(say('原实例必须停止。先备份其软件与持久数据，再以全新数据导入独立候选；准备过程不复制业务状态、不启动程序、不切换实例。原实例保留，重新启动仍须审阅授权。', 'The old instance must be stopped. Back up its software and persistent data, then import the candidate with fresh data. Preparation does not copy business state, start programs, or switch instances. The old instance remains available for a fresh execution review.'), true),
+      note(say('健康状态与业务运行须在另行授权启动后验证。代码恢复无法撤销外部远程 API、设备动作或网络交互所产生的状态。', 'Health and business results require a separately reviewed start. Code recovery cannot undo remote APIs, device actions, messages, or other programs\' state.')),
+      staged
+    );
+
+    const upgradeDialog = el('dialog', { class: 'dialog storage-modal', id: 'storage-upgrade-dialog', 'aria-label': say('原地版本升级与事务回退', 'Upgrade and data rollback') });
+    upgradeDialog.append(
+      el('div', { class: 'dialog-heading' }, [
+        el('h2', {}, say('原地版本升级与事务回退', 'Upgrade and data rollback')),
+        closeBtn(upgradeDialog)
+      ]),
+      note(say('先停止并确认进程退出。每个组件须有明确的提供者数据策略，Hub 不决定业务数据格式。升级与回滚分别预览和授权；回滚可能替换后续数据，无法撤销远程 API、设备动作或其他外部副作用。', 'Stop and confirm process exit first. Every component requires an explicit provider-defined data policy; the Hub does not define business data formats. Upgrade and rollback require separate previews and authorization. Rollback may replace later data and cannot undo remote APIs, device actions, or other external effects.')),
+      upgrade
+    );
+
+    return {
+      staged, upgrade, history, results, candidateOrigin, trialDialog, upgradeDialog, historyDialog,
+      [Symbol.iterator]() {
+        return [trialDialog, upgradeDialog, historyDialog][Symbol.iterator]();
+      }
+    };
   }
-  return { templatePanel, openTemplate, maintenance };
+  return { templatePanel, openTemplate, createTemplatePanel, openCreateTemplateModal, maintenance };
 }

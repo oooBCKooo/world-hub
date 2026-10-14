@@ -1,4 +1,4 @@
-# PowerShell mod 桥
+# PowerShell 模块桥
 
 本 SDK 采用仓库 [MIT 许可](../../LICENSE)。它引用 .NET 系统 API，不复制 .NET 运行时；系统运行时遵循自己的许可。
 

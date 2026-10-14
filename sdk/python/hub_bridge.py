@@ -1,4 +1,4 @@
-"""Independent Python WebSocket mod bridge for World Hub wire 0.1.
+"""Independent Python WebSocket module bridge for World Hub wire 0.1.
 
 The bridge only carries frames. ACK, release, retries and business processing
 belong to its caller. Received raw text is never rebuilt from parsed JSON.

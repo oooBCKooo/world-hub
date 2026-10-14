@@ -14,9 +14,9 @@ Use a clean source checkout with Node.js 22.4.0 or later and a writable temporar
 node --test --test-timeout=180000 tests/integration/workshop/phase18-closure.test.mjs
 ```
 
-The same scene is included in `npm run test:workshop` and the Node CI job. It starts fresh loopback Workshop and Launcher servers, performs their real authenticated HTTP operations, executes actual mod-bridge communication and closes its owned processes. A unique report is retained under `.artifacts/workshop-phase18/runs/`; `latest.json` points to the latest execution. The report contains hashes, trust dimensions, real application output, receipts and negative-scenario diagnostics, without passwords, cookies, CSRF values or Launcher tokens. Temporary source, community data and instance data are removed after cleanup.
+The same scene is included in `npm run test:workshop` and the Node CI job. It starts fresh loopback Workshop and Launcher servers, performs their real authenticated HTTP operations, executes actual module bridge communication and closes its owned processes. A unique report is retained under `.artifacts/workshop-phase18/runs/`; `latest.json` points to the latest execution. The report contains hashes, trust dimensions, real application output, receipts and negative-scenario diagnostics, without passwords, cookies, CSRF values or Launcher tokens. Temporary source, community data and instance data are removed after cleanup.
 
-同一场景已由 `npm run test:workshop` 自动发现，并由现有 Node CI 执行。测试新建回环 Workshop 与 Launcher，走真实认证 HTTP 接口，运行真实 mod 桥通讯，结束后关闭所属进程。报告保存在 `.artifacts/workshop-phase18/runs/` 的独立目录，`latest.json` 指向最近一次执行。报告包含摘要、信任维度、应用结果、通讯回执和负例诊断，不包含密码、Cookie、CSRF 值或 Launcher 令牌。临时源码、社区数据与实例数据在退出后清理。
+同一场景已由 `npm run test:workshop` 自动发现，并由现有 Node CI 执行。测试新建回环 Workshop 与 Launcher，走真实认证 HTTP 接口，运行真实模块桥通讯，结束后关闭所属进程。报告保存在 `.artifacts/workshop-phase18/runs/` 的独立目录，`latest.json` 指向最近一次执行。报告包含摘要、信任维度、应用结果、通讯回执和负例诊断，不包含密码、Cookie、CSRF 值或 Launcher 令牌。临时源码、社区数据与实例数据在退出后清理。
 
 ## Verified sequence / 验证顺序
 

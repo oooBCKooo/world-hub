@@ -1,6 +1,6 @@
 # 跨语言独立程序验证
 
-Node JS、Python、PowerShell 各自建立真实 WebSocket mod 连接同一隔离 Hub，不把其他语言消息转交 JS 代传。`scene-harness.mjs` 只启动测试进程、安排输入、断言与清理；业务在普通外部程序中。
+Node JS、Python、PowerShell 各自建立真实 WebSocket 模块桥 连接同一隔离 Hub，不把其他语言消息转交 JS 代传。`scene-harness.mjs` 只启动测试进程、安排输入、断言与清理；业务在普通外部程序中。
 
 从仓库根目录准备自己的 Python 和 PowerShell 7：
 
@@ -19,7 +19,7 @@ node examples/cross-language/run-cross-language.mjs --demo
 | 编号 | 范围 |
 | --- | --- |
 | P7-01 | 三语言独立进程、六方向广播 |
-| P7-02 | mod 动态登记与并发订阅回执关联 |
+| P7-02 | 模块桥 动态登记与并发订阅回执关联 |
 | P7-03 | JSON 原文、数字、转义及 UTF-8 保真 |
 | P7-04 | 裸 wire 水位、非法 resume／不安全游标 |
 | P7-05 | 六方向请求与可信回应 |
@@ -27,7 +27,7 @@ node examples/cross-language/run-cross-language.mjs --demo
 | P7-07 | 权限拒绝、伪回应、提供者释放归属 |
 | P7-08 | 分订阅 ACK、非破坏历史、提供者释放 |
 | P7-09 | 稳定 principal 离线后抽取，旧 session 遮挡 |
-| P7-10 | 同一稳定主体多 mod 扇出与精确 session |
+| P7-10 | 同一稳定主体多 模块桥 扇出与精确 session |
 | P7-11 | 5 MiB 附件逐块三语言循环、校验与越权拒绝 |
 | P7-12 | 独立工作流三轮，每轮 Python 与 PowerShell 并发返回 |
 | P7-13 | 三语言握手拒绝与非零退出 |

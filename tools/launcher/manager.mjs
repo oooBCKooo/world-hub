@@ -1,5 +1,5 @@
-import { mkdir, readFile, lstat, readdir } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { mkdir, readFile, lstat, readdir, rm, rename } from 'node:fs/promises';
+import { join, resolve, dirname } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { inspectPackage, importPackage, instancePath, safeId } from '../../scripts/runtime/package.mjs';
@@ -8,8 +8,8 @@ import { ordinaryPath, privateJson, readBounded } from '../../scripts/runtime/pa
 import { ownProcess } from '../../scripts/runtime/process.mjs';
 import { detectEnvironment, discoverEnvironment } from './environment.mjs';
 import { planPythonEnvironment, preparePythonEnvironment, cleanupPreparedEnvironment } from './environment-prepare.mjs';
-import { backupInstance, inspectBackup, restoreInstance, storageInstance, detachInstance, reattachInstance } from '../../scripts/runtime/maintenance.mjs';
-import { inspectAuthoring, previewReplacement, derivePackage, rebuildPackage, exportProposal, applyProposal, addComment, readComments, exportComments, importComments } from '../../scripts/runtime/authoring.mjs';
+import { backupInstance, inspectBackup, restoreInstance, storageInstance, detachInstance, reattachInstance, withStoppedInstance } from '../../scripts/runtime/maintenance.mjs';
+import { inspectAuthoring, previewReplacement, previewAddition, derivePackage, rebuildPackage, exportProposal, applyProposal, addComment, readComments, exportComments, importComments } from '../../scripts/runtime/authoring.mjs';
 import { readSourceIndex, fetchSourceArtifact, publishArtifact } from '../../scripts/runtime/sources.mjs';
 import { loopbackUrl, mapTopology, managementLink } from './topology.mjs';
 import { diagnose } from './diagnostics.mjs';
@@ -19,6 +19,8 @@ import { previewUpgrade, upgradeInstance, inspectUpgradeHistory, previewRollback
 import { previewStagedUpgrade, createStagedUpgrade } from '../../scripts/runtime/staged-upgrade.mjs';
 import { probeIsolation, reviewIsolationPackage } from '../../scripts/runtime/isolation.mjs';
 import { verifyStoredPublisherEvidence } from '../../scripts/runtime/publisher-store.mjs';
+import { PathsService } from './paths-service.mjs';
+import { CreatorDrafts } from './creator-drafts.mjs';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
 export function launcherError(code, message, status = 409) { return Object.assign(new Error(message), { code, status }); }
@@ -42,11 +44,13 @@ export class LauncherManager {
       pythonPath: options.pythonPath ?? (process.platform === 'win32' ? 'python.exe' : 'python3') };
     this.records = new Map(); this.reviews = new Map(); this.operations = new Map(); this.sessions = new Map();
     this.sourceRegistry = new SourceRegistry(this.root); this.sourceReviews = new Map(); this.completionReviews = new Map(); this.publisherReviews = new Map();
+    this.paths = new PathsService(this.root); this.creatorDrafts = new CreatorDrafts(this.root);
     this.busy = new Map(); this.registryQueue = Promise.resolve(); this.saveQueue = Promise.resolve(); this.environmentPlans = new Map(); this.preparationOwners = new Map(); this.url = ''; this.hub = null; this.hubFailure = null; this.closing = false;
   }
   async initialize() {
     await ordinaryPath(this.root, { allowMissing: true }); await mkdir(this.root, { recursive: true, mode: 0o700 });
     await this.sourceRegistry.initialize();
+    await this.paths.initialize(); await this.creatorDrafts.initialize();
     try {
       const data = await json(join(this.root, 'launcher-instances.json'));
       if (!Array.isArray(data.instances) || data.instances.length > 128) throw new Error('Invalid Launcher instance registry');
@@ -57,6 +61,8 @@ export class LauncherManager {
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
     const sample = join(repository, 'examples/ecosystem-pack');
     try { await lstat(join(sample, 'pack.json')); this.defaults.packDirectory = sample; } catch {}
+    const templates = join(repository, 'examples/templates');
+    try { if ((await lstat(await ordinaryPath(templates))).isDirectory()) this.defaults.templateDirectory = templates; } catch {}
   }
   async save() {
     const action = this.saveQueue.then(() => privateJson(join(this.root, 'launcher-instances.json'), { format: 'world-hub.launcher-instances/v1', instances: [...this.records.values()] }));
@@ -91,7 +97,8 @@ export class LauncherManager {
   }
   async cancelOperation(id) {
     const operation = this.operations.get(id); if (!operation) throw launcherError('OPERATION_NOT_FOUND', 'Unknown operation', 404);
-    if (['stop', 'detach', 'reattach'].includes(operation.kind)) throw launcherError('CANCEL_UNAVAILABLE', 'Wait for this short consistency operation to finish.');
+    if (['stop', 'detach', 'reattach', 'delete'].includes(operation.kind)) throw launcherError('CANCEL_UNAVAILABLE', 'Wait for this short consistency operation to finish.');
+    if (operation.state === 'running' || operation.error?.cleanupIncomplete) operation.cancelRequestedAt ??= new Date().toISOString();
     operation.controller.abort(); await this.clearPreparationOwner(id); return this.publicOperation(operation);
   }
   async review(directory, environment, instanceId = null) {
@@ -140,7 +147,9 @@ export class LauncherManager {
     return row;
   }
   async maintainedRow(id) {
-    const row = await this.softwareState(this.row(id));
+    const recorded = this.row(id);
+    if (recorded.deletion) throw launcherError('DELETION_INCOMPLETE', 'Instance deletion is pending. Inspect its retained directory and explicitly retry deletion before any other instance action.');
+    const row = await this.softwareState(recorded);
     if (row.maintenanceUnknown) throw launcherError('MAINTENANCE_UNKNOWN', 'Software layout is incomplete or ambiguous. Retain data and inspect package/detached-package and detached metadata before changing lifecycle state.');
     return row;
   }
@@ -158,11 +167,81 @@ export class LauncherManager {
     if (imported.digest !== reviewed.plan.digest) throw launcherError('REVIEW_CHANGED', 'Source changed during import; incomplete instance is retained for inspection. Choose a new instance ID after review.');
     this.records.set(instanceId, { root: this.root, instanceId, pack: { id: imported.plan.pack.id, version: imported.plan.pack.version, title: imported.plan.pack.title },
       importedAt: new Date().toISOString(), environment: reviewed.environment, permissions: imported.plan.permissions,
-      sourceReceipt: reviewed.sourceReceipt ?? null, sourceDigest: imported.digest });
+      sourceReceipt: reviewed.sourceReceipt ?? null, sourceDigest: imported.digest, sourceDirectory: reviewed.plan.directory });
     await this.save(); return this.instance(instanceId);
   }
+  async deleteInstance(id, accepted) {
+    if (accepted !== true) throw launcherError('TRUST_REQUIRED', 'Confirm permanent deletion of this instance, its local software and all of its private data.');
+    this.row(id);
+    // Reserve before any asynchronous filesystem observation, including the
+    // registry queue. Backup/start/stop must not enter while deletion waits.
+    const { operationId } = this.launch('delete', id, (_, signal) => {
+      const action = this.registryQueue.then(() => this.deleteInstanceNow(id, signal));
+      this.registryQueue = action.catch(() => {}); return action;
+    });
+    const operation = this.operations.get(operationId); await operation.promise;
+    if (operation.error) throw launcherError(operation.error.code, operation.error.message);
+    return operation.result;
+  }
+  async deleteInstanceNow(id, signal) {
+    safeId(id);
+    const row = this.row(id);
+    if (this.sessions.has(id)) throw launcherError('INSTANCE_RUNNING', 'Stop the instance and confirm every owned process has exited before deleting it.');
+    const original = instancePath(this.root, id);
+    const exists = async path => { try { await ordinaryPath(path); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; } };
+    if (row.deletion) {
+      const retained = this.deletionDirectory(row), [sourceExists, retainedExists] = await Promise.all([exists(original), exists(retained)]);
+      if (sourceExists && retainedExists) throw launcherError('DELETION_INCOMPLETE', 'Both original and deletion directories exist. Retain them for manual inspection.');
+      if (!sourceExists) return this.finishDeletion(row, retained, retainedExists);
+    } else await this.maintainedRow(id);
+    return withStoppedInstance({ ...optionsFor(row), signal }, async directory => {
+      const deletion = row.deletion ?? { transactionId: randomUUID(), preparedAt: new Date().toISOString() };
+      row.deletion = deletion;
+      const retained = this.deletionDirectory(row);
+      // Journal intent before moving. A restart can distinguish a pending move
+      // from a moved directory, including a cleanup that partially completed.
+      await this.save();
+      if (await exists(retained)) throw launcherError('DELETION_INCOMPLETE', 'Deletion directory already exists. Retain it for inspection.');
+      // Move the still-locked directory atomically. No recursive removal may
+      // release the old owner.lock while Runtime can still enter that path.
+      await rename(directory, retained);
+      return this.finishDeletion(row, retained, true);
+    });
+  }
+  deletionDirectory(row) {
+    if (!/^[a-f0-9-]{36}$/.test(row.deletion?.transactionId ?? '')) throw launcherError('DELETION_INCOMPLETE', 'Invalid deletion journal. Retain the instance for inspection.');
+    safeId(row.instanceId);
+    const parent = resolve(this.root, 'instances'), target = resolve(parent, `.delete-${row.instanceId}-${row.deletion.transactionId}`);
+    if (dirname(target) !== parent || target === instancePath(this.root, row.instanceId)) throw launcherError('DELETION_INCOMPLETE', 'Invalid deletion directory.');
+    return target;
+  }
+  async removeDeletionDirectory(directory) {
+    // Compare real paths on both sides: Windows roots may use different case
+    // or an 8.3 spelling without naming a different instance collection.
+    const [canonical, parent] = await Promise.all([ordinaryPath(directory), ordinaryPath(resolve(this.root, 'instances'))]);
+    const actualParent = dirname(canonical);
+    const withinCollection = process.platform === 'win32' ? actualParent.toLowerCase() === parent.toLowerCase() : actualParent === parent;
+    if (!withinCollection || !/^\.delete-/.test(canonical.slice(actualParent.length + 1))) throw launcherError('DELETION_INCOMPLETE', 'Deletion directory escaped its instance collection.');
+    await rm(canonical, { recursive: true, force: false });
+  }
+  async finishDeletion(row, directory, exists) {
+    try {
+      if (exists) await this.removeDeletionDirectory(directory);
+      this.records.delete(row.instanceId);
+      try { await this.save(); } catch (error) { this.records.set(row.instanceId, row); throw error; }
+      for (const [key, review] of this.reviews) if (review.instanceId === row.instanceId) this.reviews.delete(key);
+      return { deleted: true, instanceId: row.instanceId };
+    } catch (cause) {
+      const error = launcherError('DELETION_INCOMPLETE', 'Instance deletion did not fully finish. Its journal and any remaining private files are retained; explicitly retry deletion.');
+      error.cleanupIncomplete = true; error.retainedDirectory = directory; error.cause = cause; throw error;
+    }
+  }
   async instance(id) {
-    const row = await this.softwareState(this.row(id)), stateDir = instancePath(this.root, id);
+    const recorded = this.row(id), stateDir = instancePath(this.root, id);
+    if (recorded.deletion) return { ...recorded, id, instanceId: id, directory: stateDir, retainedDirectory: this.deletionDirectory(recorded), deletionPending: true,
+      moduleCount: null, status: { state: 'deletion-incomplete', instanceId: id, components: [], cleanupIncomplete: true }, links: {},
+      operation: this.busy.get(id) ? this.publicOperation(this.busy.get(id)) : null };
+    const row = await this.softwareState(recorded);
     let status;
     try { status = await statusInstance(optionsFor(row)); }
     catch (error) {
@@ -177,7 +256,14 @@ export class LauncherManager {
     const links = { entryUrl: status.state === 'running' ? loopbackUrl(status.entryUrl)?.href ?? null : null,
       managementUrl: hub ? managementLink({ hubUrl: hub.href, launcherUrl: this.url, instanceId: id, runId: status.runId }) : null,
       workbenchUrl: hub ? managementLink({ hubUrl: hub.href, launcherUrl: this.url, instanceId: id, runId: status.runId, workbench: true }) : null };
-    return { id, instanceId: id, directory: stateDir, packageDirectory: join(stateDir, row.detached ? 'detached-package' : 'package'), ...row, status, links,
+    const packageDirectory = join(stateDir, row.detached ? 'detached-package' : 'package');
+    let moduleCount = null;
+    try {
+      const declaration = JSON.parse((await readBounded(join(packageDirectory, 'pack.json'), 65536)).toString('utf8'));
+      if (declaration.format === 'world-hub.pack/v1' && Array.isArray(declaration.components) && declaration.components.length > 0 && declaration.components.length <= 32
+        && declaration.components.every(component => component && typeof component.id === 'string' && typeof component.module === 'string')) moduleCount = declaration.components.length;
+    } catch { /* An unavailable declaration is unknown; it is never zero. */ }
+    return { id, instanceId: id, directory: stateDir, packageDirectory, ...row, moduleCount, status, links,
       operation: this.busy.get(id) ? this.publicOperation(this.busy.get(id)) : null };
   }
   async instances() { return Promise.all([...this.records.keys()].map(id => this.instance(id))); }
@@ -187,9 +273,11 @@ export class LauncherManager {
   }
   publicOperation(operation) { const { promise, controller, ...value } = operation; return value; }
   operation(id) { const operation = this.operations.get(id); if (!operation) throw launcherError('OPERATION_NOT_FOUND', 'Unknown operation', 404); return this.publicOperation(operation); }
+  operationList() { return { operations: [...this.operations.values()].slice(-128).reverse().map(operation => this.publicOperation(operation)) }; }
+  discoverPaths(input) { return this.launch('discover-paths', '$path-discovery', (_, signal) => this.paths.discover(input, signal)); }
   launch(kind, instanceId, work) {
     if (this.closing) throw launcherError('LAUNCHER_STOPPING', 'Launcher is stopping.');
-    if (kind !== 'stop' && this.busy.has(instanceId)) throw launcherError('INSTANCE_BUSY', 'Wait for this instance operation to complete.');
+    if (this.busy.has(instanceId) && (kind !== 'stop' || this.busy.get(instanceId).kind === 'delete')) throw launcherError('INSTANCE_BUSY', 'Wait for this instance operation to complete.');
     const previous = this.busy.get(instanceId), operation = { id: randomUUID(), kind, instanceId, state: 'running', startedAt: new Date().toISOString(), controller: new AbortController() };
     this.operations.set(operation.id, operation); this.busy.set(instanceId, operation);
     operation.promise = Promise.resolve().then(() => work(previous, operation.controller.signal)).then(result => { operation.result = result; operation.state = 'succeeded'; }, error => { operation.error = errorOf(error); operation.state = 'failed'; }).finally(() => {
@@ -240,7 +328,9 @@ export class LauncherManager {
     }
   }
   stop(id) {
-    this.row(id); this.busy.get(id)?.controller.abort();
+    this.row(id);
+    if (this.busy.get(id)?.kind === 'delete') throw launcherError('INSTANCE_BUSY', 'Wait for this instance deletion to complete.');
+    this.busy.get(id)?.controller.abort();
     return this.launch('stop', id, async previous => { if (previous) await previous.promise; return this.stopNow(id); });
   }
   export(id, destination) { const row = this.row(id); return this.launch('export', id, () => exportInstance({ ...optionsFor(row), destination })); }
@@ -277,8 +367,24 @@ export class LauncherManager {
     return this.launch('reattach', id, async () => { const result = await reattachInstance({ ...optionsFor(row), ...review.environment, trust: review.plan.digest });
       row.detached = false; row.environment = review.environment; row.permissions = result.plan.permissions; await this.save(); return result; });
   }
-  authoring(input) { return inspectAuthoring(input.directory, this.environment(input)); }
+  async authoring(input) {
+    const env = this.environment(input);
+    try {
+      return await inspectAuthoring(input.directory, env);
+    } catch (err) {
+      if (err.code === 'ENOENT' || err.message?.includes('pack.json')) {
+        for (const sub of ['package', 'detached-package']) {
+          try {
+            return await inspectAuthoring(join(input.directory, sub), env);
+          } catch { /* try next */ }
+        }
+      }
+      throw err;
+    }
+  }
   previewReplacement(input) { return previewReplacement(input.directory, { ...input, ...this.environment(input) }); }
+  previewAddition(input) { return previewAddition(input.directory, { ...input, ...this.environment(input) }); }
+  builtinTemplates() { return this.paths.builtinTemplates(this); }
   async commentDirectory(directory) {
     const source = await ordinaryPath(directory), key = createHash('sha256').update(process.platform === 'win32' ? source.toLowerCase() : source).digest('hex');
     const journal = join(this.root, 'creator-comments', key); await ordinaryPath(journal, { allowMissing: true }); await mkdir(journal, { recursive: true, mode: 0o700 });
@@ -498,7 +604,9 @@ export class LauncherManager {
     await this.registryQueue;
     await Promise.all([...this.operations.values()].filter(op => op.state === 'running').map(op => op.promise));
     await this.saveQueue;
+    await this.paths.queue; await this.creatorDrafts.queue;
     const errors = [];
+    try { await this.paths.close(); } catch (error) { errors.push(error); }
     for (const [id] of this.preparationOwners) try { await this.clearPreparationOwner(id); } catch (error) { errors.push(error); }
     for (const [id] of this.sessions) try { await this.stopNow(id); } catch (error) { errors.push(error); }
     if (this.hub) try { await this.hub.stop(5000); if (!this.hub.exit) throw new Error('Default Hub exit unconfirmed'); } catch (error) { errors.push(error); }

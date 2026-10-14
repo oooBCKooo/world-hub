@@ -1,8 +1,8 @@
 # Module authors: independent implementation and replaceable delivery
 
-[中文](developer.md) · [Launcher guide](launcher.md)
+[中文](developer.md) · [Launcher guide](launcher.en.md)
 
-Modules are external programs. They exchange information through their own bidirectional mod bridges and agree on application contracts. The optional Runtime deployment profile and author tools below do not prescribe every program's shape or move business logic into Hub Core.
+Modules are external programs. They exchange information through their own bidirectional module bridges and agree on application contracts. The optional Runtime deployment profile and author tools below do not prescribe every program's shape or move business logic into Hub Core.
 
 ```powershell
 npm install -g world-hub

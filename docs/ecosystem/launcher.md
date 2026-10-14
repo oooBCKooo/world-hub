@@ -1,5 +1,7 @@
 # World Hub 统一入口与可选 Launcher
 
+[English](launcher.en.md) · [路径选择、草稿与任务结果](../launcher-ux.md)
+
 可选 Launcher 为本地整合包提供统一浏览器入口。后台调用已有的[参考 Runtime](runtime.md)，页面保留进入 Hub 拓扑管理和通信工作台的入口。Hub Core 仍负责通信，Runtime 仍负责所属进程、实例与日志，Launcher 负责用户审阅和导航。安装 Launcher 不要求修改模块的桥协议，也不把 Runtime 加载到 Hub Core 内。
 
 原来的 `world-hub --open`、`npm start`、`world-hub-pack` 和无界面 Runtime API 继续可用。Launcher 是可选入口，Workshop 不是本地启动的依赖。
@@ -68,9 +70,15 @@ Windows 自动准备的私有 venv，其规范化 `Scripts/python.exe` 完整路
 
 “保留数据卸载”将软件移入当前实例的私有 `detached-package` 隔离目录，保留业务数据和软件，不删除文件，也不声称释放磁盘空间。重新关联先审阅隔离目录中当前的软件与环境，用户确认后恢复 package；不会自动启动。公开导出与私人备份含义不同，导出仅复制可共享软件组合。
 
+永久删除包含实例的软件与私有数据，须单独明确确认。后台登记删除任务，在任何异步读取前预留实例操作占用；当前所属进程须已确认退出，并须取得维护锁。不取消或抢占运行进程来完成删除。先保存删除事务，再持锁原子移出原实例目录并清理；HTTP 请求等待实际成功或错误后返回。失败的实例仍显示 `deletionPending`、可能保留的 `retainedDirectory` 和诊断，可检查后显式重试。占用、退出未确认或所有权冲突会拒绝删除，不能以 `failed` 或旧 PID 推断安全退出。
+
 ## 本地创作与可视化组合
 
 创作工作台读取本机锁定包，显示实际组件、Module ID、提供／要求的能力合同、当前绑定与启动依赖。节点来自清单，连线来自 `pack.bindings`；它不是 Hub 消息拓扑，也不证明实际业务执行。用户可修改每个组件的公开 settings、启动依赖、指定兼容替代模块，以及增删合同连线。
+
+新增模块先读取真实候选和当前草稿，配置公开 `settings`、包级 `topics` 映射、候选声明的 `bridges` 发布／订阅主题权限与 `after` 启动依赖。默认桥槽主题权限为空，不凭模块名称自动授予权限。修改配置或候选后重新审阅预检并确认加入；未绑定 required 合同显示为缺口，生成前必须明确绑定，其他声明或环境错误阻止加入。刷新恢复草稿时重新核对新增与替换来源、候选摘要、当前基线及兼容性，不复用旧预检或运行授权。
+
+画布只展示静态声明与明确绑定，未绑定缺口不虚构为 Hub 共享服务或订阅连接。固定坐标图在局部滚动区域内，小屏仍可访问页面标题、表单和生成操作。内置模板来自后端实际发现的模板声明及绝对目录，入口不依赖当前工作目录；模块数量、语言和平台以真实模板为准。模板须检查参数与锁、预览再生成，生成后仍需导入与运行审阅。
 
 新增连线只提供双方声明中 ID 和版本完全匹配的能力合同。后台生成前再次验证完整 pack、部署依赖、模块桥槽、平台和全部能力绑定；不兼容或缺少 required 合同明确失败。替代模块使用同一 Module ID 时会改变此 ID 的全部引用；新 ID 只替换选中的组件。界面显示待替换目录与组件并提示这一影响范围，派生结果仍须完整审阅后才执行。
 
@@ -133,7 +141,7 @@ Hub 程序注记仍用于人工阅读。导航模块不根据这些注记建立�
 
 ## 本机 API 与浏览器边界
 
-Launcher 使用独立的 UI 会话 bearer 和 CSRF token。启动地址片段中的一次性 code 由 `POST /api/session` 交换，页面随后移除该片段；UI 凭据只保存在当前浏览器 origin 的 sessionStorage 中。原生集成使用服务创建时单独返回的 bearer，页面不会得到该凭据。Runtime 私有控制 token 与桥 token 留在可信后台和实例目录中，不注入页面。
+Launcher 使用独立的 UI 会话 bearer 和 CSRF token。页面读取启动地址片段中的一次性 code 后立即移除片段，再通过 `POST /api/session` 交换，不等待网络成功才清理地址；UI 凭据只保存在当前浏览器 origin 的 sessionStorage 中。原生集成使用服务创建时单独返回的 bearer，页面不会得到该凭据。Runtime 私有控制 token 与桥 token 留在可信后台和实例目录中，不注入页面。
 
 | 接口 | 内容 |
 | --- | --- |
@@ -148,6 +156,7 @@ Launcher 使用独立的 UI 会话 bearer 和 CSRF token。启动地址片段中
 | `POST /api/instances/:id/review` | `{nodePath?,pythonPath?}` 检查该实例 package；不能使用另一个实例的审阅授权 |
 | `POST /api/instances/:id/start`、`restart` | `{reviewId,accepted:true}` 重查当前内容并开始异步启停操作 |
 | `POST /api/instances/:id/stop` | `{}` 请求异步停止；仍须等待本次退出确认 |
+| `POST /api/instances/:id/delete` | `{accepted:true}` 确认永久删除；登记后台任务并占用实例，HTTP 等待实际结果；须确认退出并取得维护锁，未完成事务保留供重试 |
 | `GET /api/instances/:id/logs` | 当前或已结束运行的有界 Runtime 日志 |
 | `GET /api/instances/:id/topology?runId=...` | 当前 Hub 的桥与本次运行映射；不同运行的定位提示明确失败 |
 | `POST /api/instances/:id/export` | `{destination}` 异步导出到新目录 |
@@ -156,6 +165,7 @@ Launcher 使用独立的 UI 会话 bearer 和 CSRF token。启动地址片段中
 | `POST /api/instances/:id/reattach` | `{reviewId,accepted:true}` 审阅隔离软件后重新关联，不启动 |
 | `POST /api/backups/inspect`、`restore` | 检查 `{backup}`；恢复 `{backup,sha256,instanceId,nodePath?,pythonPath?,accepted:true}` 到新实例 |
 | `POST /api/authoring/inspect`、`derive` | 读取 `{directory,...environment}`；派生含完整 edited `pack`、`replacements`、`expectedRevision`、新的 `destination` 和 `redistributionAcknowledged:true` |
+| `POST /api/authoring/addition-preview` | `{directory,componentId,moduleDirectory,pack?,component?,replacements?,expectedRevision?,...environment}` 检查新增模块、桥槽、设置、依赖与环境，不执行模块 |
 | `POST /api/authoring/rebuild` | `{directory,destination,redistributionAcknowledged:true,...environment}` 核对旧锁源码，再复制到新目录并生成当前环境的新锁，不执行 |
 | `POST /api/authoring/proposal`、`apply-proposal` | 导出草稿提案；在 `proposalDirectory` 指定提案并核对基线后生成新目录 |
 | `POST /api/authoring/read-comments`、`comments` | 读取目录评论；添加 `{directory,author,text,expectedRevision}` |
@@ -163,10 +173,12 @@ Launcher 使用独立的 UI 会话 bearer 和 CSRF token。启动地址片段中
 | `POST /api/sources/inspect`、`fetch` | 读取 `{source,expectedSha256?,allowPrivateNetwork?}`；获取 `{source,indexDigest,entryId,allowPrivateNetwork?}`，绑定已审阅网络策略，无执行授权 |
 | `POST /api/sources/publish` | `{directory,destination,kind,nodePath?,pythonPath?,redistributionAcknowledged:true}` 创建新索引与制品，不上传公网 |
 | `GET /api/hubs` | 独立 Hub 与实例 Hub 的入口及状态 |
+| `GET /api/templates/builtin` | 后端实际发现的内置模板及绝对目录、参数、模块数量、运行语言与平台；仍须检查与审阅 |
+| `POST /api/paths/native-pick` | `{purpose,initialPath?}` 请求宿主原生选择；新文件和新目录返回父目录，页面填写新名称后校验完整输出路径 |
 | `POST /api/hubs/default/start`、`stop` | `{}` 管理 Launcher 自己创建的独立 Hub |
 | `GET /api/operations/:id` | 操作的 `running`／`succeeded`／`failed` 状态和结果或错误 |
 
-异步管理请求返回 HTTP 202 与 `operationId`；它只说明操作已接受。成功响应以 `ok:true` 包装结果，失败以 `ok:false,error:{code,message}` 给出诊断。除启动 code 交换外，API 要求 `Authorization: Bearer <token>`；写操作再带 `X-CSRF-Token` 和 JSON body。不存在通用 shell 执行、任意路径进程终止或任意 Hub URL 转发接口。
+启停、备份、生成等异步管理请求返回 HTTP 202 与 `operationId`；它只说明操作已接受。永久删除也登记后台任务，但其 HTTP 请求等待实际成功或错误，不返回提前完成的承诺。成功响应以 `ok:true` 包装结果，失败以 `ok:false,error:{code,message}` 给出诊断。除启动 code 交换外，API 要求 `Authorization: Bearer <token>`；写操作再带 `X-CSRF-Token` 和 JSON body。不存在通用 shell 执行、任意路径进程终止或任意 Hub URL 转发接口。
 
 直接使用 Runtime JavaScript API 的集成还须处理启动拒绝后的清理：创建了本次监督者的启动错误可带不可枚举的 `error.runtimeSession`，提供 `status()`、`close()` 和 `closed`。它保存真实所属运行的闭包，不是按 PID 重新发现的进程授权。若退出未确认，保存该句柄并明确重试 `close()`；检查本次调用返回的 `stoppedAt`／`cleanupIncomplete`。早先已经完成的 `closed` Promise 不代表之后重试的最新状态。检查、trust 或实例所有权获取前的拒绝不会提供这个句柄。
 

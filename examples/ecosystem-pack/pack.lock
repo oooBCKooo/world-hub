@@ -5,7 +5,7 @@
     "version": "1.1.4",
     "sha256": "1be051d13cb507bf690f31e24630ebc9137d9b1bc45c2fc7cf7e0ccba72a76fa"
   },
-  "hubVersion": "0.18.1",
+  "hubVersion": "0.19.0",
   "platform": {
     "os": "win32",
     "arch": "x64"
@@ -37,7 +37,7 @@
         },
         {
           "path": "index.html",
-          "sha256": "e8f91be941915be7f232df0e50eba09bbf487b8ad2b1fc8fcee29b43481e3ec6"
+          "sha256": "10903595a45b46be324e2a0e27659e29133d7c08dfda2d691609bb417e57b521"
         },
         {
           "path": "LICENSE",
@@ -53,7 +53,7 @@
         },
         {
           "path": "ui.js",
-          "sha256": "fec6db388fbb7103b1a91c3130b1ad009a03ae49aad663a11c776f8a5c433306"
+          "sha256": "e1b2d471ad0a489a1a50ab2297f15cf1482276824ac6f2f2be24d2e69d9d7840"
         }
       ]
     },
@@ -91,7 +91,7 @@
       "files": [
         {
           "path": "hub_bridge.py",
-          "sha256": "ae5d4ef57e4e20f739bc32fadfb6a9c8ce079462eca203f6958a9e5d6ee7f3ce"
+          "sha256": "6ce792c5f440b871faa9a5961a00ede742e8d32f746a66257d296286eee6aae0"
         },
         {
           "path": "LICENSE",

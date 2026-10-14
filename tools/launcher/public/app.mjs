@@ -1,5 +1,8 @@
 import { initialLanguage, translate, applyLanguage } from './i18n.mjs';
 import { createAdvancedUi } from './advanced.mjs';
+import { createPathUi } from './path-ui.mjs';
+import { createTaskUi } from './task-ui.mjs';
+import { createIcon, renderSquareArt } from './icons.mjs';
 
 const $ = selector => document.querySelector(selector);
 const sessionKey = 'world-hub.launcher.session';
@@ -14,6 +17,15 @@ const state = {
 };
 const t = (key, variables) => translate(state.language, key, variables);
 const idOf = instance => instance?.instanceId ?? instance?.id;
+const declaredModuleCount = instance => instance.moduleCount ?? state.reviews.get(idOf(instance))?.review?.pack?.components?.length ?? null;
+function componentRuntimeKind(instance, component) {
+  const review = state.reviews.get(idOf(instance))?.review;
+  const componentDeclaration = review?.pack?.components?.find(row => row.id === component.id);
+  const moduleId = componentDeclaration?.module ?? component.module;
+  const module = review?.modules?.find(row => (row.manifest?.id ?? row.id) === moduleId);
+  const kind = module?.manifest?.runtime?.kind ?? module?.runtime?.kind ?? component.runtime?.kind ?? component.runtimeKind;
+  return ['node', 'python'].includes(kind) ? kind : null;
+}
 const current = () => state.instances.find(instance => idOf(instance) === state.selected);
 const endpoint = (id, action = '') => `/api/instances/${encodeURIComponent(id)}${action ? `/${action}` : ''}`;
 const running = instance => ['running', 'starting', 'stopping'].includes(instance?.status?.state) && !instance?.status?.stoppedAt;
@@ -25,7 +37,20 @@ const isStale = status => status?.observation === 'stale' || status?.supervisorU
 const operationFor = instance => state.operations.get(idOf(instance)) ?? (instance?.operation?.state === 'running' ? instance.operation : null);
 const stopBlocked = instance => { const operation = operationFor(instance); return operation && !['start', 'restart'].includes(operation.kind); };
 const preparing = instance => ['start', 'restart'].includes(operationFor(instance)?.kind);
-let advanced;
+const deletionBlocked = instance => Boolean(operationFor(instance) || running(instance) || exitUnconfirmed(instance)
+  || instance?.status?.cleanupIncomplete && !instance?.deletionPending || instance?.maintenanceUnknown || isStale(instance?.status)
+  || !['imported', 'stopped', 'detached', 'failed', 'deletion-incomplete'].includes(instance?.status?.state));
+let advanced, paths, tasks, restoringHistory = false, historyReady = false;
+const say = (zh, en) => state.language === 'zh' ? zh : en;
+function updateConnectionState(online = state.online) {
+  state.online = Boolean(online);
+  const stateLabel = $('#connection-state');
+  if (stateLabel) stateLabel.textContent = t(state.online ? 'online' : 'offline');
+  const dot = $('.local-indicator .status-dot');
+  if (dot) dot.classList.toggle('offline', !state.online);
+  const indicator = $('.local-indicator');
+  if (indicator) indicator.classList.toggle('offline', !state.online);
+}
 
 // Every remote string is inserted through textContent/text nodes. Pack content never becomes markup.
 function el(tag, attributes = {}, children = []) {
@@ -53,14 +78,17 @@ function localLink(label, value, className = 'button button-quiet', newTab = fal
     return el('a', { href: url.href, ...(newTab ? { target: '_blank', rel: 'noopener noreferrer' } : { rel: 'noreferrer' }), class: className }, label);
   } catch { return null; }
 }
-function display(value) { return typeof value === 'string' ? value : value === undefined || value === null ? '—' : JSON.stringify(value); }
+function display(value) {
+  if (value instanceof Node) return value;
+  return typeof value === 'string' ? value : value === undefined || value === null ? '—' : JSON.stringify(value);
+}
 function date(value) {
   if (!value) return '—';
   const instant = new Date(value);
   return Number.isNaN(instant.getTime()) ? String(value) : instant.toLocaleString(state.language === 'zh' ? 'zh-CN' : 'en-US');
 }
 function definition(entries, className = 'definition-grid') {
-  return el('dl', { class: className }, entries.map(([key, value]) => el('div', {}, [el('dt', {}, key), el('dd', {}, display(value))])));
+  return el('dl', { class: className }, entries.map(([key, value]) => el('div', {}, [el('dt', {}, key), el('dd', {}, value instanceof Node ? value : display(value))])));
 }
 function showNotice(target, message, tone = 'error') {
   const node = typeof target === 'string' ? $(target) : target;
@@ -75,15 +103,17 @@ class ApiError extends Error {
   constructor(data, status) { super(data?.error?.message ?? `HTTP ${status}`); this.code = data?.error?.code; this.status = status; this.guidance = data?.guidance; this.requirements = data?.requirements; this.diagnostic = data?.diagnostic ?? data?.error?.diagnostic; this.incompleteDestination = data?.incompleteDestination ?? data?.error?.incompleteDestination; }
 }
 async function api(path, body) {
+  if (!state.auth?.token && path !== '/api/session') throw new Error(t('sessionRequired'));
   const headers = { Accept: 'application/json' };
   if (state.auth?.token) headers.Authorization = `Bearer ${state.auth.token}`;
   if (body !== undefined) { headers['Content-Type'] = 'application/json'; if (state.auth?.csrfToken) headers['X-CSRF-Token'] = state.auth.csrfToken; }
+  const timeoutMs = path.includes('native-pick') ? 300000 : 35000;
   let response;
-  try { response = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }), credentials: 'same-origin', redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(35000) }); }
+  try { response = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }), credentials: 'same-origin', redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) }); }
   catch (error) { throw new Error(`${t('connectionFailed')} ${error.message}`); }
   const data = await response.json();
   if (!response.ok || data.ok === false) {
-    if (response.status === 401) { state.online = false; state.auth = null; try { sessionStorage.removeItem(sessionKey); } catch {} showNotice('#connection-notice', t('sessionExpired')); }
+    if (response.status === 401 && path !== '/api/session') { state.online = false; state.auth = null; try { sessionStorage.removeItem(sessionKey); localStorage.removeItem(sessionKey); } catch {} showNotice('#connection-notice', t('sessionExpired')); updateConnectionState(false); }
     throw new ApiError(data, response.status);
   }
   return data;
@@ -100,8 +130,61 @@ function renderError(target, error) { const node = $(target); node.className = '
 function operationError(error) {
   let dialog = $('#operation-error-dialog');
   if (!dialog) { dialog = el('dialog', { id: 'operation-error-dialog', class: 'dialog' }); document.body.append(dialog); }
-  dialog.replaceChildren(el('div', { class: 'dialog-heading' }, [el('h2', {}, t('operationFailed')), button('×', () => dialog.close(), 'icon-button')]), ...errorContents(error));
+  dialog.setAttribute('aria-labelledby', 'operation-error-title');
+  const close = button('×', () => dialog.close(), 'icon-button'); close.setAttribute('aria-label', t('close'));
+  dialog.replaceChildren(el('div', { class: 'dialog-heading' }, [el('h2', { id: 'operation-error-title' }, t('operationFailed')), close]), ...errorContents(error));
   if (!dialog.open) dialog.showModal();
+}
+
+function confirmDialog({ title, message, danger = false, confirmText, onConfirm }) {
+  const dialog = el('dialog', { class: 'dialog dialog-small confirm-dialog', 'aria-label': title });
+  const close = button('×', () => dialog.close(), 'icon-button close-dialog');
+  close.setAttribute('aria-label', t('close'));
+  const cancelBtn = button(t('cancel'), () => dialog.close(), 'button button-quiet');
+  const actionBtn = button(confirmText || t('confirmDelete'), async () => {
+    dialog.close();
+    await onConfirm();
+  }, danger ? 'button button-danger' : 'button button-primary');
+  dialog.replaceChildren(
+    el('div', { class: 'dialog-heading' }, [el('h3', {}, title), close]),
+    el('p', { class: 'dialog-description' }, message),
+    el('div', { class: 'dialog-footer' }, [cancelBtn, actionBtn])
+  );
+  document.body.append(dialog);
+  dialog.addEventListener('close', () => dialog.remove(), { once: true });
+  dialog.showModal();
+  return dialog;
+}
+
+function confirmDeleteInstance(instance) {
+  const id = idOf(instance);
+  const status = instance.status ?? {};
+  if (deletionBlocked(instance)) {
+    toast(say('请先确认实例进程已退出且没有正在进行的操作，再删除实例。', 'Confirm process exit and completion of instance operations before deletion.'));
+    return;
+  }
+  const title = instance.pack?.title ?? instance.pack?.id ?? id;
+  confirmDialog({
+    title: t('deletePack'),
+    message: (instance.deletionPending ? say(`上次删除尚未完成，剩余文件保留在 ${instance.retainedDirectory}。`, `Previous deletion is incomplete. Remaining files are retained at ${instance.retainedDirectory}.`) + '\n' : '')
+      + say(`确认彻底删除整合包「${title}」(${id})？这将移除该实例的全部本地文件与运行时数据。此操作不可逆。`, `Permanently delete pack instance "${title}" (${id})? This will remove all local files and runtime data for this instance. This action cannot be undone.`),
+    danger: true,
+    confirmText: t('delete'),
+    onConfirm: async () => {
+      try {
+        await api(endpoint(id, 'delete'), { accepted: true });
+        toast(say(`已删除整合包「${id}」`, `Deleted pack "${id}"`));
+        if (state.selected === id) {
+          state.selected = null;
+          navigate('packs');
+        }
+        await refresh({ explicit: true });
+      } catch (err) {
+        await refresh({ explicit: true });
+        toast(err.message);
+      }
+    }
+  });
 }
 function guidance(items) {
   const section = el('div', { class: 'review-section' }, el('h3', {}, t('repairSteps')));
@@ -129,47 +212,282 @@ function healthBadge(value) { const fresh = freshObservation(value?.lastCheckedA
 function readinessBadge(value) { return pill(t(value === 'ready' ? 'ready' : value === 'not-ready' ? 'notReady' : 'unknown'), value === 'ready' ? 'teal' : ''); }
 
 function stats() {
-  const counts = [state.instances.length, state.instances.filter(i => i.status?.state === 'running' && !isStale(i.status)).length, state.instances.reduce((n, i) => n + (i.status?.components?.length || state.reviews.get(idOf(i))?.review?.pack?.components?.length || 0), 0), state.instances.filter(i => i.status?.state === 'failed' || isStale(i.status) || i.status?.cleanupIncomplete).length];
-  return [['totalInstances', 'independentlyManaged', '◇'], ['runningInstances', 'observedProcesses', '▶'], ['moduleCount', 'declaredModules', '⌘'], ['attention', 'failuresAndUnknown', '◌']].map(([label, note, icon], index) => el('div', { class: 'stat' }, [el('div', { class: 'stat-top' }, [t(label), el('span', { class: 'stat-icon', 'aria-hidden': 'true' }, icon)]), el('strong', { class: 'stat-value' }, counts[index]), el('p', { class: 'stat-note' }, t(note))]));
+  const declared = state.instances.map(i => i.moduleCount ?? state.reviews.get(idOf(i))?.review?.pack?.components?.length ?? null);
+  const counts = [state.instances.length, state.instances.filter(i => i.status?.state === 'running' && !isStale(i.status)).length, declared.some(n => n === null) ? t('unknown') : declared.reduce((a, b) => a + b, 0), state.instances.filter(i => i.status?.state === 'failed' || isStale(i.status) || i.status?.cleanupIncomplete).length];
+  return [['totalInstances', 'independentlyManaged', 'packs'], ['runningInstances', 'observedProcesses', 'play'], ['moduleCount', 'declaredModules', 'creator'], ['attention', 'failuresAndUnknown', 'alert']].map(([label, note, iconName], index) => el('div', { class: 'stat' }, [el('div', { class: 'stat-top' }, [t(label), el('span', { class: 'stat-icon', 'aria-hidden': 'true' }, createIcon(iconName))]), el('strong', { class: 'stat-value' }, counts[index]), el('p', { class: 'stat-note' }, t(note))]));
 }
-function renderStats() { $('#pack-stats').replaceChildren(...stats()); $('#overview-stats').replaceChildren(...stats()); }
+function renderStats() { $('#pack-stats')?.replaceChildren(...stats()); $('#overview-stats')?.replaceChildren(...stats()); }
 function packCard(instance) {
   const id = idOf(instance), status = instance.status ?? {}, busy = Boolean(operationFor(instance));
   const modules = status.components ?? [];
-  const reviewCount = state.reviews.get(id)?.review?.pack?.components?.length;
+  const reviewCount = instance.moduleCount ?? state.reviews.get(id)?.review?.pack?.components?.length;
   const [label, tone] = statusLabel(instance);
-  const facts = definition([[t('modules'), `${modules.length || reviewCount || '—'}`], [t('communication'), isStale(status) ? t('unknown') : modules.length ? `${modules.filter(c => c.communication === 'connected').length} / ${modules.length}` : '—']], 'pack-facts');
+  const facts = definition([[t('modules'), reviewCount ?? t('unknown')], [t('communication'), isStale(status) ? t('unknown') : modules.length ? `${modules.filter(c => c.communication === 'connected').length} / ${modules.length}` : t('unknown')]], 'pack-facts');
   const detached = instance.detached === true || status.state === 'detached';
-  const primary = detached ? button(advanced.label('storage'), () => selectInstance(id, 'storage'), 'button button-small button-quiet') : running(instance) || exitUnconfirmed(instance) || preparing(instance) ? button(t('stop'), () => stopInstance(id), 'button button-small button-quiet', stopBlocked(instance) || status.state === 'stopping') : button(t('start'), () => reviewInstance(id, 'start'), 'button button-small button-primary', busy || isStale(status));
-  return el('article', { class: 'pack-card' }, [el('div', { class: 'pack-card-top' }, [el('div', { class: 'pack-title-row' }, [el('div', { class: 'pack-symbol', 'aria-hidden': 'true' }, '◇'), el('div', {}, [el('h3', {}, instance.pack?.title ?? instance.pack?.id ?? id), el('div', { class: 'pack-version' }, `v${instance.pack?.version ?? '—'}`)]), pill(label, tone)]), el('div', { class: 'pack-id' }, id), facts]), el('div', { class: 'pack-card-footer' }, [button(`${t('viewDetails')} →`, () => selectInstance(id), 'text-link'), primary])]);
+  const isRunning = running(instance) || exitUnconfirmed(instance) || preparing(instance);
+  const primary = detached ? button(advanced.label('storage'), () => selectInstance(id, 'storage'), 'button button-small button-quiet') : isRunning ? button(t('stop'), () => stopInstance(id), 'button button-small button-quiet', stopBlocked(instance) || status.state === 'stopping') : button(t('start'), () => reviewInstance(id, 'start'), 'button button-small button-primary', busy || isStale(status));
+  const statusPill = pill(label, tone);
+  if (isRunning && !isStale(status)) statusPill.prepend(el('span', { class: 'status-dot' }));
+
+  const coverArt = renderSquareArt({
+    icon: instance.pack?.icon ?? instance.icon,
+    fallbackIcon: 'packs',
+    tone: 'cyan',
+    alt: instance.pack?.title ?? instance.pack?.id ?? id
+  });
+
+  return el('article', { class: `pack-card${isRunning ? ' is-running' : ''}` }, [
+    el('div', { class: 'pack-card-main' }, [
+      el('div', { class: 'pack-card-media' }, [coverArt]),
+      el('div', { class: 'pack-card-content' }, [
+        el('div', { class: 'pack-card-header-row' }, [
+          el('h3', { class: 'pack-card-title' }, instance.pack?.title ?? instance.pack?.id ?? id),
+          el('div', { class: 'pack-card-badges' }, [statusPill])
+        ]),
+        el('div', { class: 'pack-card-sub mono' }, [
+          el('span', { class: 'pack-version' }, `v${instance.pack?.version ?? '—'}`),
+          el('span', { class: 'subtle-dot' }, '·'),
+          el('span', { class: 'pack-id' }, id)
+        ]),
+        facts
+      ])
+    ]),
+    el('div', { class: 'pack-card-footer' }, [
+      button(`${t('viewDetails')} →`, () => selectInstance(id), 'text-link'),
+      el('div', { class: 'pack-card-actions' }, [
+        button(t('delete'), () => confirmDeleteInstance(instance), 'button button-small button-danger-quiet pack-delete-btn', deletionBlocked(instance)),
+        primary
+      ])
+    ])
+  ]);
 }
-function empty(title, description, action) { return el('div', { class: 'empty-state' }, [el('div', { class: 'empty-icon', 'aria-hidden': 'true' }, '◇'), el('h3', {}, title), description ? el('p', {}, description) : null, action]); }
+function defaultHubCard(hub) {
+  const isRunning = hub.state === 'running';
+  const busy = state.operations.has('hub:default');
+  const observed = state.online && !state.hubsUnavailable && freshObservation(state.hubsObservedAt);
+  const statusPill = pill(t(observed ? hub.state ?? 'unknown' : 'unknown'), observed && isRunning ? 'teal' : 'amber');
+  if (isRunning && observed) statusPill.prepend(el('span', { class: 'status-dot' }));
+
+  const primary = isRunning
+    ? button(t('stopHub'), () => hubOperation('stop'), 'button button-small button-quiet', busy)
+    : button(t('startHub'), () => hubOperation('start'), 'button button-small button-primary', busy);
+
+  const actions = [];
+  if (isRunning && observed && hub.workbenchUrl) {
+    actions.push(localLink(`${t('openWorkbenchTarget')} →`, hub.workbenchUrl, 'text-link', true));
+  } else {
+    actions.push(el('span', { class: 'subtle small' }, t('defaultHubDescription')));
+  }
+
+  const facts = definition([
+    [t('communication'), hub.url ? 'WebSocket' : t('hubWaiting')],
+    [say('类别', 'Category'), say('系统开发枢纽', 'Dev Hub Socket')]
+  ], 'pack-facts');
+
+  const coverArt = renderSquareArt({
+    fallbackIcon: 'hubs',
+    tone: 'indigo',
+    alt: t('defaultHub')
+  });
+
+  return el('article', { class: `pack-card pack-card-system${isRunning ? ' is-running' : ''}` }, [
+    el('div', { class: 'pack-card-main' }, [
+      el('div', { class: 'pack-card-media' }, [coverArt]),
+      el('div', { class: 'pack-card-content' }, [
+        el('div', { class: 'pack-card-header-row' }, [
+          el('h3', { class: 'pack-card-title' }, t('defaultHub')),
+          el('div', { class: 'pack-card-badges' }, [statusPill])
+        ]),
+        el('div', { class: 'pack-card-sub mono' }, [
+          el('span', { class: 'pack-version' }, 'Dev Socket'),
+          el('span', { class: 'subtle-dot' }, '·'),
+          el('span', { class: 'pack-id' }, 'launcher.default')
+        ]),
+        facts
+      ])
+    ]),
+    el('div', { class: 'pack-card-footer' }, [
+      actions[0],
+      primary
+    ])
+  ]);
+}
+function empty(title, description, action) { return el('div', { class: 'empty-state' }, [el('div', { class: 'empty-icon', 'aria-hidden': 'true' }, createIcon('packs', 'icon-lg')), el('h3', {}, title), description ? el('p', {}, description) : null, action]); }
 function renderPacks() {
   const search = $('#search').value.trim().toLocaleLowerCase();
   const instances = state.instances.filter(i => `${idOf(i)} ${i.pack?.id ?? ''} ${i.pack?.title ?? ''}`.toLocaleLowerCase().includes(search));
+  const defaultHub = resolveDefaultHub();
+  const matchDefaultHub = !search || 'launcher.default 默认hub 本机开发 调试 socket dev'.toLocaleLowerCase().includes(search);
   $('#nav-count').textContent = String(state.instances.length);
   $('#collection-count').textContent = t('items', { count: state.instances.length });
-  $('#packs-list').replaceChildren(...(instances.length ? instances.map(packCard) : [empty(t(search ? 'noSearchResults' : 'emptyTitle'), search ? null : t('emptyDescription'), search ? null : button(t('importPack'), openImport, 'button button-primary'))]));
+  advanced?.renderAssetTabs?.(state.view);
+
+  const cards = instances.map(packCard);
+  if (matchDefaultHub) cards.push(defaultHubCard(defaultHub));
+
+  if (!cards.length) {
+    $('#packs-list').replaceChildren(empty(t(search ? 'noSearchResults' : 'emptyTitle'), search ? null : t('emptyDescription'), search ? null : el('div', { class: 'result-actions' }, [button(t('importPack'), openImport, 'button button-primary'), button(say('查找本机整合包', 'Find local packs'), () => { openImport(); void paths.open($('#import-form').elements.directory, 'pack'); }, 'button'), button(say('从软件源获取', 'Fetch from sources'), () => navigate('sources'), 'button button-quiet')])));
+  } else {
+    $('#packs-list').replaceChildren(...cards);
+  }
 }
 function renderOverview() {
-  $('#overview-content').replaceChildren(el('div', { class: 'panel' }, [el('div', { class: 'panel-heading' }, [el('h2', {}, t('instances')), el('span', { class: 'subtle' }, date(state.lastRefresh))]), ...(state.instances.length ? state.instances.map(i => el('div', { class: 'runtime-row' }, [el('div', {}, [el('h3', {}, i.pack?.title ?? idOf(i)), el('p', {}, idOf(i))]), el('div', {}, [pill(...statusLabel(i)), button(t('viewDetails'), () => selectInstance(idOf(i)), 'button button-small button-quiet')])])) : [el('p', {}, t('emptyDescription'))]), el('p', { class: 'observation-note' }, t('statusMeaning'))]));
+  const target = $('#overview-content');
+  if (!target) return;
+  target.replaceChildren(el('div', { class: 'panel' }, [el('div', { class: 'panel-heading' }, [el('h2', {}, t('instances')), el('span', { class: 'subtle' }, date(state.lastRefresh))]), ...(state.instances.length ? state.instances.map(i => el('div', { class: 'runtime-row' }, [el('div', {}, [el('h3', {}, i.pack?.title ?? idOf(i)), el('p', {}, idOf(i))]), el('div', {}, [pill(...statusLabel(i)), button(t('viewDetails'), () => selectInstance(idOf(i)), 'button button-small button-quiet')])])) : [el('p', {}, t('emptyDescription'))]), el('p', { class: 'observation-note' }, t('statusMeaning'))]));
 }
-function hubCards(workbench = false) {
-  const hubs = state.hubs;
-  if (!hubs.length) return [empty(t('noRunningHub'), null)];
-  return hubs.map(hub => {
-    const isDefault = hub.id === 'default', busy = state.operations.has(`hub:${hub.id}`);
-    const actions = [];
-    const observed = state.online && !state.hubsUnavailable && freshObservation(state.hubsObservedAt);
-    if (observed && hub.managementUrl) actions.push(localLink(t('topology'), hub.managementUrl));
-    if (observed && hub.workbenchUrl) actions.push(localLink(t('openWorkbench'), hub.workbenchUrl, 'button button-primary'));
-    if (isDefault) actions.push(button(t(hub.state === 'running' ? 'stopHub' : 'startHub'), () => hubOperation(hub.state === 'running' ? 'stop' : 'start'), `button${hub.state === 'running' ? ' button-quiet' : ' button-primary'}`, busy));
-    else actions.push(button(t('viewInstance'), () => selectInstance(hub.id), 'button button-quiet'));
-    return el('article', { class: 'link-card' }, [el('div', {}, [el('div', { class: 'module-header' }, [el('h3', {}, isDefault ? t('defaultHub') : currentTitle(hub.id)), pill(t(observed ? hub.state ?? 'unknown' : 'unknown'), observed && hub.state === 'running' ? 'teal' : 'amber')]), el('p', {}, isDefault ? t('defaultHubDescription') : t('independentHub')), el('p', { class: 'link-metadata' }, hub.url ?? t('hubWaiting')), el('p', { class: 'observation-note' }, `${t('observedAt')}: ${date(state.hubsObservedAt)}`)]), el('div', { class: 'link-card-actions' }, actions.filter(Boolean))]);
-  });
+function currentTitle(id) {
+  const instance = state.instances.find(i => idOf(i) === id);
+  return instance?.pack?.title ? `${instance.pack.title} · ${id}` : id;
 }
-function currentTitle(id) { const instance = state.instances.find(i => idOf(i) === id); return instance?.pack?.title ? `${instance.pack.title} · ${id}` : id; }
-function renderHubs() { $('#hubs-list').replaceChildren(...hubCards()); $('#workbench-list').replaceChildren(...hubCards(true)); }
+
+function resolveInstanceHubs() {
+  const map = new Map();
+  for (const instance of state.instances) {
+    const id = idOf(instance);
+    map.set(id, {
+      id,
+      managedBy: 'runtime',
+      state: instance.status?.state ?? 'stopped',
+      url: instance.status?.hub?.url ?? null,
+      managementUrl: instance.links?.managementUrl ?? null,
+      workbenchUrl: instance.links?.workbenchUrl ?? null,
+    });
+  }
+  for (const hub of state.hubs) {
+    if (hub.id === 'default') continue;
+    const existing = map.get(hub.id);
+    map.set(hub.id, { ...existing, ...hub });
+  }
+  return [...map.values()];
+}
+
+function resolveDefaultHub() {
+  const found = state.hubs.find(h => h.id === 'default');
+  return found ?? { id: 'default', managedBy: 'launcher', state: 'stopped', url: null, managementUrl: null, workbenchUrl: null };
+}
+
+function renderCommunicationWorkbench() {
+  const target = $('#workbench-list');
+  if (!target) return;
+  const observed = state.online && !state.hubsUnavailable && freshObservation(state.hubsObservedAt);
+  const instanceHubs = resolveInstanceHubs();
+  const defaultHub = resolveDefaultHub();
+
+  // Section 1: 实例独立通信枢纽 (Instance Communication Hubs)
+  const instanceSectionHeader = el('div', { class: 'hub-section-header' }, [
+    el('div', { class: 'hub-section-title' }, [
+      el('div', { class: 'hub-section-icon', 'aria-hidden': 'true' }, createIcon('packs')),
+      el('div', {}, [
+        el('h2', {}, t('instanceHubsTitle')),
+        el('p', { class: 'field-help' }, t('instanceHubsSubtitle'))
+      ])
+    ]),
+    instanceHubs.length ? pill(t('items', { count: instanceHubs.length })) : null
+  ]);
+
+  let instanceSectionContent;
+  if (!instanceHubs.length) {
+    instanceSectionContent = el('div', { class: 'empty-state-card' }, [
+      el('h3', {}, t('noInstancesFound')),
+      el('p', { class: 'field-help' }, t('noInstancesHubHint')),
+      el('div', { class: 'result-actions' }, [
+        button(t('importPack'), openImport, 'button button-primary')
+      ])
+    ]);
+  } else {
+    instanceSectionContent = instanceHubs.map(hub => {
+      const instance = state.instances.find(i => idOf(i) === hub.id);
+      const isRunning = hub.state === 'running';
+      const busy = Boolean(instance && operationFor(instance));
+      const actions = [];
+      if (isRunning && observed) {
+        if (hub.workbenchUrl) actions.push(localLink(t('openWorkbenchTarget'), hub.workbenchUrl, 'button button-primary', true));
+        if (hub.managementUrl) actions.push(localLink(t('openTopologyTarget'), hub.managementUrl, 'button button-quiet', true));
+        actions.push(button(t('viewInstance'), () => selectInstance(hub.id), 'button button-quiet'));
+      } else {
+        actions.push(button(t('startInstanceToConnect'), () => reviewInstance(hub.id, 'start'), 'button button-primary', busy));
+        actions.push(button(t('viewInstance'), () => selectInstance(hub.id), 'button button-quiet'));
+      }
+
+      return el('article', { class: `link-card${isRunning ? ' is-running' : ''}` }, [
+        el('div', { class: 'link-card-body' }, [
+          el('div', { class: 'link-card-heading' }, [
+            el('div', { class: 'link-card-symbol', 'aria-hidden': 'true' }, createIcon('hubs')),
+            el('div', {}, [
+              el('h3', {}, currentTitle(hub.id)),
+              el('div', { class: 'link-card-id' }, `${hub.id} · WebSocket Bridge`)
+            ]),
+            pill(t(observed ? hub.state ?? 'unknown' : 'unknown'), observed && isRunning ? 'teal' : 'amber')
+          ]),
+          el('p', { class: 'link-card-desc' }, t(isRunning ? 'workbenchInstanceActive' : 'workbenchInstanceInactive')),
+          el('div', { class: 'link-card-tags' }, [
+            el('span', { class: 'link-metadata' }, hub.url ? `${hub.url}` : t('hubWaiting')),
+            el('span', { class: 'observation-note' }, `${t('observedAt')}: ${date(state.hubsObservedAt)}`)
+          ])
+        ]),
+        el('div', { class: 'link-card-actions' }, actions.filter(Boolean))
+      ]);
+    });
+  }
+
+  const instanceSection = el('section', { class: 'hub-section' }, [
+    instanceSectionHeader,
+    ...(Array.isArray(instanceSectionContent) ? instanceSectionContent : [instanceSectionContent])
+  ]);
+
+  // Section 2: 本机独立开发枢纽 (Local Development Hub)
+  const defaultIsRunning = defaultHub.state === 'running';
+  const defaultBusy = state.operations.has('hub:default');
+  const defaultActions = [];
+  if (defaultIsRunning && observed) {
+    if (defaultHub.workbenchUrl) defaultActions.push(localLink(t('openWorkbenchTarget'), defaultHub.workbenchUrl, 'button button-primary', true));
+    if (defaultHub.managementUrl) defaultActions.push(localLink(t('openTopologyTarget'), defaultHub.managementUrl, 'button button-quiet', true));
+    defaultActions.push(button(t('stopHub'), () => hubOperation('stop'), 'button button-quiet', defaultBusy));
+  } else {
+    defaultActions.push(button(t('startHub'), () => hubOperation('start'), 'button button-primary', defaultBusy));
+  }
+
+  const defaultCard = el('article', { class: `link-card${defaultIsRunning ? ' is-running' : ''}` }, [
+    el('div', { class: 'link-card-body' }, [
+      el('div', { class: 'link-card-heading' }, [
+        el('div', { class: 'link-card-symbol', 'aria-hidden': 'true' }, createIcon('creator')),
+        el('div', {}, [
+          el('h3', {}, t('defaultHub')),
+          el('div', { class: 'link-card-id' }, 'launcher.default · Dev Socket')
+        ]),
+        pill(t(observed ? defaultHub.state ?? 'unknown' : 'unknown'), observed && defaultIsRunning ? 'teal' : 'amber')
+      ]),
+      el('p', { class: 'link-card-desc' }, t('defaultHubDescription')),
+      el('div', { class: 'link-card-tags' }, [
+        el('span', { class: 'link-metadata' }, defaultHub.url ? `${defaultHub.url}` : t('hubWaiting')),
+        el('span', { class: 'observation-note' }, `${t('observedAt')}: ${date(state.hubsObservedAt)}`)
+      ])
+    ]),
+    el('div', { class: 'link-card-actions' }, defaultActions.filter(Boolean))
+  ]);
+
+  const defaultSectionHeader = el('div', { class: 'hub-section-header' }, [
+    el('div', { class: 'hub-section-title' }, [
+      el('div', { class: 'hub-section-icon', 'aria-hidden': 'true' }, createIcon('creator')),
+      el('div', {}, [
+        el('h2', {}, t('devHubTitle')),
+        el('p', { class: 'field-help' }, t('devHubSubtitle'))
+      ])
+    ])
+  ]);
+
+  const defaultSection = el('section', { class: 'hub-section' }, [
+    defaultSectionHeader,
+    defaultCard
+  ]);
+
+  target.replaceChildren(instanceSection, defaultSection);
+}
+
+function renderHubs() {
+  renderCommunicationWorkbench();
+}
 
 function runtimeEnvironment(environment) {
   const nodes = [];
@@ -177,28 +495,127 @@ function runtimeEnvironment(environment) {
     const runtime = environment?.[kind];
     if (!runtime) continue;
     const available = runtime.available !== false && Boolean(runtime.version);
-    nodes.push(el('div', { class: 'runtime-row' }, [el('div', {}, [el('h3', {}, `${kind === 'node' ? 'Node.js' : 'Python'} ${runtime.version ?? ''}`), el('p', {}, runtime.executable ?? runtime.error ?? '—'), runtime.packages && Object.keys(runtime.packages).length ? el('p', {}, Object.entries(runtime.packages).map(([name, version]) => `${name} ${display(version)}`).join(' · ')) : null, runtime.error ? el('p', {}, runtime.error) : null]), pill(t(available ? 'available' : 'unavailable'), available ? 'teal' : 'red')]));
+    const isNode = kind === 'node';
+    const pkgEntries = runtime.packages && Object.keys(runtime.packages).length ? Object.entries(runtime.packages) : [];
+    const pkgList = pkgEntries.length
+      ? el('div', { class: 'runtime-pkg-grid' }, pkgEntries.map(([name, ver]) => el('span', { class: 'runtime-pkg-tag' }, `${name} ${display(ver)}`)))
+      : null;
+    nodes.push(el('div', { class: 'runtime-row' }, [
+      el('div', { class: 'runtime-row-main' }, [
+        el('div', { class: 'runtime-row-header' }, [
+          el('span', { class: `runtime-kind-chip ${isNode ? 'badge-node' : 'badge-python'}` }, isNode ? 'Node.js' : 'Python'),
+          el('h3', {}, `${isNode ? 'Node.js' : 'Python'} ${runtime.version ?? ''}`),
+          pill(t(available ? 'available' : 'unavailable'), available ? 'teal' : 'red')
+        ]),
+        el('p', { class: 'runtime-path-text' }, runtime.executable ?? runtime.error ?? '—'),
+        pkgList,
+        runtime.error ? el('p', { class: 'runtime-error-text' }, runtime.error) : null
+      ].filter(Boolean)),
+      pill(t(available ? 'available' : 'unavailable'), available ? 'teal' : 'red')
+    ]));
   }
   return nodes;
+}
+function updateEnvHero() {
+  const activeProfile = state.isolationSelection?.profile ?? 'trusted-local';
+  const profilePill = $('#env-active-profile-pill');
+  if (profilePill) {
+    const profileNames = {
+      'trusted-local': t('trustedLocalProfile'),
+      'docker-runtime/v1': t('dockerRuntimeProfile'),
+      'docker-node-headless/v1': t('dockerHeadlessProfile'),
+      'linux-existing-user/v1': t('linuxUserProfile')
+    };
+    profilePill.textContent = profileNames[activeProfile] ?? activeProfile;
+  }
+}
+function setEnvironmentTab(tab = state.envTab ?? 'interpreters') {
+  state.envTab = tab;
+  for (const item of document.querySelectorAll('[data-env-tab]')) {
+    const active = item.dataset.envTab === tab;
+    item.classList.toggle('is-active', active);
+    item.setAttribute('aria-selected', String(active));
+    item.setAttribute('tabindex', active ? '0' : '-1');
+  }
+  for (const name of ['interpreters', 'isolation', 'dependencies']) {
+    const panel = $(`#env-panel-${name}`);
+    if (panel) { panel.hidden = tab !== name; panel.classList.toggle('is-hidden', tab !== name); }
+  }
 }
 function renderEnvironment() {
   const target = $('#environment-results');
   target.replaceChildren(...(state.environment ? runtimeEnvironment(state.environment.environment) : [el('p', { class: 'field-help' }, t('detectFirst'))]));
   if (state.environment?.guidance?.length) target.append(guidance(state.environment.guidance));
-  $('#diagnostic-info').replaceChildren(...definition([[t('instancesRoot'), state.session?.root], [t('launcherVersion'), state.session?.softwareVersion ?? state.session?.version], [t('platform'), state.environment?.environment?.platform], [t('architecture'), state.environment?.environment?.arch]]).children);
+  $('#diagnostic-info').replaceChildren(...definition([[t('instancesRoot'), state.session?.root], [t('launcherVersion'), state.session?.softwareVersion ?? state.session?.version], [t('platform'), state.environment?.environment?.platform ?? (state.session?.platform ?? '—')], [t('architecture'), state.environment?.environment?.arch ?? (state.session?.arch ?? '—')]]).children);
+  updateEnvHero();
+  setEnvironmentTab(state.envTab ?? 'interpreters');
 }
 
 function permissions(declared) {
   if (!declared || !Object.keys(declared).length) return [pill(t('noPermissions'))];
   const labels = { filesystem: 'fileAccess', network: 'networkAccess', processes: 'subprocesses' };
-  return Object.entries(declared).map(([key, value]) => el('span', { class: 'permission' }, `${t(labels[key] ?? key)}: ${Array.isArray(value) ? value.join(', ') : display(value)}`));
+  return Object.entries(declared).map(([key, value]) => {
+    const isFilesystem = key === 'filesystem';
+    const isNetwork = key === 'network';
+    const iconName = isFilesystem ? 'folder' : isNetwork ? 'link' : 'task';
+    const valStr = Array.isArray(value) ? value.join(', ') : display(value);
+    return el('div', { class: 'perm-chip-card' }, [
+      el('div', { class: 'perm-chip-header' }, [
+        el('span', { class: 'perm-chip-icon', 'aria-hidden': 'true' }, createIcon(iconName)),
+        el('span', { class: 'perm-chip-label' }, t(labels[key] ?? key))
+      ]),
+      el('span', { class: 'perm-chip-value mono' }, valStr)
+    ]);
+  });
 }
 function moduleView(module, review, full = true) {
   const manifest = module.manifest ?? module, source = module.source ?? '—';
   const sourceLocation = `${review.directory ?? ''}${review.directory ? ' / ' : ''}${source}`;
-  const panel = el('article', { class: full ? 'panel module-card' : 'review-module' }, [el(full ? 'div' : 'h4', { class: full ? 'module-header' : '' }, full ? [el('h3', {}, `${manifest.id ?? '—'} · ${manifest.version ?? '—'}`), pill(`${manifest.runtime?.kind ?? '—'} · ${manifest.runtime?.entry ?? '—'}`)] : `${manifest.id ?? '—'} · ${manifest.version ?? '—'}`), el('p', { class: full ? 'module-source' : '' }, `${t('source')}: ${sourceLocation}`), el('div', { class: 'module-permissions' }, permissions(manifest.permissions)), el('p', { class: 'field-help' }, `${t('sourceFiles', { count: Object.keys(module.files ?? {}).length })} · ${t('declaredNotEnforced')}`)]);
-  if (full) panel.append(el('details', { class: 'json-details' }, [el('summary', {}, t('fullManifest')), el('pre', {}, JSON.stringify(manifest, null, 2))]));
-  return panel;
+  if (!full) {
+    return el('div', { class: 'review-module' }, [
+      el('h4', {}, `${manifest.id ?? '—'} · ${manifest.version ?? '—'}`),
+      el('p', {}, `${t('source')}: ${sourceLocation}`),
+      el('div', { class: 'module-permissions' }, permissions(manifest.permissions)),
+      el('p', { class: 'field-help' }, `${t('sourceFiles', { count: Object.keys(module.files ?? {}).length })} · ${t('declaredNotEnforced')}`)
+    ]);
+  }
+
+  const runtimeKind = manifest.runtime?.kind ?? 'node';
+  const isPython = runtimeKind === 'python';
+  const fileCount = Object.keys(module.files ?? {}).length;
+
+  const header = el('div', { class: 'module-card-header' }, [
+    el('div', { class: 'module-card-title-group' }, [
+      el('span', { class: `runtime-kind-chip ${isPython ? 'badge-python' : 'badge-node'}` }, isPython ? 'Python' : 'Node.js'),
+      el('h3', {}, `${manifest.id ?? '—'} · v${manifest.version ?? '—'}`)
+    ]),
+    pill(`${runtimeKind} · ${manifest.runtime?.entry ?? '—'}`)
+  ]);
+
+  const sourceMeta = el('div', { class: 'module-card-meta' }, [
+    el('div', { class: 'meta-item' }, [
+      el('span', { class: 'subtle' }, `${t('source')}: `),
+      el('span', { class: 'mono subtle' }, sourceLocation)
+    ]),
+    el('div', { class: 'meta-item' }, [
+      el('span', { class: 'pill pill-subtle' }, `${t('sourceFiles', { count: fileCount })}`)
+    ])
+  ]);
+
+  const permsGrid = el('div', { class: 'module-permissions-grid' }, permissions(manifest.permissions));
+
+  const manifestDetails = el('details', { class: 'json-details module-manifest-details' }, [
+    el('summary', {}, t('fullManifest')),
+    el('pre', {}, JSON.stringify(manifest, null, 2))
+  ]);
+
+  return el('article', { class: 'panel module-card' }, [
+    header,
+    sourceMeta,
+    permsGrid,
+    manifestDetails,
+    el('p', { class: 'field-help module-card-footer-note' }, t('declaredNotEnforced'))
+  ]);
 }
 function reviewView(data, mode = 'execution') {
   const review = data.review;
@@ -213,93 +630,581 @@ function reviewView(data, mode = 'execution') {
 
 function renderDetailHeading(instance) {
   const id = idOf(instance), status = instance.status ?? {}, busy = Boolean(operationFor(instance));
-  $('#detail-heading').replaceChildren(el('div', { class: 'detail-title' }, [el('div', { class: 'pack-symbol', 'aria-hidden': 'true' }, '◇'), el('div', {}, [el('h1', {}, instance.pack?.title ?? instance.pack?.id ?? id), el('p', {}, `${id} · v${instance.pack?.version ?? '—'}`)]), pill(...statusLabel(instance))]));
-  const actions = [];
+  const isRunning = running(instance);
+  const [label, tone] = statusLabel(instance);
+  const statusPill = pill(label, tone);
+  if (isRunning && !isStale(status)) statusPill.prepend(el('span', { class: 'status-dot' }));
+
+  const heading = el('div', { class: 'detail-hero' }, [
+    el('div', { class: 'detail-hero-left' }, [
+      el('div', { class: `detail-hero-symbol${isRunning ? ' is-running' : ''}`, 'aria-hidden': 'true' }, createIcon('packs', 'icon-xl')),
+      el('div', { class: 'detail-hero-body' }, [
+        el('div', { class: 'detail-hero-title-row' }, [
+          el('h1', {}, instance.pack?.title ?? instance.pack?.id ?? id),
+          statusPill
+        ]),
+        el('div', { class: 'detail-hero-meta' }, [
+          el('span', { class: 'hero-meta-id mono' }, id),
+          el('span', { class: 'hero-meta-pill' }, `v${instance.pack?.version ?? '—'}`),
+          el('span', { class: 'hero-meta-tag' }, declaredModuleCount(instance) === null
+            ? `${t('moduleCount')}: ${t('unknown')}` : `${declaredModuleCount(instance)} ${say('个模块', 'modules')}`),
+          status.executionProfile
+            ? el('span', { class: 'hero-meta-profile' }, status.executionProfile)
+            : null
+        ].filter(Boolean))
+      ])
+    ]),
+    el('div', { class: 'detail-hero-right' }, [
+      el('div', { class: 'hero-obs-tag subtle mono' }, `${say('观测于', 'Observed')}: ${date(state.lastRefresh)}`)
+    ])
+  ]);
+  $('#detail-heading').replaceChildren(heading);
+
+  const primaryActions = [];
   if (running(instance) || exitUnconfirmed(instance) || preparing(instance)) {
-    actions.push(button(t('stop'), () => stopInstance(id), 'button button-danger', stopBlocked(instance) || status.state === 'stopping'));
-    if (status.state === 'running' && !isStale(status)) actions.push(button(t('restart'), () => reviewInstance(id, 'restart'), 'button', busy));
-  } else if (!instance.detached && status.state !== 'detached') actions.push(button(t('start'), () => reviewInstance(id, 'start'), 'button button-primary', busy || isStale(status)));
-  if (status.state === 'running' && !isStale(status)) { const entry = localLink(t('openApp'), instance.links?.entryUrl, 'button button-primary', true); if (entry) actions.push(entry); }
-   const topology = !isStale(status) && localLink(t('topology'), instance.links?.managementUrl); if (topology) actions.push(topology);
-  actions.push(button(t('review'), () => reviewInstance(id, 'review'), 'button button-quiet', busy), button(t('exportPackage'), () => { $('#export-error').hidden = true; $('#export-dialog').showModal(); }, 'button button-quiet', busy || instance.detached || status.state === 'detached'));
-  actions.push(button(t('createFromPack'), () => advanced.openCreator(instance.packageDirectory), 'button button-quiet', busy));
-  $('#detail-actions').replaceChildren(...actions);
+    const stopBtn = button(t('stop'), () => stopInstance(id), 'button button-danger', stopBlocked(instance) || status.state === 'stopping');
+    stopBtn.prepend(createIcon('stop', 'button-icon'));
+    primaryActions.push(stopBtn);
+    if (status.state === 'running' && !isStale(status)) {
+      const restartBtn = button(t('restart'), () => reviewInstance(id, 'restart'), 'button', busy);
+      restartBtn.prepend(createIcon('restart', 'button-icon'));
+      primaryActions.push(restartBtn);
+    }
+  } else if (!instance.detached && status.state !== 'detached' && !instance.deletionPending) {
+    const startBtn = button(t('start'), () => reviewInstance(id, 'start'), 'button button-primary', busy || isStale(status));
+    startBtn.prepend(createIcon('play', 'button-icon'));
+    primaryActions.push(startBtn);
+  }
+
+  if (status.state === 'running' && !isStale(status)) {
+    const entry = localLink(t('openApp'), instance.links?.entryUrl, 'button button-primary', true);
+    if (entry) {
+      entry.prepend(createIcon('arrowRight', 'button-icon'));
+      primaryActions.push(entry);
+    }
+    const workbench = localLink(t('openWorkbenchTarget'), instance.links?.workbenchUrl, 'button button-quiet', true);
+    if (workbench) {
+      workbench.prepend(createIcon('workbench', 'button-icon'));
+      primaryActions.push(workbench);
+    }
+  }
+
+  const topology = !isStale(status) && localLink(t('topology'), instance.links?.managementUrl);
+  if (topology) {
+    topology.prepend(createIcon('hubs', 'button-icon'));
+    primaryActions.push(topology);
+  }
+
+  const toolActions = [];
+  const reviewBtn = button(t('review'), () => reviewInstance(id, 'review'), 'button button-quiet', busy || instance.deletionPending);
+  reviewBtn.prepend(createIcon('inspect', 'button-icon'));
+  toolActions.push(reviewBtn);
+
+  const exportBtn = button(t('exportPackage'), () => { $('#export-error').hidden = true; $('#export-dialog').showModal(); }, 'button button-quiet', busy || instance.detached || status.state === 'detached' || instance.deletionPending);
+  exportBtn.prepend(createIcon('file', 'button-icon'));
+  toolActions.push(exportBtn);
+
+  const createBtn = button(t('createFromPack'), () => advanced.openCreator(instance.packageDirectory), 'button button-quiet', busy || instance.deletionPending);
+  createBtn.prepend(createIcon('creator', 'button-icon'));
+  toolActions.push(createBtn);
+
+  const deleteBtn = button(t('delete'), () => confirmDeleteInstance(instance), 'button button-danger-quiet', deletionBlocked(instance));
+  deleteBtn.prepend(createIcon('trash', 'button-icon'));
+  toolActions.push(deleteBtn);
+
+  $('#detail-actions').replaceChildren(
+    el('div', { class: 'detail-actions-group detail-actions-primary' }, primaryActions),
+    el('div', { class: 'detail-actions-group detail-actions-secondary' }, toolActions)
+  );
+
   const notices = [];
+  if (instance.deletionPending) notices.push(el('div', { class: 'notice notice-error' }, say(`删除尚未完成。剩余文件及删除记录保留在 ${instance.retainedDirectory}。核对后可再次明确确认删除。`, `Deletion is incomplete. Remaining files and the deletion journal are retained at ${instance.retainedDirectory}. Inspect them before explicitly retrying deletion.`)));
   if (isStale(status)) notices.push(el('div', { class: 'notice notice-warning' }, `${t('observationUnknown')} ${t('observedAt')}: ${date(state.lastRefresh)}. ${t('staleMeaning')}`));
   if ((status.cleanupIncomplete || status.state === 'failed') && exitUnconfirmed(instance)) notices.push(el('div', { class: 'notice notice-error' }, t('cleanupMeaning')));
   if (status.failure) notices.push(el('div', { class: 'notice notice-error' }, `${t('startupFailure')}: ${status.failure.message ?? display(status.failure)}`));
   if (operationFor(instance)) notices.push(el('div', { class: 'notice' }, `${t('processing')} ${t(operationFor(instance).kind)}`));
   $('#detail-notice').replaceChildren(...notices);
 }
+
 function renderStatus(instance) {
   const status = instance.status ?? {}, components = status.components ?? [];
+  const isRunning = status.state === 'running';
+  const observed = !isStale(status) && freshObservation(state.lastRefresh);
+  const hubUrl = status.hub?.url ?? instance.links?.hubUrl ?? null;
+  const runningComps = components.filter(c => c.process === 'running').length;
+  const readyComps = components.filter(c => c.readiness === 'ready').length;
+  const commComps = components.filter(c => c.communication === 'connected').length;
+
+  const metricCards = el('div', { class: 'detail-metric-strip' }, [
+    el('div', { class: 'detail-metric-card' }, [
+      el('div', { class: 'metric-header' }, [
+        el('span', { class: 'metric-label' }, say('运行状态', 'Runtime State')),
+        el('span', { class: 'metric-icon', 'aria-hidden': 'true' }, createIcon(isRunning ? 'play' : 'stop'))
+      ]),
+      el('div', { class: 'metric-value-row' }, [
+        pill(...statusLabel(instance))
+      ]),
+      el('p', { class: 'metric-sub mono' }, status.runId ? `Run: ${status.runId.slice(0, 18)}` : say('未在运行', 'Not running'))
+    ]),
+    el('div', { class: 'detail-metric-card' }, [
+      el('div', { class: 'metric-header' }, [
+        el('span', { class: 'metric-label' }, say('活跃进程 / 模块', 'Active Modules')),
+        el('span', { class: 'metric-icon', 'aria-hidden': 'true' }, createIcon('task'))
+      ]),
+      el('div', { class: 'metric-value-row' }, [
+        el('strong', { class: 'metric-value' }, `${observed ? runningComps : t('unknown')} / ${declaredModuleCount(instance) ?? t('unknown')}`),
+        observed ? pill(runningComps === components.length && components.length > 0 ? say('全部在线', 'All Online') : runningComps > 0 ? say('部分在线', 'Partial') : say('已停止', 'Stopped'), runningComps === components.length && components.length > 0 ? 'teal' : runningComps > 0 ? 'amber' : '') : pill(t('observationUnknown'), 'amber')
+      ]),
+      el('p', { class: 'metric-sub' }, `${components.filter(c => c.pid).length} ${say('个已记录的进程 PID', 'recorded process PIDs')}`)
+    ]),
+    el('div', { class: 'detail-metric-card' }, [
+      el('div', { class: 'metric-header' }, [
+        el('span', { class: 'metric-label' }, say('通信总线与就绪', 'Bus & Ready State')),
+        el('span', { class: 'metric-icon', 'aria-hidden': 'true' }, createIcon('hubs'))
+      ]),
+      el('div', { class: 'metric-value-row' }, [
+        el('strong', { class: 'metric-value' }, `${observed ? commComps : t('unknown')} / ${components.length}`),
+        observed ? pill(commComps > 0 ? say('总线连通', 'Bus Online') : say('未连接', 'Offline'), commComps > 0 ? 'teal' : '') : pill(t('observationUnknown'), 'amber')
+      ]),
+      el('p', { class: 'metric-sub' }, `${readyComps} ${say('个模块自报就绪', 'modules ready')}`)
+    ]),
+    el('div', { class: 'detail-metric-card' }, [
+      el('div', { class: 'metric-header' }, [
+        el('span', { class: 'metric-label' }, say('隔离执行等级', 'Isolation Profile')),
+        el('span', { class: 'metric-icon', 'aria-hidden': 'true' }, createIcon('shield'))
+      ]),
+      el('div', { class: 'metric-value-row' }, [
+        pill(status.executionProfile ?? (status.runId ? t('unknown') : say('尚未运行', 'Not run')), status.executionProfile ? 'teal' : '')
+      ]),
+      el('p', { class: 'metric-sub' }, (status.executionProfile ?? '').startsWith('docker-') ? say('Docker 容器隔离', 'Docker isolation')
+        : status.executionProfile === 'trusted-local' ? say('可信本机 · 无 OS 沙箱', 'Trusted local · No OS sandbox')
+        : status.executionProfile === 'linux-existing-user/v1' ? say('已有用户身份分离 · 无 OS 沙箱', 'Existing-user identity separation · No OS sandbox')
+        : say('暂无本次运行的保护记录。', 'No protection record for this run.'))
+    ])
+  ]);
+
+  const observationNotice = el('div', { class: `notice ${isStale(status) ? 'notice-warning' : 'notice-info'} observation-banner` }, [
+    el('div', { class: 'observation-banner-main' }, [
+      el('span', { class: 'observation-banner-title' }, isStale(status) ? t('observationUnknown') : t('currentObservation')),
+      el('span', { class: 'subtle mono' }, `${t('runId')}: ${status.runId ?? '—'} · ${t('observedAt')}: ${date(state.lastRefresh)}`)
+    ]),
+    isStale(status) ? button(t('refresh'), () => refresh({ explicit: true }), 'button button-small button-primary') : null
+  ]);
+
   const headers = ['modules', 'process', 'communication', 'readiness', 'health', 'businessResult'];
-  const table = el('table', {}, [el('thead', {}, el('tr', {}, headers.map(key => el('th', { scope: 'col' }, t(key))))), el('tbody', {}, components.map(c => el('tr', {}, [el('td', {}, [el('div', {}, c.id), el('small', { class: 'subtle' }, c.module)]), el('td', {}, [processBadge(isStale(status) ? null : c.process), el('div', { class: 'subtle mono' }, `PID ${c.pid ?? '—'}`)]), el('td', {}, commBadge(isStale(status) ? null : c.communication)), el('td', {}, readinessBadge(isStale(status) || c.process !== 'running' ? null : c.readiness)), el('td', {}, isStale(status) || c.process !== 'running' ? pill(t('healthUnknown')) : healthBadge(c.health)), el('td', { class: 'subtle' }, t('businessUnknown'))]))) ]);
-  const nodes = [el('div', { class: `notice${isStale(status) ? ' notice-warning' : ''}` }, [el('p', {}, isStale(status) ? t('observationUnknown') : t('currentObservation')), definition([[t('runId'), status.runId], [t('observedAt'), date(state.lastRefresh)]]), isStale(status) ? button(t('refresh'), () => refresh({ explicit: true }), 'button button-small button-quiet') : null]), components.length ? el('div', { class: 'status-table-wrap' }, table) : el('div', { class: 'panel' }, el('p', {}, isStale(status) ? t('unknown') : t('notStarted'))), el('p', { class: 'observation-note' }, t('statusMeaning'))];
-  nodes.push(el('div', { class: 'panel topology-panel' }, [el('div', { class: 'panel-heading' }, [el('h2', {}, t('bridgeOwnership')), button(t('refreshTopology'), () => loadTopology(idOf(instance), true), 'button button-small button-quiet')]), el('div', { id: 'bridge-mapping' }, topologyView(instance)), el('p', { class: 'observation-note' }, t('mappingNotice'))]));
-  return nodes;
+  const table = el('table', { class: 'component-matrix-table' }, [
+    el('thead', {}, el('tr', {}, [
+      el('th', { scope: 'col' }, t('modules')),
+      el('th', { scope: 'col' }, t('process')),
+      el('th', { scope: 'col' }, t('communication')),
+      el('th', { scope: 'col' }, t('readiness')),
+      el('th', { scope: 'col' }, t('health')),
+      el('th', { scope: 'col', class: 'th-actions' }, say('日志直达', 'Logs'))
+    ])),
+    el('tbody', {}, components.map(c => el('tr', { class: 'component-row' }, [
+      el('td', { class: 'td-component-info' }, [
+        el('div', { class: 'component-name-wrap' }, [
+          el('span', { class: 'component-id-badge mono' }, c.id),
+          componentRuntimeKind(instance, c) === 'python' ? el('span', { class: 'runtime-kind-chip badge-python' }, 'Python')
+            : componentRuntimeKind(instance, c) === 'node' ? el('span', { class: 'runtime-kind-chip badge-node' }, 'JS')
+            : el('span', { class: 'runtime-kind-chip' }, t('unknown'))
+        ]),
+        el('div', { class: 'component-module-name subtle' }, c.module)
+      ]),
+      el('td', {}, [
+        processBadge(isStale(status) ? null : c.process),
+        c.pid ? el('div', { class: 'component-pid-pill mono subtle' }, `PID ${c.pid}`) : null
+      ]),
+      el('td', {}, commBadge(isStale(status) ? null : c.communication)),
+      el('td', {}, readinessBadge(isStale(status) || c.process !== 'running' ? null : c.readiness)),
+      el('td', {}, isStale(status) || c.process !== 'running' ? pill(t('healthUnknown')) : healthBadge(c.health)),
+      el('td', { class: 'td-actions' }, [
+        button(say('日志', 'Logs'), () => {
+          state.logSelection = c.id;
+          changeTab('logs');
+        }, 'button button-small button-quiet')
+      ])
+    ])))
+  ]);
+
+  const componentsPanel = el('div', { class: 'panel component-matrix-panel' }, [
+    el('div', { class: 'panel-heading' }, [
+      el('div', { class: 'panel-heading-title' }, [
+        el('div', { class: 'panel-icon', 'aria-hidden': 'true' }, createIcon('task')),
+        el('div', {}, [
+          el('h2', {}, say('模块进程与健康诊断', 'Module Processes & Health')),
+          el('p', { class: 'panel-subhead' }, say('各模块进程运行状态、总线通信与健康探针反馈。', 'Per-module runtime state, bus connectivity and health probes.'))
+        ])
+      ]),
+      components.length ? pill(`${components.length} ${say('个模块', 'modules')}`) : null
+    ]),
+    components.length ? el('div', { class: 'status-table-wrap' }, table) : el('div', { class: 'empty-state-card' }, [
+      el('p', {}, isStale(status) ? t('unknown') : t('notStarted'))
+    ]),
+    el('p', { class: 'observation-note' }, t('statusMeaning'))
+  ]);
+
+  const topologyPanel = el('div', { class: 'panel topology-panel' }, [
+    el('div', { class: 'panel-heading' }, [
+      el('div', { class: 'panel-heading-title' }, [
+        el('div', { class: 'panel-icon', 'aria-hidden': 'true' }, createIcon('hubs')),
+        el('div', {}, [
+          el('h2', {}, t('bridgeOwnership')),
+          el('p', { class: 'panel-subhead' }, say('网桥身份归属与通信路由映射关系。', 'Bridge identity ownership and routing mapping.'))
+        ])
+      ]),
+      button(t('refreshTopology'), () => loadTopology(idOf(instance), true), 'button button-small button-quiet')
+    ]),
+    el('div', { id: 'bridge-mapping' }, topologyView(instance)),
+    el('p', { class: 'observation-note' }, t('mappingNotice'))
+  ]);
+
+  return [metricCards, observationNotice, componentsPanel, topologyPanel];
 }
+
+
+
 function topologyView(instance) {
   const topology = state.topology?.instanceId === idOf(instance) ? state.topology : null;
   if (!topology || topology.runId !== instance.status?.runId) return [el('p', { class: 'field-help' }, t('topologyUnavailable'))];
   const observed = !isStale(instance.status) && !state.topologyUnavailable && topology.observation === 'live' && freshObservation(topology.observedAt);
-  const note = el('p', { class: 'observation-note' }, `${observed ? t('currentObservation') : t('observationUnknown')} · ${t('observedAt')}: ${date(topology.observedAt)}`);
+  const note = el('div', { class: 'observation-banner subtle-banner' }, [
+    el('span', {}, `${observed ? t('currentObservation') : t('observationUnknown')}`),
+    el('span', { class: 'mono' }, `${t('observedAt')}: ${date(topology.observedAt)}`)
+  ]);
   if (!topology.bridges?.length) return [note, el('p', { class: 'field-help' }, t(observed ? 'noBridges' : 'topologyUnavailable'))];
-  return [note, ...topology.bridges.map(bridge => el('div', { class: 'runtime-row' }, [el('div', {}, [el('h3', {}, bridge.bridgeId ?? bridge.declaredId ?? '—'), el('p', {}, `${t('principal')}: ${bridge.principal ?? '—'} · ${t('bridgeSession')}: ${bridge.session ?? '—'}`), bridge.ownership === 'managed' ? el('p', {}, `${bridge.componentId ?? '—'} · ${bridge.moduleId ?? '—'} · PID ${bridge.pid ?? '—'}`) : null]), el('div', {}, [pill(t(!observed ? 'mappingUnknown' : bridge.ownership === 'managed' ? 'managedBridge' : 'externalUnknown'), observed && bridge.ownership === 'managed' ? 'teal' : 'amber'), bridge.ownership === 'managed' ? button(t('logs'), () => { state.logSelection = bridge.componentId; changeTab('logs'); }, 'button button-small button-quiet') : null, observed ? localLink(t('topology'), bridge.managementUrl, 'button button-small button-quiet') : null]) ]))];
+  return [
+    note,
+    el('div', { class: 'bridge-cards-list' }, topology.bridges.map(bridge => {
+      const isManaged = bridge.ownership === 'managed';
+      const actions = [];
+      if (isManaged) {
+        actions.push(button(t('logs'), () => { state.logSelection = bridge.componentId; changeTab('logs'); }, 'button button-small button-quiet'));
+      }
+      if (observed && bridge.managementUrl) {
+        actions.push(localLink(t('topology'), bridge.managementUrl, 'button button-small button-quiet', true));
+      }
+      return el('div', { class: `runtime-row bridge-row-card${isManaged ? ' is-managed' : ''}` }, [
+        el('div', { class: 'bridge-info-main' }, [
+          el('div', { class: 'bridge-title-row' }, [
+            el('h3', { class: 'mono' }, bridge.bridgeId ?? bridge.declaredId ?? '—'),
+            pill(t(!observed ? 'mappingUnknown' : isManaged ? 'managedBridge' : 'externalUnknown'), observed && isManaged ? 'teal' : 'amber')
+          ]),
+          el('div', { class: 'bridge-meta-row subtle' }, [
+            el('span', {}, `${t('principal')}: ${bridge.principal ?? '—'}`),
+            el('span', {}, `${t('bridgeSession')}: ${bridge.session ?? '—'}`)
+          ]),
+          isManaged ? el('div', { class: 'bridge-comp-row mono small' }, [
+            el('span', { class: 'pill pill-subtle' }, bridge.componentId ?? '—'),
+            el('span', { class: 'subtle' }, bridge.moduleId ?? '—'),
+            bridge.pid ? el('span', { class: 'subtle' }, `PID ${bridge.pid}`) : null
+          ].filter(Boolean)) : null
+        ]),
+        el('div', { class: 'bridge-actions-col' }, actions)
+      ]);
+    }))
+  ];
 }
+
 function renderModules(instance) {
   const review = state.reviews.get(idOf(instance))?.review;
   if (!review) return [empty(t('noModuleReview'), t('probeNotice'), button(t('review'), () => reviewInstance(idOf(instance), 'review'), 'button button-primary'))];
-  return [el('div', { class: 'notice notice-warning' }, t('sandboxNotice')), ...(review.modules ?? []).map(module => moduleView(module, review)), el('p', { class: 'observation-note' }, t('sourceSafeText'))];
+
+  const hero = el('div', { class: 'module-security-hero' }, [
+    el('div', { class: 'module-security-icon', 'aria-hidden': 'true' }, createIcon('shield')),
+    el('div', { class: 'module-security-content' }, [
+      el('div', { class: 'eyebrow' }, say('安全基线与隔离边界', 'SECURITY BASELINE & BOUNDARY')),
+      el('h2', {}, say('模块声明与权限审阅', 'Module Declarations & Permission Review')),
+      el('p', {}, t('sandboxNotice')),
+      el('div', { class: 'module-security-badges' }, [
+        pill(instance.status?.executionProfile ?? (instance.status?.runId ? t('unknown') : say('尚未运行', 'Not run')))
+      ])
+    ])
+  ]);
+
+  let orderRow = null;
+  if (review.order?.length) {
+    orderRow = el('div', { class: 'panel module-order-panel' }, [
+      el('h3', {}, t('executionOrder')),
+      el('div', { class: 'review-order' }, review.order.flatMap((id, i) => [
+        i ? el('span', { class: 'order-arrow', 'aria-hidden': 'true' }, '→') : null,
+        el('span', { class: 'order-step-chip mono' }, id)
+      ]).filter(Boolean))
+    ]);
+  }
+
+  const moduleCards = (review.modules ?? []).map(module => moduleView(module, review, true));
+  return [hero, orderRow, ...moduleCards, el('p', { class: 'observation-note' }, t('sourceSafeText'))].filter(Boolean);
 }
+
 function renderLogs(instance) {
   const matching = state.logs?.instanceId === idOf(instance) && state.logs?.runId === instance.status?.runId;
   const logs = matching ? state.logs.logs ?? {} : {};
   const selection = state.logSelection;
-  const select = el('select', { id: 'log-component', 'aria-label': t('modules') }, [el('option', { value: 'all' }, t('allComponents')), ...Object.keys(logs).map(id => el('option', { value: id }, id))]);
+  const select = el('select', { id: 'log-component', 'aria-label': t('modules'), class: 'log-select' }, [
+    el('option', { value: 'all' }, t('allComponents')),
+    ...Object.keys(logs).map(id => el('option', { value: id }, id))
+  ]);
   select.value = Object.hasOwn(logs, selection) || selection === 'all' ? selection : 'all';
   select.addEventListener('change', () => { state.logSelection = select.value; renderDetail(true); });
+
+  let fullLogText = '';
   const panels = [];
   for (const [id, values] of Object.entries(logs)) {
     if (select.value !== 'all' && select.value !== id) continue;
-    for (const stream of ['stdout', 'stderr']) if (values[stream]) panels.push(el('section', { class: `log-panel${stream === 'stderr' ? ' log-stderr' : ''}` }, [el('h3', {}, `${id} / ${t(stream)}${values.truncated ? ` · ${t('truncated')}` : ''}`), el('pre', {}, values[stream])]));
+    for (const stream of ['stdout', 'stderr']) {
+      if (values[stream]) {
+        fullLogText += `[${id} / ${stream}]\n${values[stream]}\n\n`;
+        const isStderr = stream === 'stderr';
+        panels.push(el('div', { class: `terminal-stream-block${isStderr ? ' is-stderr' : ''}` }, [
+          el('div', { class: 'terminal-stream-header' }, [
+            el('span', { class: `terminal-stream-badge ${isStderr ? 'badge-stderr' : 'badge-stdout'}` }, stream.toUpperCase()),
+            el('span', { class: 'terminal-stream-comp mono' }, id),
+            values.truncated ? pill(t('truncated'), 'amber') : null
+          ].filter(Boolean)),
+          el('pre', { class: 'terminal-stream-pre' }, values[stream])
+        ]));
+      }
+    }
   }
-  return [el('div', { class: 'log-toolbar' }, [select, button(t('refreshLogs'), () => loadLogs(idOf(instance), true), 'button button-small button-quiet')]), el('div', { class: 'notice' }, t('privacyNotice')), matching ? el('div', { class: 'notice' }, [el('p', {}, t(instance.status?.stoppedAt ? 'historicalLogs' : 'currentRunLogs')), definition([[t('runId'), state.logs.runId], [t('observedAt'), date(state.logs.observedAt)]])]) : null, ...(panels.length ? panels : [el('div', { class: 'panel' }, el('p', {}, t('noLogs')))])];
+
+  const copyBtn = button(say('复制当前日志', 'Copy Logs'), async () => {
+    if (!fullLogText.trim()) {
+      toast(t('noLogs'));
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(fullLogText);
+      toast(t('copied'));
+    } catch {
+      toast(t('copyUnavailable'));
+    }
+  }, 'button button-small button-quiet');
+  copyBtn.prepend(createIcon('copy', 'button-icon'));
+
+  const refreshBtn = button(t('refreshLogs'), () => loadLogs(idOf(instance), true), 'button button-small button-quiet');
+  refreshBtn.prepend(createIcon('refresh', 'button-icon'));
+
+  const toolbar = el('div', { class: 'terminal-toolbar' }, [
+    el('div', { class: 'terminal-toolbar-left' }, [
+      el('label', { class: 'log-select-label' }, [
+        el('span', { class: 'log-select-icon', 'aria-hidden': 'true' }, createIcon('task')),
+        select
+      ]),
+      matching ? el('span', { class: 'terminal-run-chip mono' }, `Run: ${state.logs?.runId?.slice(0, 16) ?? '—'}`) : null
+    ].filter(Boolean)),
+    el('div', { class: 'terminal-toolbar-right' }, [
+      copyBtn,
+      refreshBtn
+    ])
+  ]);
+
+  const windowBar = el('div', { class: 'terminal-window-header' }, [
+    el('div', { class: 'terminal-dots' }, [
+      el('span', { class: 'dot dot-red' }),
+      el('span', { class: 'dot dot-yellow' }),
+      el('span', { class: 'dot dot-green' })
+    ]),
+    el('div', { class: 'terminal-window-title mono' }, `logs://${idOf(instance)}/${select.value} · ${matching ? date(state.logs.observedAt) : 'inactive'}`)
+  ]);
+
+  const terminalContent = panels.length
+    ? el('div', { class: 'terminal-body' }, panels)
+    : el('div', { class: 'terminal-empty' }, [
+        el('div', { class: 'terminal-empty-prompt mono' }, '$ world-hub instance logs --stream'),
+        el('p', { class: 'terminal-empty-text subtle' }, t('noLogs'))
+      ]);
+
+  const consoleWindow = el('div', { class: 'terminal-window' }, [
+    windowBar,
+    terminalContent
+  ]);
+
+  const privacyNotice = el('div', { class: 'notice notice-info' }, t('privacyNotice'));
+
+  return [toolbar, privacyNotice, consoleWindow];
 }
+
 function renderDetails(instance) {
   const status = instance.status ?? {};
-  return [el('div', { class: 'panel' }, [el('h2', {}, t('instanceDetails')), definition([[t('instanceId'), idOf(instance)], [t('importedAt'), date(instance.importedAt)], [t('instanceDirectory'), instance.directory], [t('runId'), status.runId], [t('observedAt'), date(status.components?.[0]?.communicationObservedAt)], [t('stoppedAt'), date(status.stoppedAt)], [t('boundEnvironment'), instance.environment]]), el('p', { class: 'observation-note' }, t('isolationNotice'))])];
+  const id = idOf(instance);
+  const hubUrl = status.links?.hub ?? status.hub?.url ?? instance.hubUrl;
+  const isRunning = running(instance);
+  const observed = observationLive() && status.observedAt;
+
+  const cardIdentity = el('div', { class: 'panel spec-card' }, [
+    el('div', { class: 'panel-heading' }, [
+      el('div', { class: 'panel-heading-title' }, [
+        el('div', { class: 'panel-icon', 'aria-hidden': 'true' }, createIcon('file')),
+        el('div', {}, [
+          el('h2', {}, say('实例标识与本地路径', 'Instance Identity & Paths')),
+          el('p', { class: 'panel-subhead' }, say('本实例在磁盘上的独立目录结构与版本标识。', 'Independent disk directory structure and version metadata.'))
+        ])
+      ])
+    ]),
+    definition([
+      [t('instanceId'), el('span', { class: 'mono bold' }, id)],
+      [say('整合包 ID', 'Pack ID'), el('span', { class: 'mono' }, instance.pack?.id ?? id)],
+      [say('整合包标题', 'Pack Title'), instance.pack?.title ?? '—'],
+      [say('版本号', 'Version'), `v${instance.pack?.version ?? '—'}`],
+      [t('importedAt'), date(instance.importedAt)],
+      [t('instanceDirectory'), el('span', { class: 'mono' }, instance.directory ?? '—')]
+    ])
+  ]);
+
+  const cardExecution = el('div', { class: 'panel spec-card' }, [
+    el('div', { class: 'panel-heading' }, [
+      el('div', { class: 'panel-heading-title' }, [
+        el('div', { class: 'panel-icon', 'aria-hidden': 'true' }, createIcon('shield')),
+        el('div', {}, [
+          el('h2', {}, say('执行模式与解释器绑定', 'Execution Profile & Interpreters')),
+          el('p', { class: 'panel-subhead' }, say('运行环境隔离模式、保护参数以及解释器探针。', 'Isolation profile, protection parameters and interpreter probes.'))
+        ])
+      ])
+    ]),
+    definition([
+      [say('该次运行的执行模式', 'Execution profile for this run'), status.executionProfile ?? t('unknown')],
+      [say('该次运行的保护参数', 'Protection parameters for this run'), status.isolation ?? t('unknown')],
+      [t('boundEnvironment'), instance.environment ? el('span', { class: 'mono' }, typeof instance.environment === 'object' ? JSON.stringify(instance.environment) : String(instance.environment)) : t('unknown')]
+    ])
+  ]);
+
+  const cardLifecycle = el('div', { class: 'panel spec-card' }, [
+    el('div', { class: 'panel-heading' }, [
+      el('div', { class: 'panel-heading-title' }, [
+        el('div', { class: 'panel-icon', 'aria-hidden': 'true' }, createIcon('clock')),
+        el('div', {}, [
+          el('h2', {}, say('运行生命周期与观察时间戳', 'Runtime Lifecycle & Observation')),
+          el('p', { class: 'panel-subhead' }, say('进程生命周期标记与最近一次通信检测记录。', 'Lifecycle markers and the latest communication observation.'))
+        ])
+      ])
+    ]),
+    definition([
+      [t('runId'), el('span', { class: 'mono' }, status.runId ?? t('notStarted'))],
+      [t('observedAt'), date(status.components?.[0]?.communicationObservedAt ?? status.observedAt)],
+      [t('stoppedAt'), date(status.stoppedAt)]
+    ])
+  ]);
+
+  const hubVal = hubUrl
+    ? el('div', { class: 'comm-val-inline' }, [
+        el('code', { class: 'mono comm-endpoint-code' }, hubUrl),
+        button(say('复制', 'Copy'), async () => {
+          try {
+            await navigator.clipboard.writeText(hubUrl);
+            toast(t('copied'));
+          } catch {
+            toast(t('copyUnavailable'));
+          }
+        }, 'button button-small button-quiet')
+      ])
+    : el('span', { class: 'subtle mono' }, t('hubWaiting'));
+
+  const commActions = [];
+  if (instance.links?.workbenchUrl && isRunning) {
+    const wbLink = localLink(t('openWorkbenchTarget'), instance.links.workbenchUrl, 'button button-small button-primary', true);
+    if (wbLink) {
+      wbLink.prepend(createIcon('workbench', 'button-icon'));
+      commActions.push(wbLink);
+    }
+  }
+  if (instance.links?.managementUrl && isRunning) {
+    const topoLink = localLink(t('topology'), instance.links.managementUrl, 'button button-small button-quiet', true);
+    if (topoLink) {
+      topoLink.prepend(createIcon('hubs', 'button-icon'));
+      commActions.push(topoLink);
+    }
+  }
+
+  const cardComm = el('div', { class: 'panel spec-card' }, [
+    el('div', { class: 'panel-heading' }, [
+      el('div', { class: 'panel-heading-title' }, [
+        el('div', { class: 'panel-icon', 'aria-hidden': 'true' }, createIcon('workbench')),
+        el('div', {}, [
+          el('h2', {}, say('通信端点与调试工作台', 'Communication Endpoints & Workbench')),
+          el('p', { class: 'panel-subhead' }, say('实例独立的 WebSocket 通信总线与工作台调试通道。', 'Instance-isolated WebSocket bus and workbench debugging channel.'))
+        ])
+      ]),
+      pill(t(observed && isRunning ? 'running' : isRunning ? 'running' : 'stopped'), isRunning ? 'teal' : '')
+    ]),
+    definition([
+      [say('WebSocket 调试端点', 'WebSocket Endpoint'), hubVal],
+      [say('通信工作台地址', 'Workbench URL'), instance.links?.workbenchUrl ? localLink(instance.links.workbenchUrl, instance.links.workbenchUrl, 'text-link mono', true) : el('span', { class: 'subtle' }, t('unknown'))],
+      [say('拓扑管理端点', 'Topology URL'), instance.links?.managementUrl ? localLink(instance.links.managementUrl, instance.links.managementUrl, 'text-link mono', true) : el('span', { class: 'subtle' }, t('unknown'))],
+      [say('观察时间', 'Observed At'), el('span', { class: 'mono' }, date(state.hubsObservedAt ?? status.observedAt ?? state.lastRefresh))]
+    ]),
+    commActions.length ? el('div', { class: 'spec-card-actions' }, commActions) : null
+  ].filter(Boolean));
+
+  const advisory = el('div', { class: 'notice notice-warning' }, [
+    el('p', {}, t('isolationNotice'))
+  ]);
+
+  return [
+    el('div', { class: 'instance-spec-grid' }, [cardIdentity, cardExecution, cardLifecycle, cardComm]),
+    advisory
+  ];
 }
+function focusedButton(root) { const active = document.activeElement; if (!root.contains(active) || !['BUTTON', 'A'].includes(active.tagName)) return null; return { tag: active.tagName, text: active.textContent, href: active.getAttribute('href') }; }
+function restoreButton(root, focus) { if (focus) [...root.querySelectorAll('button,a')].find(node => node.tagName === focus.tag && node.textContent === focus.text && node.getAttribute('href') === focus.href)?.focus({ preventScroll: true }); }
 function renderDetail(force = false) {
   if (state.view !== 'detail') return;
   const instance = current();
   if (!instance) { navigate('packs'); return; }
   const headingStamp = JSON.stringify([instance.pack, instance.links, instance.status?.state, instance.status?.observation, instance.status?.cleanupIncomplete, instance.status?.stoppedAt, instance.status?.failure, isStale(instance.status), state.language, state.operations.get(state.selected)]);
-  if (force || headingStamp !== state.headingStamp) { renderDetailHeading(instance); state.headingStamp = headingStamp; }
+  if (force || headingStamp !== state.headingStamp) { const focus = focusedButton($('#detail-actions')); renderDetailHeading(instance); restoreButton($('#detail-actions'), focus); state.headingStamp = headingStamp; }
   const content = state.tab === 'status'
     ? [instance.status?.components?.map(c => [c.id, c.module, c.pid, c.process, c.communication, c.readiness, Boolean(c.health?.lastCheckedAt), c.health?.ready]), instance.status?.runId, instance.status?.observation, state.topology]
-    : state.tab === 'logs' ? state.logs : state.tab === 'modules' ? state.reviews.get(state.selected)?.reviewId : instance;
+    : state.tab === 'logs' ? state.logs : state.tab === 'modules' ? state.reviews.get(state.selected)?.reviewId
+    : state.tab === 'storage' ? [instance.pack, instance.detached, instance.stagedFrom, instance.environment, instance.status?.state, instance.status?.runId, instance.status?.stoppedAt, instance.status?.cleanupIncomplete, operationFor(instance)]
+    : [instance.pack, instance.directory, instance.importedAt, instance.environment, instance.status?.runId, instance.status?.stoppedAt, instance.status?.executionProfile, instance.status?.isolation];
   const stamp = JSON.stringify([state.selected, content, state.tab, state.language, isStale(instance.status), state.topologyUnavailable]);
   if (!force && stamp === state.detailStamp) return;
   state.detailStamp = stamp;
+  const saved = advanced?.preserve($('#detail-content'));
   const children = state.tab === 'status' ? renderStatus(instance) : state.tab === 'modules' ? renderModules(instance) : state.tab === 'logs' ? renderLogs(instance) : state.tab === 'storage' ? advanced.renderStorage(instance) : renderDetails(instance);
   $('#detail-content').replaceChildren(...children);
+  if (saved) advanced.reinstate($('#detail-content'), saved);
 }
 function renderAll(force = false) {
-  const stamp = JSON.stringify([state.instances.map(i => [idOf(i), i.pack, i.status?.state, i.status?.observation, i.status?.cleanupIncomplete, i.status?.components?.map(c => [c.id, c.communication]), state.reviews.get(idOf(i))?.reviewId]), state.hubs, [...state.operations.entries()], state.language, observationLive(), state.hubsUnavailable, freshObservation(state.hubsObservedAt)]);
-  if (force || stamp !== state.renderStamp) { renderStats(); renderPacks(); renderOverview(); renderHubs(); state.renderStamp = stamp; }
+  const stamp = JSON.stringify([state.instances.map(i => [idOf(i), i.pack, i.moduleCount, i.status?.state, i.status?.observation, i.status?.cleanupIncomplete, i.status?.components?.map(c => [c.id, c.communication]), state.reviews.get(idOf(i))?.reviewId]), state.hubs, [...state.operations.entries()], state.language, observationLive(), state.hubsUnavailable, freshObservation(state.hubsObservedAt)]);
+  if (force || stamp !== state.renderStamp) { const root = $(`#view-${state.view}`), focus = root && focusedButton(root); renderStats(); renderPacks(); renderOverview(); renderHubs(); if (root) restoreButton(root, focus); state.renderStamp = stamp; }
   renderDetail(force);
 }
 
+function recordRoute() {
+  if (restoringHistory) return;
+  const url = `${location.pathname}${state.view === 'detail' ? `?instance=${encodeURIComponent(state.selected)}` : ''}#${state.view === 'detail' ? state.tab : state.view}`;
+  if (url === `${location.pathname}${location.search}${location.hash}` && historyReady) return;
+  history[historyReady ? 'pushState' : 'replaceState']({ view: state.view, instance: state.selected, tab: state.tab }, '', url);
+  historyReady = true;
+}
+function closeMenu() { $('.sidebar').dataset.menuOpen = 'false'; $('#sidebar-menu-toggle').setAttribute('aria-expanded', 'false'); $('#sidebar-menu-toggle').setAttribute('aria-label', t('menuOpen')); }
+function focusPage() { window.scrollTo(0, 0); const target = $(`#view-${state.view} h1`) ?? $(`#view-${state.view} h2`) ?? $('#main'); target?.setAttribute('tabindex', '-1'); target?.focus({ preventScroll: true }); }
 function navigate(view, updateHash = true) {
+  if (['overview', 'workbench', 'hubs'].includes(view)) view = 'packs';
   state.view = view;
   for (const section of document.querySelectorAll('.view')) section.hidden = section.id !== `view-${view}`;
-  for (const item of document.querySelectorAll('[data-view]')) { const selected = item.dataset.view === (view === 'detail' ? 'packs' : view); item.classList.toggle('active', selected); if (selected) item.setAttribute('aria-current', 'page'); else item.removeAttribute('aria-current'); }
-  $('#breadcrumb').textContent = view === 'detail' ? currentTitle(state.selected) : ['sources', 'creator'].includes(view) ? advanced.label(view) : t({ packs: 'myPacks', overview: 'overview', hubs: 'hubs', workbench: 'workbench', environment: 'environment' }[view]);
-  if (updateHash) history.replaceState(null, '', `${location.pathname}${view === 'detail' ? `?instance=${encodeURIComponent(state.selected)}` : ''}#${view === 'detail' ? state.tab : view}`);
+  const myViews = ['packs', 'modules', 'templates', 'detail'];
+  for (const item of document.querySelectorAll('[data-view]')) { const selected = item.dataset.view === (myViews.includes(view) ? 'packs' : view); item.classList.toggle('active', selected); if (selected) item.setAttribute('aria-current', 'page'); else item.removeAttribute('aria-current'); }
+  $('#breadcrumb').textContent = view === 'detail' ? currentTitle(state.selected) : ['sources', 'creator', 'modules', 'templates'].includes(view) ? advanced.label(view) : t({ packs: 'myPacks', environment: 'environment' }[view] ?? 'myPacks');
+  if (updateHash) recordRoute();
+  closeMenu();
   if (view === 'environment') renderEnvironment();
   advanced?.navigate(view);
   renderAll(true);
+  if (['packs', 'modules', 'templates'].includes(view)) advanced?.renderAssetTabs?.(view);
+  if (updateHash) focusPage();
+}
+async function restoreHistory() {
+  if (restoringHistory || !state.auth?.token) return;
+  restoringHistory = true;
+  try {
+    const id = new URLSearchParams(location.search).get('instance'), hash = location.hash.slice(1);
+    if (id && state.instances.some(i => idOf(i) === id)) await selectInstance(id, ['status', 'modules', 'logs', 'storage', 'details'].includes(hash) ? hash : 'status');
+    else navigate(['packs', 'environment', 'sources', 'creator', 'modules', 'templates'].includes(hash) ? hash : 'packs', false);
+    focusPage();
+  } finally { restoringHistory = false; }
 }
 async function selectInstance(id, tab = 'status', componentId = null) {
   state.selected = id; state.topology = null; state.topologyUnavailable = false; state.logs = null; state.logsRequest++; state.detailStamp = ''; state.headingStamp = ''; state.topologyStamp = '';
@@ -313,7 +1218,7 @@ function changeTab(tab, updateHash = true) {
   $('#detail-content').setAttribute('aria-labelledby', `tab-${tab}`);
   for (const button of document.querySelectorAll('[data-tab]')) { const selected = button.dataset.tab === tab; button.setAttribute('aria-selected', String(selected)); button.tabIndex = selected ? 0 : -1; }
   renderDetail(true);
-  if (updateHash) { history.replaceState(null, '', `${location.pathname}?instance=${encodeURIComponent(state.selected)}#${tab}`); if (tab === 'logs') void loadLogs(state.selected, true); if (tab === 'status') void loadTopology(state.selected, true); }
+  if (updateHash) { recordRoute(); if (tab === 'logs') void loadLogs(state.selected, true); if (tab === 'status') void loadTopology(state.selected, true); }
   if (tab === 'storage') advanced?.loadStorage(state.selected);
 }
 function invalidateChangedRun(instance) {
@@ -325,6 +1230,11 @@ function invalidateChangedRun(instance) {
 function replaceInstance(instance) { invalidateChangedRun(instance); const id = idOf(instance), index = state.instances.findIndex(i => idOf(i) === id); if (index === -1) state.instances.push(instance); else state.instances[index] = instance; }
 
 async function refresh({ explicit = false } = {}) {
+  const refreshBtn = $('#refresh');
+  if (explicit && refreshBtn) {
+    refreshBtn.classList.add('is-spinning');
+    setTimeout(() => refreshBtn.classList.remove('is-spinning'), 600);
+  }
   if (state.loading || !state.auth?.token) return;
   state.loading = true;
   try {
@@ -333,13 +1243,13 @@ async function refresh({ explicit = false } = {}) {
     const instances = results[0].value.instances ?? []; instances.forEach(invalidateChangedRun); state.instances = instances;
     if (results[1].status === 'fulfilled') { state.hubs = results[1].value.hubs ?? []; state.hubsObservedAt = new Date().toISOString(); state.hubsUnavailable = false; }
     else { state.hubsUnavailable = true; if (explicit) toast(results[1].reason.message); }
-    state.online = true; state.lastRefresh = new Date().toISOString(); showNotice('#connection-notice', state.returnNotice, state.returnNotice ? 'warning' : ''); renderAll(explicit);
+    state.online = true; state.lastRefresh = new Date().toISOString(); showNotice('#connection-notice', state.returnNotice, state.returnNotice ? 'warning' : ''); renderAll(explicit); void tasks?.check?.();
     if (state.view === 'detail' && state.tab === 'status') {
       const instance = current(), topologyStamp = JSON.stringify([instance?.status?.runId, instance?.status?.components?.map(c => c.bridges)]);
       if (topologyStamp !== state.topologyStamp && !state.topologyLoading) { state.topologyStamp = topologyStamp; void loadTopology(state.selected); }
     }
   } catch (error) { state.online = false; state.topologyUnavailable = true; showNotice('#connection-notice', `${t('observationUnknown')} ${error.message}`); renderAll(true); }
-  finally { state.loading = false; $('#connection-state').textContent = t(state.online ? 'online' : 'offline'); }
+  finally { state.loading = false; updateConnectionState(); }
 }
 async function loadTopology(id, explicit = false) {
   const instance = current(); if (!id || !instance?.status?.runId || !running(instance)) return;
@@ -360,7 +1270,33 @@ async function loadLogs(id, explicit = false) {
   catch (error) { if (explicit) toast(error.message); }
 }
 
-function openImport() {
+function importIdentity() {
+  const original = $('#import-form').elements.instanceId;
+  let section = $('#import-identity-review');
+  if (!section) {
+    const input = el('input', { name: 'reviewInstanceId', required: true, pattern: '[a-z0-9][a-z0-9._\\-]{0,63}', maxlength: '64', autocomplete: 'off', spellcheck: 'false' });
+    section = el('label', { id: 'import-identity-review', hidden: true }, [el('span', { class: 'identity-review-label' }, t('instanceId')), input]);
+    $('#import-review').before(section);
+    input.addEventListener('input', () => { original.value = input.value; validateIdentity(); });
+  }
+  section.querySelector('input').value = original.value; section.querySelector('span').textContent = t('instanceId');
+  original.disabled = Boolean(state.importReview);
+  return section;
+}
+function validateIdentity() {
+  const input = $('#import-form').elements.instanceId, id = input.value.trim(), exists = state.instances.some(i => idOf(i) === id);
+  let note = $('#import-id-hint');
+  if (!note) { note = el('p', { id: 'import-id-hint', class: 'field-help', role: 'status' }); $('#import-error').before(note); }
+  note.textContent = exists ? say('该实例 ID 已存在。换个 ID 后可继续，已完成的来源审阅可保留。', 'This instance ID already exists. Choose another ID to continue; a completed source review can be kept.') : '';
+  input.setAttribute('aria-invalid', String(exists)); $('#import-identity-review')?.querySelector('input').setAttribute('aria-invalid', String(exists));
+  return !exists;
+}
+function suggestIdentity() {
+  const form = $('#import-form'), base = (form.elements.directory.value.split(/[/\\]/).filter(Boolean).at(-1) ?? 'pack').toLowerCase().replace(/[^a-z0-9._-]/g, '-').replace(/^[^a-z0-9]+/, '').slice(0, 50) || 'pack';
+  let id = base, count = 1; while (state.instances.some(i => idOf(i) === id)) id = `${base}-${++count}`;
+  form.elements.instanceId.value = id; return id;
+}
+function openImport(selectedDirectory) {
   state.importRequest++;
   state.importReview = null;
   $('#import-review').hidden = true; $('#import-fields').hidden = false; $('#import-error').hidden = true; $('#import-back').hidden = true;
@@ -368,7 +1304,10 @@ function openImport() {
   $('#step-select').classList.add('active'); $('#step-review').classList.remove('active'); $('#step-create').classList.remove('active');
   for (const kind of ['nodePath', 'pythonPath']) $('#import-form').elements[kind].value = state.environmentSelection[kind] ?? state.session?.defaults?.[kind] ?? '';
   const directory = state.session?.defaults?.packDirectory;
+  if (typeof selectedDirectory === 'string') $('#import-form').elements.directory.value = selectedDirectory;
   if (directory && !$('#import-form').elements.directory.value) $('#import-form').elements.directory.value = directory;
+  if (!$('#import-form').elements.instanceId.value || state.instances.some(i => idOf(i) === $('#import-form').elements.instanceId.value.trim())) suggestIdentity();
+  importIdentity().hidden = true; validateIdentity();
   $('#import-dialog').showModal();
 }
 function environmentOptions(form) { return Object.fromEntries(['nodePath', 'pythonPath'].map(key => [key, form.elements[key]?.value.trim()]).filter(([, value]) => value)); }
@@ -385,19 +1324,21 @@ async function importSubmit(event) {
   const request = state.importRequest;
   $('#import-error').hidden = true; submit.disabled = true;
   try {
-    if (reviewExpired(state.importReview)) { state.importReview = null; $('#import-review').hidden = true; $('#import-fields').hidden = false; $('#import-back').hidden = true; throw new Error(t('reviewExpired')); }
+    if (!validateIdentity()) { const active = state.importReview ? $('#import-identity-review input') : form.elements.instanceId; active.focus(); throw new Error(say('请先选择未使用的实例 ID。', 'Choose an unused instance ID first.')); }
+    if (reviewExpired(state.importReview)) { state.importReview = null; $('#import-review').hidden = true; $('#import-fields').hidden = false; $('#import-back').hidden = true; importIdentity().hidden = true; throw new Error(t('reviewExpired')); }
     if (!state.importReview) {
       submit.textContent = t('checking');
       const data = await api('/api/review', { directory: form.elements.directory.value.trim(), ...environmentOptions(form), ...(state.isolationSelection ? { isolation: state.isolationSelection } : {}) });
       if (request !== state.importRequest || !$('#import-dialog').open) return;
       state.importReview = data; $('#import-review').replaceChildren(...reviewView(data, 'import')); $('#import-review').hidden = false; $('#import-fields').hidden = true; $('#import-back').hidden = false;
+      importIdentity().hidden = false;
       $('#step-review').classList.add('active'); $('#step-create').classList.add('active'); submit.textContent = t('confirmImport');
     } else {
       submit.textContent = t('importing');
       const data = await api('/api/instances', { reviewId: state.importReview.reviewId, instanceId: form.elements.instanceId.value.trim() });
-      const id = idOf(data.instance); state.reviews.set(id, state.importReview); replaceInstance(data.instance); $('#import-dialog').close(); state.importReview = null; renderAll(true); toast(t('importedSuccess', { id })); await selectInstance(id);
+      const id = idOf(data.instance); state.reviews.set(id, state.importReview); replaceInstance(data.instance); $('#import-dialog').close(); state.importReview = null; renderAll(true); void tasks?.check(); toast(t('importedSuccess', { id })); await selectInstance(id);
     }
-  } catch (error) { if (request === state.importRequest) { if (['REVIEW_REQUIRED', 'REVIEW_CHANGED'].includes(error.code)) { state.importReview = null; $('#import-review').hidden = true; $('#import-fields').hidden = false; $('#import-back').hidden = true; } renderError('#import-error', error); } }
+  } catch (error) { if (request === state.importRequest) { if (['REVIEW_REQUIRED', 'REVIEW_CHANGED'].includes(error.code)) { state.importReview = null; $('#import-review').hidden = true; $('#import-fields').hidden = false; $('#import-back').hidden = true; importIdentity().hidden = true; } if (error.code === 'INSTANCE_EXISTS') validateIdentity(); renderError('#import-error', error); } }
   finally { if (request === state.importRequest) { submit.disabled = false; submit.textContent = t(state.importReview ? 'confirmImport' : 'checkPackage'); } }
 }
 async function reviewInstance(id, kind) {
@@ -447,7 +1388,7 @@ async function followOperation(operationId, instanceId, kind) {
       if (operation.state === 'running') { await refresh(); setTimeout(poll, 1000); return; }
       if (state.operations.get(instanceId)?.operationId === operationId) state.operations.delete(instanceId);
       if (operation.state === 'failed') operationError(Object.assign(new Error(operation.error?.message ?? t('operationFailed')), operation.error ?? {}));
-      else if (kind === 'export') toast(t('exportedSuccess', { destination: operation.result?.destination ?? state.exportDestination ?? '—' }));
+      else if (kind === 'export') { toast(t('exportedSuccess', { destination: operation.result?.destination ?? state.exportDestination ?? '—' })); void tasks?.open(); }
       else if (instanceId === 'hub:default') toast(t(kind === 'start' ? 'defaultHubStarted' : 'defaultHubStopped'));
       await refresh({ explicit: true });
       if (state.selected === instanceId) { if (state.tab === 'logs') await loadLogs(instanceId); if (state.tab === 'status') await loadTopology(instanceId); }
@@ -466,38 +1407,154 @@ async function exportSubmit(event) {
 async function detectEnvironment(event) {
   event?.preventDefault(); const form = $('#environment-form'), submit = form.querySelector('[type=submit]'); submit.disabled = true;
   const selection = environmentOptions(form);
-  try { state.environment = await api('/api/environment', selection); state.environmentSelection = selection; renderEnvironment(); toast(t('detected')); }
+  try {
+    state.environment = await api('/api/environment', selection);
+    state.environmentSelection = selection;
+    renderEnvironment();
+    advanced?.renderEnvironmentTools?.();
+    toast(t('detected'));
+  }
   catch (error) { $('#environment-results').replaceChildren(el('div', { class: 'notice notice-error' }, errorContents(error))); }
   finally { submit.disabled = false; }
 }
 
 function languageChanged() {
   applyLanguage(state.language); $('#language').value = state.language;
-  for (const item of document.querySelectorAll('[data-view]')) item.setAttribute('aria-label', ['creator', 'sources'].includes(item.dataset.view) ? advanced.label(item.dataset.view) : t({packs:'myPacks',overview:'overview',hubs:'hubs',workbench:'workbench',environment:'environment'}[item.dataset.view]));
+  for (const item of document.querySelectorAll('[data-view]')) item.setAttribute('aria-label', ['creator', 'sources'].includes(item.dataset.view) ? advanced.label(item.dataset.view) : t({packs:'my',overview:'overview',hubs:'hubs',workbench:'workbench',environment:'environment'}[item.dataset.view]));
   $('#theme').title = t('toggleTheme'); $('#theme').setAttribute('aria-label', t('toggleTheme')); $('#navigation').setAttribute('aria-label', t('useNavigation')); $('#creator-navigation').setAttribute('aria-label', t('createNavigation')); $('#system-navigation').setAttribute('aria-label', t('systemNavigation')); $('#search').setAttribute('aria-label', t('searchInstances'));
-  for (const close of document.querySelectorAll('.close-dialog')) close.setAttribute('aria-label', t('close'));
-  $('#connection-state').textContent = t(state.online ? 'online' : 'offline');
+  for (const close of document.querySelectorAll('.close-dialog.icon-button')) close.setAttribute('aria-label', t('close'));
+  updateConnectionState();
   renderAll(true); renderEnvironment();
   if (state.importReview) { $('#import-review').replaceChildren(...reviewView(state.importReview, 'import')); $('#import-submit').textContent = t('confirmImport'); }
   if (state.trustReview) { $('#trust-review').replaceChildren(...reviewView(state.trustReview)); $('#trust-submit').textContent = t(state.trustKind === 'restart' ? 'trustAndRestart' : 'trustAndStart'); }
   advanced?.languageChanged();
-  $('#breadcrumb').textContent = state.view === 'detail' ? currentTitle(state.selected) : ['sources', 'creator'].includes(state.view) ? advanced.label(state.view) : t({ packs: 'myPacks', overview: 'overview', hubs: 'hubs', workbench: 'workbench', environment: 'environment' }[state.view]);
+  paths?.languageChanged(); tasks?.languageChanged(); importIdentity(); validateIdentity();
+  const menu = $('#sidebar-menu-toggle'); menu.setAttribute('aria-label', t(menu.getAttribute('aria-expanded') === 'true' ? 'menuClose' : 'menuOpen'));
+  const refreshBtn = $('#refresh'); if (refreshBtn) { refreshBtn.title = t('refresh'); refreshBtn.setAttribute('aria-label', t('refresh')); }
+  $('#breadcrumb').textContent = state.view === 'detail' ? currentTitle(state.selected) : ['sources', 'creator', 'modules', 'templates'].includes(state.view) ? advanced.label(state.view) : t({ packs: 'myPacks', environment: 'environment' }[state.view] ?? 'myPacks');
+  updateNavAndThemeIcons();
+}
+function updateNavAndThemeIcons() {
+  const refreshBtn = $('#refresh');
+  if (refreshBtn && !refreshBtn.querySelector('svg')) refreshBtn.replaceChildren(createIcon('refresh'));
+  const navIcons = { packs: 'packs', modules: 'modules', templates: 'templates', overview: 'overview', hubs: 'hubs', workbench: 'workbench', sources: 'sources', creator: 'creator', environment: 'environment' };
+  for (const item of document.querySelectorAll('.nav-item[data-view]')) {
+    const iconSpan = item.querySelector('.nav-icon');
+    const iconName = navIcons[item.dataset.view];
+    if (iconSpan && iconName && !iconSpan.querySelector('svg')) iconSpan.replaceChildren(createIcon(iconName));
+  }
+  const isLight = document.documentElement.dataset.theme === 'light';
+  const themeBtn = $('#theme');
+  if (themeBtn) themeBtn.replaceChildren(createIcon(isLight ? 'themeDark' : 'themeLight'));
+  for (const closeBtn of document.querySelectorAll('.close-dialog.icon-button')) {
+    if (!closeBtn.querySelector('svg')) closeBtn.replaceChildren(createIcon('close'));
+  }
+  const backBtn = $('#back-to-packs');
+  if (backBtn && !backBtn.querySelector('svg')) {
+    const arrow = backBtn.querySelector('span[aria-hidden=true]');
+    if (arrow) arrow.replaceChildren(createIcon('arrowLeft'));
+  }
+  const searchField = $('.search-field');
+  if (searchField && !searchField.querySelector('svg')) {
+    const searchIcon = searchField.querySelector('span[aria-hidden=true]');
+    if (searchIcon) searchIcon.replaceChildren(createIcon('search'));
+  }
+  const importBtn = document.querySelector('[data-action=import]');
+  if (importBtn && !importBtn.querySelector('svg')) {
+    const plusIcon = importBtn.querySelector('span[aria-hidden=true]');
+    if (plusIcon) plusIcon.replaceChildren(createIcon('plus'));
+  }
+  const detailTabIcons = {
+    'tab-status': 'sparkle',
+    'tab-modules': 'shield',
+    'tab-logs': 'workbench',
+    'tab-storage': 'database',
+    'tab-details': 'inspect'
+  };
+  for (const [id, iconName] of Object.entries(detailTabIcons)) {
+    const tabBtn = $(`#${id}`);
+    const iconSpan = tabBtn?.querySelector('.tab-icon');
+    if (iconSpan && !iconSpan.querySelector('svg')) {
+      iconSpan.replaceChildren(createIcon(iconName));
+    }
+  }
 }
 function initializeEvents() {
+  document.addEventListener('keydown', handleTabKeydown);
+  $('#sidebar-menu-toggle').addEventListener('click', () => { const open = $('#sidebar-menu-toggle').getAttribute('aria-expanded') !== 'true'; $('.sidebar').dataset.menuOpen = String(open); $('#sidebar-menu-toggle').setAttribute('aria-expanded', String(open)); $('#sidebar-menu-toggle').setAttribute('aria-label', t(open ? 'menuClose' : 'menuOpen')); });
+  window.addEventListener('popstate', () => void restoreHistory());
   for (const item of document.querySelectorAll('[data-view]')) item.addEventListener('click', () => navigate(item.dataset.view));
   for (const item of document.querySelectorAll('[data-action=import]')) item.addEventListener('click', openImport);
+
+  const importDropdownTrigger = $('#import-dropdown-trigger');
+  const importDropdownMenu = $('#import-dropdown-menu');
+  if (importDropdownTrigger && importDropdownMenu) {
+    importDropdownTrigger.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const isHidden = importDropdownMenu.hidden;
+      importDropdownMenu.hidden = !isHidden;
+      importDropdownTrigger.setAttribute('aria-expanded', String(isHidden));
+    });
+    $('#action-import-new')?.addEventListener('click', () => {
+      importDropdownMenu.hidden = true;
+      importDropdownTrigger.setAttribute('aria-expanded', 'false');
+      openImport();
+    });
+    $('#restore-entry')?.addEventListener('click', () => {
+      importDropdownMenu.hidden = true;
+      importDropdownTrigger.setAttribute('aria-expanded', 'false');
+      advanced?.openRestore?.();
+    });
+    document.addEventListener('click', (event) => {
+      if (!event.target?.closest?.('#import-dropdown-wrap')) {
+        if (!importDropdownMenu.hidden) {
+          importDropdownMenu.hidden = true;
+          importDropdownTrigger.setAttribute('aria-expanded', 'false');
+        }
+      }
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !importDropdownMenu.hidden) {
+        importDropdownMenu.hidden = true;
+        importDropdownTrigger.setAttribute('aria-expanded', 'false');
+        importDropdownTrigger.focus();
+      }
+    });
+  }
+  $('#packs-workshop-btn')?.addEventListener('click', () => navigate('sources'));
+
   for (const item of document.querySelectorAll('[data-tab]')) item.addEventListener('click', () => changeTab(item.dataset.tab));
   $('.detail-tabs').addEventListener('keydown', event => { if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; const tabs = [...document.querySelectorAll('[data-tab]')], index = tabs.findIndex(tab => tab.dataset.tab === state.tab); const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length; event.preventDefault(); changeTab(tabs[next].dataset.tab); tabs[next].focus(); });
   for (const item of document.querySelectorAll('.close-dialog')) item.addEventListener('click', () => $(`#${item.dataset.dialog}`).close());
   $('#trust-dialog').addEventListener('close', () => { state.trustRequest++; state.trustReview = null; $('#trust-consent').checked = false; $('#trust-consent').disabled = true; $('#trust-submit').disabled = true; });
   $('#import-dialog').addEventListener('close', () => { state.importRequest++; });
   $('#language').addEventListener('change', event => { state.language = event.target.value; try { localStorage.setItem('world-hub.launcher.language', state.language); } catch {} languageChanged(); });
-  $('#theme').addEventListener('click', () => { const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; try { localStorage.setItem('world-hub.launcher.theme', theme); } catch {} });
+  $('#theme').addEventListener('click', () => { const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; try { localStorage.setItem('world-hub.launcher.theme', theme); } catch {} updateNavAndThemeIcons(); });
   $('#refresh').addEventListener('click', () => refresh({ explicit: true })); $('#search').addEventListener('input', renderPacks); $('#back-to-packs').addEventListener('click', () => navigate('packs'));
-  $('#import-form').addEventListener('submit', importSubmit); $('#import-back').addEventListener('click', () => { state.importReview = null; $('#import-review').hidden = true; $('#import-fields').hidden = false; $('#import-back').hidden = true; $('#import-submit').textContent = t('checkPackage'); $('#import-error').hidden = true; $('#step-review').classList.remove('active'); $('#step-create').classList.remove('active'); });
+  $('#import-form').elements.instanceId.addEventListener('input', validateIdentity);
+  $('#import-form').addEventListener('submit', importSubmit); $('#import-back').addEventListener('click', () => { state.importReview = null; $('#import-review').hidden = true; $('#import-fields').hidden = false; importIdentity().hidden = true; $('#import-back').hidden = true; $('#import-submit').textContent = t('checkPackage'); $('#import-error').hidden = true; $('#step-review').classList.remove('active'); $('#step-create').classList.remove('active'); });
   $('#trust-consent').addEventListener('change', event => { if (reviewExpired(state.trustReview)) invalidateExecutionReview(); else $('#trust-submit').disabled = !event.target.checked || !state.trustReview; }); $('#trust-submit').addEventListener('click', authorizeExecution); $('#export-form').addEventListener('submit', exportSubmit); $('#environment-form').addEventListener('submit', detectEnvironment);
+  for (const item of document.querySelectorAll('[data-env-tab]')) item.addEventListener('click', () => setEnvironmentTab(item.dataset.envTab));
   $('.brand').addEventListener('click', event => { event.preventDefault(); navigate('packs'); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh(); });
+}
+
+function handleTabKeydown(event) {
+  if (event.defaultPrevented) return;
+  const selected = event.target?.closest?.('[role="tab"]');
+  const list = selected?.closest('[role="tablist"]');
+  if (!list) return;
+  const vertical = list.getAttribute('aria-orientation') === 'vertical';
+  const previous = vertical ? 'ArrowUp' : 'ArrowLeft', following = vertical ? 'ArrowDown' : 'ArrowRight';
+  if (![previous, following, 'Home', 'End'].includes(event.key)) return;
+  const tabs = [...list.querySelectorAll('[role="tab"]')].filter(tab => tab.closest('[role="tablist"]') === list && !tab.disabled);
+  const index = tabs.indexOf(selected); if (index < 0 || !tabs.length) return;
+  const next = tabs[event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+    : (index + (event.key === following ? 1 : -1) + tabs.length) % tabs.length];
+  event.preventDefault();
+  next.click();
+  const fresh = next.id ? document.getElementById(next.id) : next;
+  if (fresh?.isConnected !== false) fresh?.focus();
 }
 
 async function resolveReturnHint(hints) {
@@ -516,35 +1573,45 @@ async function resolveReturnHint(hints) {
       }
     } catch (error) { state.returnNotice = error.message; showNotice('#connection-notice', state.returnNotice, 'warning'); return false; }
   }
-  await selectInstance(hints.instance, ['status', 'modules', 'logs', 'details'].includes(hints.tab) ? hints.tab : 'status', componentId); return true;
+  await selectInstance(hints.instance, ['status', 'modules', 'logs', 'storage', 'details'].includes(hints.tab) ? hints.tab : 'status', componentId); return true;
 }
 
 async function boot() {
   const hash = new URLSearchParams(location.hash.slice(1)), launchCode = hash.get('launch');
-  const queries = new URLSearchParams(location.search), hints = Object.fromEntries(queries); hints.tab = location.hash.slice(1);
-  const initialView = ['packs', 'overview', 'hubs', 'workbench', 'environment', 'sources', 'creator'].includes(hints.tab) ? hints.tab : 'packs';
-  // Consume the launch capability immediately; it is never stored or left in browser history.
   if (launchCode) history.replaceState(null, '', `${location.pathname}${location.search}`);
+  const queries = new URLSearchParams(location.search), hints = Object.fromEntries(queries); hints.tab = location.hash.slice(1);
+  const initialView = ['packs', 'environment', 'sources', 'creator', 'modules', 'templates'].includes(hints.tab) ? hints.tab : 'packs';
   try { const theme = localStorage.getItem('world-hub.launcher.theme'); if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme; } catch {}
-  advanced = createAdvancedUi({ state, api, el, button, pill, t, toast, definition, display, date, guidance, errorContents, current, idOf, endpoint, operationFor, exitUnconfirmed, refresh, renderDetail, navigate, changeTab, selectInstance, openImport, replaceInstance, reviewView });
+  try { localStorage.removeItem(sessionKey); } catch { /* Remove credentials persisted by older UI builds. */ }
+  try { state.auth = JSON.parse(sessionStorage.getItem(sessionKey) ?? 'null'); } catch { state.auth = null; }
+  advanced = createAdvancedUi({ state, api, el, button, pill, t, toast, definition, display, date, guidance, errorContents, current, idOf, endpoint, operationFor, exitUnconfirmed, refresh, renderDetail, navigate, changeTab, selectInstance, openImport, replaceInstance, reviewView, createIcon, renderSquareArt, setEnvironmentTab, confirmDialog, openPathPicker: (input, purpose) => paths?.open(input, purpose) });
+  paths = createPathUi({ state, api, el, button, toast });
+  tasks = createTaskUi({ state, api, el, button, toast, date, selectInstance, openImport, openCreator: directory => advanced.openCreator(directory), createIcon });
   initializeEvents(); languageChanged(); navigate(initialView, false);
   try {
-    if (launchCode) {
-      const session = await api('/api/session', { code: launchCode }); state.auth = { token: session.token, csrfToken: session.csrfToken }; state.session = session;
-    } else {
-      try { state.auth = JSON.parse(sessionStorage.getItem(sessionKey) ?? 'null'); } catch { state.auth = null; }
-      if (!state.auth?.token) throw new Error(t('sessionRequired'));
-      state.session = await api('/api/session');
-      if (state.session.csrfToken) state.auth.csrfToken = state.session.csrfToken;
+    if (state.auth?.token) {
+      try {
+        state.session = await api('/api/session');
+        if (state.session.csrfToken) state.auth.csrfToken = state.session.csrfToken;
+      } catch {
+        state.auth = null;
+        try { sessionStorage.removeItem(sessionKey); localStorage.removeItem(sessionKey); } catch {}
+      }
+    }
+    if (!state.auth?.token) {
+      if (!launchCode) throw new Error(t('sessionRequired'));
+      const session = await api('/api/session', { code: launchCode });
+      state.auth = { token: session.token, csrfToken: session.csrfToken };
+      state.session = session;
     }
     try { sessionStorage.setItem(sessionKey, JSON.stringify(state.auth)); } catch {}
     $('#version').textContent = state.session.softwareVersion ? `v${state.session.softwareVersion}` : 'LOCAL';
     for (const kind of ['nodePath', 'pythonPath']) $('#environment-form').elements[kind].value = state.session.defaults?.[kind] ?? '';
-    advanced.sessionReady();
+    advanced.sessionReady(); paths.sessionReady();
     await refresh({ explicit: true });
     if (!await resolveReturnHint(hints)) navigate(initialView);
     setInterval(() => { if (!document.hidden) { if (reviewExpired(state.trustReview)) invalidateExecutionReview(); renderAll(); if (state.auth?.token) void refresh(); } }, 1000);
-  } catch (error) { showNotice('#connection-notice', error.message); $('#connection-state').textContent = t('offline'); }
+  } catch (error) { showNotice('#connection-notice', error.message); updateConnectionState(false); }
 }
 
 void boot();

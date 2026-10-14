@@ -23,8 +23,8 @@ export function diagnose(error) {
     'dependency': ['选择匹配的独立环境。受支持的锁定依赖可审阅准备方案；其他依赖请在自己的 venv 中手动准备，然后重新检测。', 'Select a matching private environment. Review a preparation plan for supported pinned dependencies. Prepare other dependencies manually in your own venv, then check again.'],
     'compatibility': ['核对要求的 Hub、解释器版本与 OS／架构。选择匹配环境；作者可明确重建源码锁，再重新审阅，不自动改锁。', 'Check the required Hub/interpreter versions and OS/architecture. Select a matching environment. Authors may explicitly rebuild a source lock, then review again; locks are not changed automatically.'],
     'port-conflict': ['查看日志中报冲突的程序与端口。调整该程序公开配置并创建新派生包；不要结束不属于本实例的进程。', 'Read the application and port in the logs. Adjust its public configuration and create a derived pack; do not terminate processes outside this instance.'],
-    'timeout': ['查看组件日志及就绪、健康、通讯各自状态。确认实际清理完成后修正应用配置或环境，再审阅重启。', 'Inspect component logs and the separate ready, health and communication states. After confirmed cleanup, fix application configuration or environment, then review and restart.'],
-    'process-failed': ['查看故障组件日志，核对入口、依赖及应用配置。进程退出不代表已提交的业务被取消；等待清理确认后再操作。', 'Inspect the failed component logs, entry, dependencies and application configuration. Process exit does not cancel previously submitted work. Wait for confirmed cleanup.'],
+    'timeout': ['查看模块日志及就绪、健康、通讯各自状态。确认实际清理完成后修正应用配置或环境，再审阅重启。', 'Inspect module logs and the separate ready, health and communication states. After confirmed cleanup, fix application configuration or environment, then review and restart.'],
+    'process-failed': ['查看故障模块日志，核对入口、依赖及应用配置。进程退出不代表已提交的业务被取消；等待清理确认后再操作。', 'Inspect the failed module logs, entry, dependencies and application configuration. Process exit does not cancel previously submitted work. Wait for confirmed cleanup.'],
   };
   return { code, kind, zh: guidance[kind][0], en: guidance[kind][1] };
 }

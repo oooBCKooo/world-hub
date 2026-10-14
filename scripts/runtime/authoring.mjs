@@ -64,6 +64,17 @@ async function prepareDerivation(original, options) {
   const used = [...new Set(pack.components.map(c => c.module))].map(id => {
     const m = available.find(v => v.manifest.id === id); if (!m) throw new Error(`Missing module source: ${id}`); return m;
   });
+  if (options.reviewedCandidates !== undefined) {
+    if (!Array.isArray(options.reviewedCandidates) || options.reviewedCandidates.length !== replacements.length
+        || new Set(options.reviewedCandidates.map(row => row?.componentId)).size !== replacements.length) throw new Error('Invalid reviewed candidate snapshots');
+    for (const row of options.reviewedCandidates) {
+      if (!row || Object.keys(row).some(key => !['componentId', 'candidateDigest'].includes(key)) || !sha.test(row.candidateDigest ?? '')
+          || !replacements.some(replacement => replacement.componentId === row.componentId)) throw new Error('Invalid reviewed candidate snapshot');
+      const component = pack.components.find(component => component.id === row.componentId);
+      const candidate = used.find(module => module.manifest.id === component.module);
+      if (hash(JSON.stringify(candidate.files)) !== row.candidateDigest) throw new Error('Candidate changed after preflight; inspect and review the current content before deriving');
+    }
+  }
   const diagnostics = [];
   for (const m of used) if (!m.manifest.platforms.includes(`${process.platform}-${process.arch}`)) diagnostics.push({ code: 'PLATFORM_UNSUPPORTED', message: `Replacement platform is unsupported: ${m.manifest.id}`, moduleId: m.manifest.id });
   // The preview and the actual derivation use identical declaration checks.
@@ -85,10 +96,12 @@ async function prepareDerivation(original, options) {
 export async function previewReplacement(source, options) {
   cancelled(options);
   const original = await inspectAuthoring(source, options);
-  const component = original.pack.components.find(c => c.id === options.componentId);
+  if (options.expectedRevision !== undefined && options.expectedRevision !== original.revision) throw new Error('Authoring revision conflict: inspect the current package before preflight');
+  const component = original.pack.components.find(c => c.id === options.componentId) ?? options.pack?.components?.find(c => c.id === options.componentId);
   if (!component) throw new Error('Replacement refers to an absent component');
-  const before = original.review.modules.find(m => m.manifest.id === component.module).manifest;
-  const prepared = await prepareDerivation(original, { ...options, replacements: [{ componentId: options.componentId, moduleDirectory: options.moduleDirectory }] });
+  const before = original.review.modules.find(m => m.manifest.id === component.module)?.manifest ?? null;
+  const replacements = [...(options.replacements ?? []).filter(row => row.componentId !== options.componentId), { componentId: options.componentId, moduleDirectory: options.moduleDirectory }];
+  const prepared = await prepareDerivation(original, { ...options, replacements });
   const nextComponent = prepared.pack.components.find(c => c.id === options.componentId);
   const candidate = prepared.used.find(m => m.manifest.id === nextComponent.module);
   const after = candidate.manifest;
@@ -99,8 +112,8 @@ export async function previewReplacement(source, options) {
     try { return (await readBounded(join(directory, 'requirements.txt'), 65536)).toString(); }
     catch (error) { if (error.code === 'ENOENT') return null; throw error; }
   };
-  const previousModule = original.review.modules.find(m => m.manifest.id === before.id);
-  const beforeDependencies = { components: component.after, contracts: before.requires, requirements: await requirements(join(original.directory, previousModule.source)) };
+  const previousModule = before ? original.review.modules.find(m => m.manifest.id === before.id) : null;
+  const beforeDependencies = before ? { components: component.after, contracts: before.requires, requirements: await requirements(join(original.directory, previousModule.source)) } : null;
   const afterDependencies = { components: nextComponent.after, contracts: after.requires, requirements: await requirements(candidate.directory) };
   const environment = { runtime: after.runtime.kind, interpreter, otherDependenciesChecked: doctor.otherDependenciesChecked ?? false,
     runsFixedInterpreterProbe: true, executesModule: false };
@@ -111,17 +124,36 @@ export async function previewReplacement(source, options) {
   const declarationCompatible = !diagnostics.some(d => d.layer === 'declaration');
   const environmentCompatible = !diagnostics.some(d => d.layer === 'environment');
   const differences = Object.fromEntries([
-    ['identity', { id: before.id, version: before.version }, { id: after.id, version: after.version }],
-    ['contracts', { provides: before.provides, requires: before.requires }, { provides: after.provides, requires: after.requires }],
-    ...['bridges', 'permissions', 'platforms', 'runtime', 'license'].map(key => [key, before[key], after[key]]),
+    ['identity', before ? { id: before.id, version: before.version } : null, { id: after.id, version: after.version }],
+    ['contracts', before ? { provides: before.provides, requires: before.requires } : null, { provides: after.provides, requires: after.requires }],
+    ...['bridges', 'permissions', 'platforms', 'runtime', 'license'].map(key => [key, before?.[key] ?? null, after[key]]),
     ['startupDependencies', beforeDependencies, afterDependencies]
   ].map(([key, previous, next]) => [key, { before: copy(previous), after: copy(next), changed: JSON.stringify(previous) !== JSON.stringify(next) }]));
-  return { sourceRevision: original.revision, candidate: { manifest: copy(after), directory: candidate.directory },
+  return { sourceRevision: original.revision, component: copy(nextComponent), candidate: { manifest: copy(after), directory: candidate.directory },
     candidateDigest: hash(JSON.stringify(candidate.files)), compatible: declarationCompatible && environmentCompatible,
     declarationCompatible, environmentCompatible, environment,
     differences, affectedComponents: prepared.pack.components.filter(c => c.id === options.componentId || c.module === after.id).map(c => c.id),
     diagnostics, businessValidated: false, stateCompatibility: 'unknown',
     requiresNewExecutionReview: true, startsModules: false, writesFiles: false };
+}
+// A new component is an explicit external composition draft. Empty topic ACLs
+// grant no communication privileges; the creator configures them and bindings.
+export async function previewAddition(source, options) {
+  cancelled(options);
+  const original = await inspectAuthoring(source, options);
+  if (original.pack.components.some(component => component.id === options.componentId)) throw new Error('Addition refers to an existing source component');
+  const directory = await ordinaryPath(options.moduleDirectory);
+  const manifest = JSON.parse((await readBounded(join(directory, 'module.json'))).toString()); validateModule(manifest);
+  const component = copy(options.component ?? {
+    id: options.componentId, module: manifest.id, settings: {}, after: [],
+    bridges: Object.fromEntries(manifest.bridges.map(slot => [slot, { publish: [], subscribe: [] }]))
+  });
+  if (component.id !== options.componentId || component.module !== manifest.id) throw new Error('Addition component identity does not match candidate');
+  const pack = copy(options.pack ?? original.pack);
+  const index = pack.components.findIndex(row => row.id === component.id);
+  if (index < 0) pack.components.push(component); else pack.components[index] = component;
+  const preview = await previewReplacement(source, { ...options, pack });
+  return { ...preview, addition: true };
 }
 export async function derivePackage(source, options) {
   cancelled(options);

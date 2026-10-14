@@ -40,7 +40,7 @@ try {
   console.log(`     端点 ${ready.endpoint}`);
   console.log(`     接线配置里登记了 ${ready.registeredBridges.length} 座桥：${ready.registeredBridges.join(', ')}`);
 
-  section('A. 每个来源是一个独立进程，各自通过自己的 mod 桥接入');
+  section('A. 每个来源是一个独立进程，各自通过自己的 模块桥接入');
   const sourcesSpec = [
     { name: 'sensor-a', file: 'examples/event-panel/sensor-a.mjs', args: ['--intervalMs', '400'] },
     { name: 'ticker', file: 'examples/event-panel/ticker.mjs', args: ['--intervalMs', '300'] },
@@ -81,7 +81,7 @@ try {
     args: ['--once', 'demo', '--quiet', '--from', 'all'],
   });
   const dashReady = JSON.parse(dashboard.ready);
-  check('面板进程通过自己的 mod 桥接入', dashReady.event === 'ready', dashboard.ready);
+  check('面板进程通过自己的 模块桥接入', dashReady.event === 'ready', dashboard.ready);
   check('面板登记的桥 id 是 ui.dashboard', dashReady.bridge === 'ui.dashboard', String(dashReady.bridge));
 
   await until(async () => (await h.status()).bridges.length === 3, { what: '3 bridges attached' });
