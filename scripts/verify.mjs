@@ -85,6 +85,7 @@ try {
   } else if (suite === 'ecosystem') {
     await execute('Optional trusted-local Runtime: cross-language deploy, isolate, rebuild and reliable cleanup', nodeTests([
       'tests/integration/ecosystem-runtime/runtime.test.mjs',
+      'tests/integration/ecosystem-runtime/compatibility.test.mjs',
       'tests/integration/ecosystem-runtime/distribution.test.mjs',
       'tests/integration/ecosystem-runtime/paths.test.mjs',
       'tests/integration/ecosystem-runtime/maintenance.test.mjs',
@@ -96,6 +97,10 @@ try {
       'tests/integration/ecosystem-runtime/staged-upgrade.test.mjs',
       'tests/integration/ecosystem-runtime/isolation.test.mjs',
       'tests/integration/ecosystem-runtime/publisher-trust.test.mjs',
+      'tests/integration/ecosystem-runtime/dependency-prepare.test.mjs',
+      'tests/integration/runtime/host-process.test.mjs',
+      'tests/integration/runtime/soft-ui-modules.test.mjs',
+      'tests/integration/runtime/soft-ui-delivery.test.mjs',
     ]), { test: true, timeoutMs: 600000 });
   } else if (suite === 'launcher') {
     const cases = (await readdir(join(root, 'tests/integration/launcher'))).filter(name => name.endsWith('.test.mjs')).sort().map(name => `tests/integration/launcher/${name}`);

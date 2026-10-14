@@ -1,7 +1,7 @@
 {
   "format": "world-hub.module/v1",
   "id": "demo.stats",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "license": "MIT",
   "platforms": ["win32-x64", "linux-x64", "darwin-arm64"],
   "runtime": { "kind": "python", "entry": "program.py" },

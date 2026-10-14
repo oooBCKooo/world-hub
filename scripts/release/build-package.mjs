@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile, readdir, lstat, access } from 'node:fs/promises';
+import { isDirectExecution } from '../cli-entry.mjs';
 import { createHash } from 'node:crypto';
 import { join, resolve, dirname, basename, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,22 +20,26 @@ export const SDK_FILES = ['sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-
   'sdk/powershell/HubBridge.psm1', 'sdk/powershell/HubBridge.cs'];
 export const SDK_DOCUMENTATION_FILES = Object.freeze(['sdk/javascript/README.md', 'sdk/python/README.md', 'sdk/powershell/README.md']);
 export const MODULE_CONTRACT_FILES = Object.freeze(['docs/modules/text-statistics.contract.json']);
-export const ECOSYSTEM_SCHEMA_FILES = Object.freeze(['docs/ecosystem/module.schema.json', 'docs/ecosystem/pack.schema.json', 'docs/ecosystem/pack-lock.schema.json', 'docs/ecosystem/template.schema.json', 'docs/ecosystem/template.example.json', 'docs/ecosystem/publisher-vectors.json', 'docs/ecosystem/publisher-vector-check.py']);
+export const ECOSYSTEM_SCHEMA_FILES = Object.freeze(['docs/ecosystem/module.schema.json', 'docs/ecosystem/deployment.schema.json', 'docs/ecosystem/pack.schema.json', 'docs/ecosystem/pack-lock.schema.json', 'docs/ecosystem/template.schema.json', 'docs/ecosystem/template.example.json', 'docs/ecosystem/publisher-vectors.json', 'docs/ecosystem/publisher-vector-check.py']);
 // These are editable source templates, never automatically executed by Hub or
 // Launcher. Keep an explicit list so runtime/private material is not bundled.
 export const BUNDLED_TEMPLATE_FILES = Object.freeze(['template.json', 'base/pack.json', 'base/pack.lock',
-  ...['module.json', 'program.mjs', 'bridge-kit.mjs', 'blob-client.mjs', 'LICENSE'].map(file => 'base/modules/source/' + file),
-  ...['module.json', 'program.py', 'hub_bridge.py', 'requirements.txt', 'LICENSE'].map(file => 'base/modules/stats/' + file),
-  ...['module.json', 'program.mjs', 'bridge-kit.mjs', 'blob-client.mjs', 'index.html', 'ui.js', 'LICENSE'].map(file => 'base/modules/desk/' + file)]
+  ...['module.json', 'deployment.json', 'program.mjs', 'bridge-kit.mjs', 'blob-client.mjs', 'LICENSE'].map(file => 'base/modules/source/' + file),
+  ...['module.json', 'deployment.json', 'program.py', 'hub_bridge.py', 'requirements.txt', 'LICENSE'].map(file => 'base/modules/stats/' + file),
+  ...['module.json', 'deployment.json', 'program.mjs', 'bridge-kit.mjs', 'blob-client.mjs', 'index.html', 'ui.js', 'LICENSE'].map(file => 'base/modules/desk/' + file)]
   .map(file => 'examples/templates/text-desk/' + file));
 export const ECOSYSTEM_RUNTIME_FILES = Object.freeze(['bin/world-hub-pack.mjs',
-  ...['index', 'runtime', 'package', 'paths', 'process', 'hub-process', 'maintenance', 'authoring', 'sources', 'developer', 'template', 'upgrade', 'staged-upgrade', 'completion-cli', 'publisher-trust', 'publisher-store', 'publisher-cli', 'isolation', 'isolation-wrapper', 'isolation-channel', 'isolation-http', 'isolation-user', 'isolation-user-supervisor'].map(name => `scripts/runtime/${name}.mjs`),
+  ...['index', 'runtime', 'package', 'compatibility', 'paths', 'source-guidance', 'deployment', 'dependency-prepare', 'host-process', 'host-owner-linux', 'process', 'hub-process', 'maintenance', 'authoring', 'sources', 'developer', 'template', 'upgrade', 'staged-upgrade', 'completion-cli', 'publisher-trust', 'publisher-store', 'publisher-cli', 'isolation', 'isolation-wrapper', 'isolation-channel', 'isolation-http', 'isolation-user', 'isolation-user-supervisor'].map(name => `scripts/runtime/${name}.mjs`),
+  'scripts/runtime/host-owner-windows.ps1', 'scripts/runtime/host-profile.mjs',
   'scripts/runtime/isolation-wrapper.py',
   'scripts/runtime/templates/node/program.mjs', 'scripts/runtime/templates/node/logic.mjs', 'scripts/runtime/templates/node/logic.test.mjs',
   'scripts/runtime/templates/python/program.py', 'scripts/runtime/templates/python/logic.py', 'scripts/runtime/templates/python/test_logic.py']);
-export const LAUNCHER_FILES = Object.freeze(['bin/world-hub.mjs',
-  ...['cli', 'server', 'manager', 'source-registry', 'paths-service', 'creator-drafts', 'environment', 'environment-prepare', 'diagnostics', 'topology'].map(name => `tools/launcher/${name}.mjs`),
-  ...['index.html', 'app.mjs', 'style.css', 'i18n.mjs', 'advanced.mjs', 'completion-ui.mjs', 'publisher-ui.mjs', 'isolation-ui.mjs', 'path-ui.mjs', 'task-ui.mjs', 'icons.mjs'].map(name => `tools/launcher/public/${name}`)]);
+export const LAUNCHER_FILES = Object.freeze(['bin/world-hub.mjs', 'scripts/cli-entry.mjs',
+  ...['cli', 'server', 'owner-lock', 'manager', 'local-artifacts', 'local-programs', 'composition', 'source-registry', 'paths-service', 'creator-drafts', 'environment', 'environment-prepare', 'diagnostics', 'topology'].map(name => `tools/launcher/${name}.mjs`),
+  ...['index.html', 'app.mjs', 'style.css', 'i18n.mjs', 'advanced.mjs', 'asset-versions.mjs', 'deployment-ui.mjs', 'completion-ui.mjs', 'publisher-ui.mjs', 'isolation-ui.mjs', 'path-ui.mjs', 'task-ui.mjs', 'icons.mjs'].map(name => `tools/launcher/public/${name}`)]);
+export const SOFT_UI_MODULE_FILES = Object.freeze(['examples/soft-ui-modules/README.md',
+  ...['desktop','counter'].flatMap(name=>['README.md','LICENSE','module.json','deployment.json','program.mjs','state.mjs','bridge-kit.mjs','blob-client.mjs'].map(file=>`examples/soft-ui-modules/${name}/${file}`)),
+  ...['config.mjs','host.mjs','model.mjs','package.json','package-lock.json','desktop/main.cjs','desktop/manager-preload.cjs','desktop/view-preload.cjs','desktop/manager.html','desktop/manager.js','desktop/manager.css','desktop/view.html','desktop/view.js','desktop/view.css','desktop/assets/tray.png'].map(file=>'examples/soft-ui-modules/desktop/'+file)]);
 export const WORKSHOP_FILES = Object.freeze(['tools/workshop/cli.mjs', 'tools/workshop/store.mjs', 'tools/workshop/server.mjs',
   ...['index.html', 'app.mjs', 'style.css'].map(name => `tools/workshop/public/${name}`)]);
 export const INTEROP_FILES = Object.freeze(['bin/world-hub-interop.mjs', 'tools/interop/text-statistics.mjs',
@@ -54,7 +59,7 @@ const wrapper = (mode) => `@echo off\r\nsetlocal DisableDelayedExpansion\r\nchcp
 const demoWrapper = `@echo off\r\nsetlocal DisableDelayedExpansion\r\nchcp 65001 >nul\r\nset "HUB_NODE=%~dp0runtime\\node.exe"\r\nif not exist "%HUB_NODE%" set "HUB_NODE=node"\r\n"%HUB_NODE%" "%~dp0examples\\management\\run-management-demo.mjs" %*\r\nexit /b %ERRORLEVEL%\r\n`;
 const uiWrapper = `@echo off\r\nsetlocal DisableDelayedExpansion\r\nchcp 65001 >nul\r\nset "HUB_NODE=%~dp0runtime\\node.exe"\r\nif not exist "%HUB_NODE%" set "HUB_NODE=node"\r\n"%HUB_NODE%" "%~dp0bin\\world-hub.mjs" ui --open %*\r\nexit /b %ERRORLEVEL%\r\n`;
 
-const portableReadme = (version, kind) => `# 世界枢纽 ${version} 整合包\n\n${kind === 'windows-x64-portable' ? 'Windows x64 便携包，自带经过官方 SHA-256 核对的 Node 22.23.2。枢纽和管理界面无需安装 npm、Python、PowerShell 7 或 DSH。' : '源码整合包，需本机 Node 22.4.0 或更高版本；启动枢纽无需安装 npm 依赖。'}\n\n## 启动与停止\n\n1. 完整解压到可写目录；不要在压缩包预览中启动。\n2. 双击 \`start.cmd\`。成功后启动窗口给出当前地址，并打开默认浏览器管理界面。默认地址为 http://127.0.0.1:8790/manage。窗口保持运行。\n3. 点击“通讯工作台”，页面生成 bridge 标识；本机参考 credential 为 \`ui.manual\`，token 留空。连接后可自选主题、订阅、发布任意 JSON 和手动 ACK。\n4. 停止时在启动窗口按 Ctrl+C，等待退出；不要同时运行使用同一份数据的第二个枢纽。\n\n不自动打开浏览器：\`runtime\\node.exe scripts\\launcher.mjs\`（源码包把前缀换成本机 node）。自选端口：加 \`--port 8791\`；自选配置：加 \`--config config\\hub.json\`。相对配置路径以整合包根目录为基准。支持中文及空格目录，从其他工作目录启动也使用包内配置。\n\n## 配置和持久数据\n\n- \`config/hub.json\`：用户接线配置；默认监听 127.0.0.1，未登记身份被拒绝。新增桥、credential、token 和主题权限由部署方编辑配置后重启。配置中的相对数据路径以配置目录为基准。\n- \`data/log/\`：已接纳消息、释放元数据和日志段；\`data/blobs/\`：附件与对象元数据；\`data/management.json\`：暂停状态及程序／桥注记。目录在首次启动时创建，包内不附旧运行数据。\n- 程序游标、上下文、harness、业务状态由外部程序保存，枢纽不会替它们管理。\n\n\`ui.manual\` 是已配置的本机参考身份，无 token 时显示未认证。它不是身份防伪、多租户或公网方案。正式接线可配置 token 和主题权限，不应把本机管理端点公开给不可信访问者。通道和正文 kind 不内置穷举。\n\n数据目录有启动锁，防止重复实例打开同一份数据。正常停止会释放本启动器自己的锁。异常退出留下锁时，先确认对应枢纽已停止，再只移走错误提示所列 \`.world-hub-package.lock\`；不要删除日志、对象或管理状态。启动器不会按锁中的 PID 杀进程，也不会自动清理遗留锁。\n\n## 检查、迁移与升级\n\n\`check.cmd\` 只读检查环境、配置和必需文件，不启动枢纽，不创建数据目录。首次运行 \`verify.cmd\` 检查全部原始文件；编辑过配置后用 \`verify.cmd --allow-config-change\`，该选项仅放过配置内容变化，仍检查程序和 Node 文件。SHA-256 清单用于发现损坏，与清单一起被更改时不提供发布者签名保证。\n\n升级请解压到新目录，先停止旧版本，保留完整旧包作回退，再将自己的 \`config/\` 和完整 \`data/\` 复制到新包。修改过的外部数据路径须自行迁移。不要用新包覆盖正在运行的目录，也不要以新默认配置替换自己的接线。原记录未由提供者释放时仍保留；读取、ACK、停止、升级都不等于释放。移动整个包时先停止，保持三个数据区域和配置一起移动。\n\n## 接入与可选演示\n\n[接入材料](docs/onboarding.md)列出 JS、浏览器、Python 和 PowerShell 桥。各语言源文件不会随 Hub 自动载入；Python／PowerShell 程序的运行环境由该程序自行安排。\n\n[提供者接入契约](docs/modules/provider-contract.md)、[机器契约](docs/modules/text-statistics.contract.json)和[JS SDK](sdk/javascript/README.md)可用于独立实现可替换的统计模块；能力目录与组装器由外部程序部署。\n\n双击 \`demo.cmd\` 可启动独立临时枢纽与三个测试程序，在终端给出的另一地址查看真实信息流，Ctrl+C 收起该演示自己的进程。演示不读取本包正式 data，不自动启动 DSH、模型或工作流；其他验证程序在源码仓库 examples/ 与 tests/ 中保留，不作为整合包必装业务。\n\n[现行规格入口](docs/specs/index.md)。浏览器附件便利层单文件上限仍为 64 MiB，Hub 默认对象上限 1 GiB、池 2 GiB；日志容量和提供者释放策略见[部署与容量说明](docs/deployment.md)。打包不增加断电耐久、跨机、Linux 或长期高负载的验收结论。\n`;
+const portableReadme = (version, kind) => `# 世界枢纽 ${version} 整合包\n\n${kind === 'windows-x64-portable' ? 'Windows x64 便携包，自带经过官方 SHA-256 核对的 Node 22.23.2。枢纽和管理界面无需安装 npm、Python、PowerShell 7 或 DSH。' : '源码整合包，需本机 Node 22.4.0 或更高版本；启动枢纽无需安装 npm 依赖。'}\n\nElectron 桌面宿主、软界面宿主和已有程序可以独立运行，通过模块桥直接接入枢纽，无需导入为 Launcher 整合包。详见[独立程序接入](docs/ecosystem/external-programs.md)与[English](docs/ecosystem/external-programs.en.md)。\n\n## 启动与停止\n\n1. 完整解压到可写目录；不要在压缩包预览中启动。\n2. 双击 \`start.cmd\`。成功后启动窗口给出当前地址，并打开默认浏览器管理界面。默认地址为 http://127.0.0.1:8790/manage。窗口保持运行。\n3. 点击“通讯工作台”，页面生成 bridge 标识；本机参考 credential 为 \`ui.manual\`，token 留空。连接后可自选主题、订阅、发布任意 JSON 和手动 ACK。\n4. 停止时在启动窗口按 Ctrl+C，等待退出；不要同时运行使用同一份数据的第二个枢纽。\n\n不自动打开浏览器：\`runtime\\node.exe scripts\\launcher.mjs\`（源码包把前缀换成本机 node）。自选端口：加 \`--port 8791\`；自选配置：加 \`--config config\\hub.json\`。相对配置路径以整合包根目录为基准。支持中文及空格目录，从其他工作目录启动也使用包内配置。\n\n## 配置和持久数据\n\n- \`config/hub.json\`：用户接线配置；默认监听 127.0.0.1，未登记身份被拒绝。新增桥、credential、token 和主题权限由部署方编辑配置后重启。配置中的相对数据路径以配置目录为基准。\n- \`data/log/\`：已接纳消息、释放元数据和日志段；\`data/blobs/\`：附件与对象元数据；\`data/management.json\`：暂停状态及程序／桥注记。目录在首次启动时创建，包内不附旧运行数据。\n- 程序游标、上下文、harness、业务状态由外部程序保存，枢纽不会替它们管理。\n\n\`ui.manual\` 是已配置的本机参考身份，无 token 时显示未认证。它不是身份防伪、多租户或公网方案。正式接线可配置 token 和主题权限，不应把本机管理端点公开给不可信访问者。通道和正文 kind 不内置穷举。\n\n数据目录有启动锁，防止重复实例打开同一份数据。正常停止会释放本启动器自己的锁。异常退出留下锁时，先确认对应枢纽已停止，再只移走错误提示所列 \`.world-hub-package.lock\`；不要删除日志、对象或管理状态。启动器不会按锁中的 PID 杀进程，也不会自动清理遗留锁。\n\n## 检查、迁移与升级\n\n\`check.cmd\` 只读检查环境、配置和必需文件，不启动枢纽，不创建数据目录。首次运行 \`verify.cmd\` 检查全部原始文件；编辑过配置后用 \`verify.cmd --allow-config-change\`，该选项仅放过配置内容变化，仍检查程序和 Node 文件。SHA-256 清单用于发现损坏，与清单一起被更改时不提供发布者签名保证。\n\n升级请解压到新目录，先停止旧版本，保留完整旧包作回退，再将自己的 \`config/\` 和完整 \`data/\` 复制到新包。修改过的外部数据路径须自行迁移。不要用新包覆盖正在运行的目录，也不要以新默认配置替换自己的接线。原记录未由提供者释放时仍保留；读取、ACK、停止、升级都不等于释放。移动整个包时先停止，保持三个数据区域和配置一起移动。\n\n## 接入与可选演示\n\n[接入材料](docs/onboarding.md)列出 JS、浏览器、Python 和 PowerShell 桥。各语言源文件不会随 Hub 自动载入；Python／PowerShell 程序的运行环境由该程序自行安排。\n\n[提供者接入契约](docs/modules/provider-contract.md)、[机器契约](docs/modules/text-statistics.contract.json)和[JS SDK](sdk/javascript/README.md)可用于独立实现可替换的统计模块；能力目录与组装器由外部程序部署。\n\n双击 \`demo.cmd\` 可启动独立临时枢纽与三个测试程序，在终端给出的另一地址查看真实信息流，Ctrl+C 收起该演示自己的进程。演示不读取本包正式 data，不自动启动 DSH、模型或工作流；其他验证程序在源码仓库 examples/ 与 tests/ 中保留，不作为整合包必装业务。\n\n[现行规格入口](docs/specs/index.md)。浏览器附件便利层单文件上限仍为 64 MiB，Hub 默认对象上限 1 GiB、池 2 GiB；日志容量和提供者释放策略见[部署与容量说明](docs/deployment.md)。打包不增加断电耐久、跨机、Linux 或长期高负载的验收结论。\n`;
 // The editable source document is copied into docs/onboarding.md at build time.
 
 export async function buildPackage({ output, runtimeDirectory = null, sourceRoot = repository }) {
@@ -94,6 +99,7 @@ export async function buildPackage({ output, runtimeDirectory = null, sourceRoot
   for (const path of ECOSYSTEM_SCHEMA_FILES) await copy(path, 'documentation-contract');
   for (const path of ECOSYSTEM_RUNTIME_FILES) await copy(path, 'tooling');
   for (const path of BUNDLED_TEMPLATE_FILES) await copy(path, 'optional-template-source');
+  for (const path of SOFT_UI_MODULE_FILES) await copy(path, 'optional-module-source');
   for (const path of INTEROP_FILES) await copy(path, 'tooling');
   for (const path of LAUNCHER_FILES) await copy(path, path.startsWith('tools/launcher/public/') ? 'application' : 'tooling');
   for (const path of WORKSHOP_FILES) await copy(path, path.includes('/public/') ? 'application' : 'tooling');
@@ -150,7 +156,7 @@ export async function buildPackage({ output, runtimeDirectory = null, sourceRoot
   await writeFile(output + '.build.json', JSON.stringify(result, null, 2) + '\n', { flag: 'wx' });
   return result;
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   const args = process.argv.slice(2); const options = {};
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--output') options.output = args[++i];

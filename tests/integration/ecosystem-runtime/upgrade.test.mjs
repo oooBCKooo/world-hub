@@ -44,6 +44,32 @@ const file=join(config.dataDirectory,'provider.json'); const data=JSON.parse(awa
 if(data.format!==config.fromFormat) throw Error('Provider refuses unknown format');
 await writeFile(file,JSON.stringify({...data,format:config.toFormat,count:data.count+10})+'\\n');
 `;
+
+test('UPGRADE-CURRENT-01 generated release metadata is distinct from the actual state writer', options, async t => {
+  const app = await workspace(t), lockFile = join(app.candidate, 'pack.lock'), lock = await json(lockFile);
+  lock.hubVersion = '0.18.0'; await save(lockFile, lock);
+  const preview = await previewUpgrade(app.upgrade);
+  assert.equal(preview.diff.current.hubVersion, preview.diff.candidate.hubVersion);
+  assert.equal(preview.diff.candidate.generatedWithHubVersion, '0.18.0');
+  assert.equal(preview.hubDataPolicy, 'preserve-exact-installed-version');
+  const result = await upgradeInstance({ ...app.upgrade, trust: preview.trustDigest });
+  assert.equal(result.state, 'committed');
+  assert.equal((await json(join(app.imported.stateDir, 'instance.json'))).hubVersion, preview.diff.current.hubVersion);
+  assert.deepEqual(await json(join(app.state, 'provider.json')), { format: 'provider-v1', count: 4, text: '持久 🌍' });
+});
+
+test('UPGRADE-CURRENT-02 communication compatibility cannot authorize unknown or different persistent Hub state', options, async t => {
+  const app = await workspace(t), file = join(app.imported.stateDir, 'instance.json'), identity = await json(file);
+  const state = await readFile(join(app.state, 'provider.json'));
+  for (const version of [undefined, '999.0.0']) {
+    const changed = { ...identity }; if (version === undefined) delete changed.hubVersion; else changed.hubVersion = version;
+    await save(file, changed);
+    await assert.rejects(previewUpgrade(app.upgrade), { code: 'INSTANCE_HUB_STATE_VERSION' });
+    assert.deepEqual(await json(file), changed);
+    assert.deepEqual(await readFile(join(app.state, 'provider.json')), state);
+    assert.equal(await exists(join(app.imported.stateDir, 'upgrades')), false);
+  }
+});
 function migratePolicies() { return preserve.map(p => p.componentId === 'source' ? { componentId: 'source', mode: 'migrate', fromFormat: 'provider-v1', toFormat: 'provider-v2', runtime: 'node', entry: 'migrate.mjs', timeoutMs: 10000 } : p); }
 
 test('UPGRADE-01 exact stopped review preserves opaque state, replaces software and requires fresh execution review', options, async t => {

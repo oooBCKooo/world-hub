@@ -2,7 +2,8 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { repository, validateModule, safeId } from './package.mjs';
-import { ordinaryPath, collectFiles, readBounded, privateJson, hash } from './paths.mjs';
+import { ordinaryPath, readBounded, privateJson, hash } from './paths.mjs';
+import { collectSourceFiles, readSourceManifest, attachSourceGuidance } from './source-guidance.mjs';
 import { probe } from '../../tools/launcher/environment.mjs';
 
 export const AUTHOR_TEMPLATE_FILES = Object.freeze(['scripts/runtime/templates/node/program.mjs', 'scripts/runtime/templates/node/logic.mjs',
@@ -45,11 +46,13 @@ export async function initModule({ directory, id, runtime }) {
 export async function validateModuleDirectory({ directory }) {
   const result = base(directory);
   let root, manifest, files;
-  try { root = await ordinaryPath(directory); result.directory = root; files = await collectFiles(root); }
-  catch (error) { result.issues.push(issue(directory, 'files', 'MODULE_PATH_INVALID', error.message, 'Select an ordinary directory with bounded regular files; remove links and generated caches.')); }
+  try { root = await ordinaryPath(directory); result.directory = root; files = await collectSourceFiles(root); }
+  catch (error) { result.issues.push({ ...issue(directory, 'files', 'MODULE_PATH_INVALID', error.message, error.diagnostic?.en ?? 'Select an ordinary directory with bounded regular files; remove links and generated caches.'),
+    ...(error.diagnostic ? { diagnostic: error.diagnostic } : {}) }); }
   if (root && files) {
-    try { manifest = JSON.parse((await readBounded(join(root, 'module.json'))).toString('utf8')); validateModule(manifest); result.manifest = manifest; }
-    catch (error) { manifest = null; result.issues.push(issue('module.json', 'manifest', 'MODULE_MANIFEST_INVALID', error.message, 'Correct module.json against the optional Runtime module schema.')); }
+    try { manifest = JSON.parse((await readSourceManifest(root, 'module.json')).toString('utf8')); validateModule(manifest); result.manifest = manifest; }
+    catch (error) { manifest = null; await attachSourceGuidance(error, root); result.issues.push({ ...issue('module.json', 'manifest', 'MODULE_MANIFEST_INVALID', error.message, error.diagnostic?.en ?? 'Correct module.json against the optional Runtime module schema.'),
+      ...(error.diagnostic ? { diagnostic: error.diagnostic } : {}) }); }
     if (manifest && !files.some(file => file.path === manifest.runtime.entry)) result.issues.push(issue(manifest.runtime.entry, 'entry', 'MODULE_ENTRY_MISSING', 'Declared runtime entry is absent.', 'Provide the declared entry file or correct runtime.entry.'));
     if (manifest && !manifest.platforms.includes(`${process.platform}-${process.arch}`)) result.issues.push(issue('module.json/platforms', 'platform', 'MODULE_PLATFORM_UNSUPPORTED', 'This machine is outside the declared platforms.', 'Use a supported machine; declare another platform only after validating it.'));
     if (files.some(file => file.path === 'author-sample.json')) {

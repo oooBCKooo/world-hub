@@ -5,7 +5,8 @@ import { spawn } from 'node:child_process';
 import { join, dirname, resolve, relative, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ordinaryPath, readBounded, hash, processCwd, processPath } from '../../scripts/runtime/paths.mjs';
-import { filteredEnv } from '../../scripts/runtime/package.mjs';
+import { filteredEnv, validateLock, repository } from '../../scripts/runtime/package.mjs';
+import { checkHubCompatibility } from '../../scripts/runtime/compatibility.mjs';
 import { probe } from './environment.mjs';
 
 export const PYTHON_RECIPE = Object.freeze({ name: 'websockets', version: '15.0.1', license: 'BSD-3-Clause',
@@ -26,7 +27,9 @@ export async function planPythonEnvironment({ root, directory, nodePath = proces
     throw fail('ENVIRONMENT_PATH_TOO_LONG', 'Windows private-environment interpreter path must be shorter than 248 characters. Choose a shorter Launcher root or select an interpreter prepared in a shorter directory. Instance and module directories may still be long.');
   const lockBytes = await readBounded(join(await ordinaryPath(directory), 'pack.lock'));
   const lock = JSON.parse(lockBytes.toString('utf8'));
-  if (lock.format !== 'world-hub.pack-lock/v1' || lock.platform?.os !== process.platform || lock.platform?.arch !== process.arch)
+  validateLock(lock);
+  const hubCompatibility = checkHubCompatibility(lock, JSON.parse((await readBounded(join(repository, 'package.json'))).toString('utf8')).version);
+  if (lock.platform.os !== process.platform || lock.platform.arch !== process.arch)
     throw fail('ENVIRONMENT_PLATFORM_MISMATCH', 'This recipe requires a lock for the current OS and architecture.');
   const packages = lock.runtimes?.python?.packages;
   if (!packages || Object.keys(packages).length !== 1 || packages.websockets !== PYTHON_RECIPE.version)
@@ -38,7 +41,7 @@ export async function planPythonEnvironment({ root, directory, nodePath = proces
   base.sha256 = hash(await readBounded(base.executable, 256 * 1024 * 1024));
   node.sha256 = hash(await readBounded(node.executable, 256 * 1024 * 1024));
   const value = { format: 'world-hub.environment-plan/v1', directory: resolve(directory), lockSha256: hash(lockBytes),
-    lockRequirements: lock.runtimes, platform: lock.platform, base, node, destination: target, download: PYTHON_RECIPE,
+    lockRequirements: lock.runtimes, hubCompatibility, platform: lock.platform, base, node, destination: target, download: PYTHON_RECIPE,
     actions: ['Create a new isolated Python venv without pip using the selected interpreter.', 'Use the verified cached wheel or download it from the displayed PyPI file URL.',
       'Install the fixed pure-Python wheel with a bounded standard-library copier; no setup scripts or installer subprocesses.', 'Probe the new environment; select it and review your package again.'],
     changesSystemEnvironment: false, executesModuleScripts: false, sandbox: false };

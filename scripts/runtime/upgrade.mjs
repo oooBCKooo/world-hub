@@ -47,9 +47,9 @@ export function compareUpgradePackages(current, candidate) {
       before: stripFiles(before), after: stripFiles(after), code, changedDimensions: dimensions.filter(key => !same(before?.[key] ?? null, after?.[key] ?? null)) };
   });
   return { format: 'world-hub.upgrade-diff/v1', declarations: 'exact-checked', applicationBehavior: 'not-validated',
-    current: { pack: { id: current.pack.id, version: current.pack.version }, digest: current.digest, hubVersion: current.lock.hubVersion,
+    current: { pack: { id: current.pack.id, version: current.pack.version }, digest: current.digest, hubVersion: current.hubVersion, generatedWithHubVersion: current.lock.hubVersion, hubCompatibility: current.hubCompatibility,
       platform: current.lock.platform, interpreters: current.environment, runtimes: current.lock.runtimes },
-    candidate: { pack: { id: candidate.pack.id, version: candidate.pack.version }, digest: candidate.digest, hubVersion: candidate.lock.hubVersion,
+    candidate: { pack: { id: candidate.pack.id, version: candidate.pack.version }, digest: candidate.digest, hubVersion: candidate.hubVersion, generatedWithHubVersion: candidate.lock.hubVersion, hubCompatibility: candidate.hubCompatibility,
       platform: candidate.lock.platform, interpreters: candidate.environment, runtimes: candidate.lock.runtimes },
     components, bindings: { changed: !same(current.pack.bindings, candidate.pack.bindings), before: current.pack.bindings, after: candidate.pack.bindings },
     topics: { changed: !same(current.pack.topics, candidate.pack.topics), before: current.pack.topics, after: candidate.pack.topics },
@@ -135,7 +135,7 @@ export function validateUpgradeStatePolicies(current, candidate, supplied) {
   if (!Array.isArray(supplied) || supplied.length !== current.pack.components.length) throw fault('UPGRADE_POLICY_REQUIRED', 'Explicit provider-defined state policies are required for every component');
   const before = current.pack.components.map(c => c.id).sort(), after = candidate.pack.components.map(c => c.id).sort();
   if (!same(before, after)) throw fault('UPGRADE_COMPONENTS_CHANGED', 'In-place v1 upgrade requires the same stable component IDs; derive and restore a separate instance for topology changes');
-  if (current.lock.hubVersion !== candidate.lock.hubVersion) throw fault('UPGRADE_HUB_VERSION', 'Hub state migration is not inferred; both packages must pin the same installed Hub version');
+  if (current.hubVersion !== candidate.hubVersion) throw fault('UPGRADE_HUB_VERSION', 'Hub state migration is not inferred; both packages must use the same installed Hub release');
   const result = [], ids = new Set();
   for (const policy of supplied) {
     if (policy?.mode === 'preserve') {
@@ -162,6 +162,7 @@ async function upgradePlan(directory, stopped, options) {
   await assertNoIncompleteUpgrades(directory);
   if (await exists(join(directory, 'detached.json'))) throw fault('INSTANCE_DETACHED', 'Reattach and review this instance before in-place upgrade');
   const current = await inspectPackage(join(directory, 'package'), options), candidate = await inspectPackage(options.candidate, options);
+  if (stopped.identity.hubVersion !== current.hubVersion) throw fault('INSTANCE_HUB_STATE_VERSION', 'Hub state belongs to another or unknown installed release; state migration must be explicit.');
   if (stopped.identity.digest !== current.digest) throw fault('UPGRADE_CHANGED', 'Current instance identity differs from its package/environment review');
   const statePolicies = validateUpgradeStatePolicies(current, candidate, options.statePolicies);
   await checkStateRoots(directory, current.pack);

@@ -1,5 +1,6 @@
 // Source-only reference pack distribution. Runtime, Hub and business remain separate.
 import { mkdir, readFile, writeFile, lstat, access } from 'node:fs/promises';
+import { isDirectExecution } from '../cli-entry.mjs';
 import { createHash } from 'node:crypto';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +9,8 @@ import { APPLICATION_FILES, SDK_FILES, SDK_DOCUMENTATION_FILES, MODULE_CONTRACT_
 import { zipDirectory } from './zip.mjs';
 import { verifyPackage } from './verify-package.mjs';
 import { collectFiles, ordinaryPath, readBounded, relativePath } from '../runtime/paths.mjs';
-import { validatePack, validateModule } from '../runtime/package.mjs';
+import { validatePack, validateModule, validateLock } from '../runtime/package.mjs';
+import { checkHubCompatibility } from '../runtime/compatibility.mjs';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -16,14 +18,15 @@ const exactKeys = (value, keys) => value !== null && typeof value === 'object' &
   && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
 const packPrefix = 'examples/ecosystem-pack/';
 const moduleFiles = {
-  source: ['module.json', 'program.mjs', 'bridge-kit.mjs', 'blob-client.mjs', 'LICENSE'],
-  stats: ['module.json', 'program.py', 'hub_bridge.py', 'requirements.txt', 'LICENSE'],
-  desk: ['module.json', 'program.mjs', 'bridge-kit.mjs', 'blob-client.mjs', 'index.html', 'ui.js', 'LICENSE'],
+  source: ['module.json', 'deployment.json', 'program.mjs', 'bridge-kit.mjs', 'blob-client.mjs', 'LICENSE'],
+  stats: ['module.json', 'deployment.json', 'program.py', 'hub_bridge.py', 'requirements.txt', 'LICENSE'],
+  desk: ['module.json', 'deployment.json', 'program.mjs', 'bridge-kit.mjs', 'blob-client.mjs', 'index.html', 'ui.js', 'LICENSE'],
 };
 export const ECOSYSTEM_PACK_FILES = Object.freeze(['README.md', 'pack.json', 'pack.lock',
   ...Object.entries(moduleFiles).flatMap(([id, names]) => names.map(name => `modules/${id}/${name}`))]
   .map(name => packPrefix + name));
 const documentation = ['README.en.md', ...SDK_DOCUMENTATION_FILES,
+  'docs/ecosystem/external-programs.md', 'docs/ecosystem/external-programs.en.md',
   ...['README', 'onboarding', 'development', 'deployment', 'verification', 'repository', 'releases', 'npm']
     .map(name => `docs/${name}.md`),
   ...['index', 'boundaries', 'protocol', 'reliability-access', 'directed-and-bulk', 'management',
@@ -55,9 +58,9 @@ async function validateReferencePack(inputs, sourceRoot, version) {
   const packBytes = inputs.get(packPrefix + 'pack.json');
   const pack = JSON.parse(packBytes); validatePack(pack);
   const lock = JSON.parse(inputs.get(packPrefix + 'pack.lock'));
-  if (!exactKeys(lock, ['format', 'pack', 'hubVersion', 'platform', 'runtimes', 'modules'])
-      || !exactKeys(lock.pack, ['id', 'version', 'sha256']) || lock.format !== 'world-hub.pack-lock/v1' || lock.pack?.id !== pack.id || lock.pack?.version !== pack.version
-      || lock.pack?.sha256 !== hash(packBytes) || lock.hubVersion !== version) throw new Error('Sample pack lock identity or hash mismatch');
+  validateLock(lock); checkHubCompatibility(lock, version);
+  if (lock.pack.id !== pack.id || lock.pack.version !== pack.version
+      || lock.pack.sha256 !== hash(packBytes)) throw new Error('Sample pack lock identity or hash mismatch');
   if (!exactKeys(lock.runtimes, ['node', 'python']) || !exactKeys(lock.runtimes.node, ['version'])
       || !exactKeys(lock.runtimes.python, ['version', 'packages']) || lock.runtimes?.node?.version !== '22.23.2' || lock.runtimes?.python?.version !== '3.14.0'
       || lock.runtimes.python.packages?.websockets !== '15.0.1' || Object.keys(lock.runtimes.python.packages).length !== 1)
@@ -111,7 +114,7 @@ async function validateReferencePack(inputs, sourceRoot, version) {
   return { pack, lock };
 }
 function readme(version, lock) {
-  return `# World Hub ${version} 跨语言整合包源码分发\n\n本包包含 Hub、可选外部 Runtime CLI、开放 module／pack／lock schema 与三个真实程序：JavaScript 原文来源、Python 统计、JavaScript 浏览器文本台。业务不运行在 Hub 内核。\n\n这是源码包，不携带 Python、Node 或第三方依赖二进制。当前样例锁要求 ${lock.platform.os}-${lock.platform.arch}、预安装 Node 22.23.2、Python 3.14.0 与 websockets 15.0.1。没有 Python 便携运行时；运行检查会明确拒绝不匹配环境。\n\n1. 完整解压到新目录。\n2. 运行 \`node scripts/release/verify-package.mjs --root .\` 校验本包文件。哈希清单不提供发布者签名保证。\n3. 按[文本台包说明](examples/ecosystem-pack/README.md)执行 plan、import，并检查权限与实际 review digest。\n4. 用 \`node bin/world-hub-pack.mjs start --root data/pack-runtime --instance text-one --trust <审阅摘要>\` 启动，打开实际 entryUrl。\n5. 停止、重启和导出见[外部 Runtime](docs/ecosystem/runtime.md)。Runtime 不自动安装依赖、不自动重试业务。默认 trusted-local 无 OS 沙箱；可选 Linux Docker Node headless 隔离须单独配置和审阅。\n\n检查完整性后运行产生的实例配置、凭据、日志、来源和成果位于用户选择的 Runtime 根目录。使用包内 \`data/\` 可保留整体完整性校验；该目录只包含运行产物，不参与原始制品清单。导出复制锁定的公开程序包，不复制实例数据和秘密。修改程序后需要明确重锁、审阅和重建，禁止用新哈希掩盖不明变更。\n\n[开放部署规范](docs/ecosystem/pack-spec.md)、[文本统计业务契约](docs/modules/text-statistics.contract.json)。各模块携带自己的桥和 MIT LICENSE，外部 Python 库遵循自身许可。`;
+  return `# World Hub ${version} 跨语言整合包源码分发\n\n本包包含 Hub、可选外部 Runtime CLI、开放 module／pack／lock schema 与三个真实程序：JavaScript 原文来源、Python 统计、JavaScript 浏览器文本台。业务不运行在 Hub 内核。\n\n这是源码包，不携带 Python、Node 或第三方依赖二进制。当前样例锁要求 ${lock.platform.os}-${lock.platform.arch}、预安装 Node 22.23.2、Python 3.14.0 与 websockets 15.0.1。没有 Python 便携运行时；运行检查会明确拒绝不匹配环境。\n\nElectron 桌面宿主、软界面宿主和已有程序可以独立运行，通过模块桥直接接入枢纽，无需导入为 Launcher 整合包。详见[独立程序接入](docs/ecosystem/external-programs.md)与[English](docs/ecosystem/external-programs.en.md)。\n\n1. 完整解压到新目录。\n2. 运行 \`node scripts/release/verify-package.mjs --root .\` 校验本包文件。哈希清单不提供发布者签名保证。\n3. 按[文本台包说明](examples/ecosystem-pack/README.md)执行 plan、import，并检查权限与实际 review digest。\n4. 用 \`node bin/world-hub-pack.mjs start --root data/pack-runtime --instance text-one --trust <审阅摘要>\` 启动，打开实际 entryUrl。\n5. 停止、重启和导出见[外部 Runtime](docs/ecosystem/runtime.md)。Runtime 不自动安装依赖、不自动重试业务。默认 trusted-local 无 OS 沙箱；可选 Linux Docker Node headless 隔离须单独配置和审阅。\n\n检查完整性后运行产生的实例配置、凭据、日志、来源和成果位于用户选择的 Runtime 根目录。使用包内 \`data/\` 可保留整体完整性校验；该目录只包含运行产物，不参与原始制品清单。导出复制锁定的公开程序包，不复制实例数据和秘密。修改程序后需要明确重锁、审阅和重建，禁止用新哈希掩盖不明变更。\n\n[开放部署规范](docs/ecosystem/pack-spec.md)、[文本统计业务契约](docs/modules/text-statistics.contract.json)。各模块携带自己的桥和 MIT LICENSE，外部 Python 库遵循自身许可。`;
 }
 
 export async function buildEcosystemPackage({ sourceRoot = repository, output } = {}) {
@@ -174,7 +177,7 @@ export function parseEcosystemBuildArguments(args) {
   if (args.length !== 2 || args[0] !== '--output' || !args[1] || args[1].startsWith('--')) throw new Error('Usage: build-ecosystem-package.mjs [--output new-directory]');
   return { output: args[1] };
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   try { console.log(JSON.stringify(await buildEcosystemPackage(parseEcosystemBuildArguments(process.argv.slice(2))))); }
   catch (error) { console.error(error.message); process.exitCode = 1; }
 }

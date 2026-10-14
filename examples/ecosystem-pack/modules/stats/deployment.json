@@ -1,0 +1,8 @@
+{
+  "format": "world-hub.deployment/v1",
+  "title": { "zh": "Python 文本统计", "en": "Python text statistics" },
+  "description": { "zh": "独立统计 Unicode 字符、行数、UTF-8 字节数与摘要，调用者由能力绑定决定。", "en": "Computes Unicode character counts, line counts, UTF-8 byte sizes and digests for explicitly bound consumers." },
+  "topics": { "stats": "sample/text/statistics" },
+  "bridges": { "main": { "publish": ["stats"], "subscribe": ["stats"] } },
+  "settings": []
+}

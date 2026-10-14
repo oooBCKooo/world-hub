@@ -8935,3 +8935,17 @@ main, .view, #creator-content, .creator-workspace, .creator-tab-panel,
     scroll-behavior: auto !important;
   }
 }
+
+/* One project card retains explicit immutable version/source/instance choices. */
+.asset-version-picker { display: grid; gap: 0.4rem; min-width: 0; margin-top: 0.85rem; }
+.asset-version-select { width: 100%; min-width: 0; max-width: 100%; padding: 0.55rem 0.7rem; color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: 0.55rem; }
+.asset-version-select:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+.asset-version-picker .field-help { overflow-wrap: anywhere; }
+.asset-unavailable { border-style: dashed; }
+.asset-instance-summary { margin-top: 0.5rem; }
+.deployment-dialog label { display: grid; gap: 0.4rem; margin: 0.9rem 0; min-width: 0; }
+.deployment-dialog input, .deployment-dialog select { min-width: 0; max-width: 100%; }
+.deployment-dialog .panel { margin: 1rem 0; padding: 1rem; }
+.deployment-dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.deployment-dialog .dialog-heading { position: sticky; top: -28px; z-index: 1; background: var(--bg-surface); padding-top: 0.5rem; }
+.deployment-dialog .dialog-heading h2 { font-size: 1.2rem; line-height: 1.4; }

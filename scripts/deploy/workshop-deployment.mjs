@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isDirectExecution } from '../cli-entry.mjs';
 import { readFile, writeFile, mkdir, lstat } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -180,7 +181,7 @@ export async function prepareDeployment({ gatewayFile, expectedSha256, outputDir
   return plan;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   const options = {};
   for (let i = 2; i < process.argv.length; i += 2) {
     const key = { '--gateway': 'gatewayFile', '--expected-sha256': 'expectedSha256', '--out': 'outputDirectory', '--root': 'deploymentRoot', '--node': 'nodeExecutable', '--entry': 'entry', '--public-base-url': 'publicBaseUrl' }[process.argv[i]];

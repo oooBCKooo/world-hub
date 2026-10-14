@@ -102,11 +102,13 @@
           }
         },
         "processes": {
-          "const": "none"
+          "enum": ["none", "owned-children"],
+          "description": "owned-children is a reviewed local Node lifecycle profile, not an OS sandbox."
         }
       }
     }
   },
+  "allOf": [{"if":{"properties":{"permissions":{"properties":{"processes":{"const":"owned-children"}}}}},"then":{"properties":{"runtime":{"properties":{"kind":{"const":"node"}}}}}}],
   "$defs": {
     "id": {
       "type": "string",

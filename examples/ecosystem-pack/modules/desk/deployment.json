@@ -1,0 +1,8 @@
+{
+  "format": "world-hub.deployment/v1",
+  "title": { "zh": "跨语言文本台", "en": "Cross-language text desk" },
+  "description": { "zh": "通过独立浏览器界面使用所选文本来源与统计程序；两项能力均须选择提供者。", "en": "A browser interface using selected independent text and statistics programs; select a provider for each required capability." },
+  "topics": { "source": "sample/text/read", "stats": "sample/text/statistics" },
+  "bridges": { "main": { "publish": ["source", "stats"], "subscribe": ["source", "stats"] } },
+  "settings": []
+}

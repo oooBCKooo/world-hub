@@ -2,11 +2,15 @@
 import { createCompletionUi } from './completion-ui.mjs';
 import { createPublisherUi } from './publisher-ui.mjs';
 import { createIsolationPanel } from './isolation-ui.mjs';
+import { createDeploymentUi } from './deployment-ui.mjs';
+import { groupAssets, createAssetVersionSelection, renderAssetVersionSelector } from './asset-versions.mjs';
 export function createAdvancedUi(ctx) {
   const { state, api, el, button: baseButton, pill, t, toast, definition, display, date, errorContents, current, idOf, endpoint, operationFor, exitUnconfirmed, refresh, renderDetail, navigate, selectInstance, openImport, replaceInstance, createIcon, renderSquareArt: baseRenderSquareArt, setEnvironmentTab, confirmDialog: baseConfirmDialog } = ctx;
   const renderSquareArt = baseRenderSquareArt ?? (({ tone = 'cyan', fallbackIcon = 'modules' } = {}) => el('div', { class: `card-square-art tone-${tone}` }, [createIcon ? createIcon(fallbackIcon, 'icon-art') : null]));
   const $ = selector => document.querySelector(selector);
+  const deploymentUi = createDeploymentUi({...ctx,loadKnown:()=>loadKnown()});
   const say = (zh, en) => state.language === 'zh' ? zh : en;
+  const assetVersionSelection = createAssetVersionSelection();
   const runtimeKind = mod => ['node', 'python'].includes(mod?.runtime?.kind) ? mod.runtime.kind
     : ['node', 'python'].includes(mod?.runtime) ? mod.runtime : null;
   const runtimeLabel = mod => runtimeKind(mod) === 'python' ? 'Python'
@@ -20,15 +24,23 @@ export function createAdvancedUi(ctx) {
       return new Set();
     }
   }
-  function saveDeletedObject(kind, key) {
+  function assetDeletionKey(kind, row) {
+    const path = row.path ?? row.directory ?? null;
+    const canonicalPath = /^[a-z]:[\\/]/i.test(path ?? '') ? path.replaceAll('\\', '/').toLowerCase() : path;
+    return `asset:${JSON.stringify([kind, row.id ?? null, row.version ?? null, canonicalPath])}`;
+  }
+  function saveDeletedObject(kind, row) {
     try {
       const set = getDeletedObjects();
-      set.add(`${kind}:${String(key).toLowerCase()}`);
+      set.add(assetDeletionKey(kind, row));
       localStorage.setItem('world-hub.launcher.deleted-objects', JSON.stringify([...set]));
     } catch {}
   }
-  function isDeletedObject(kind, key) {
-    return getDeletedObjects().has(`${kind}:${String(key).toLowerCase()}`);
+  function isDeletedObject(kind, row) {
+    const saved = getDeletedObjects();
+    // Keep historical hidden entries compatible. New removals never write the
+    // old kind:ID key that would hide every version of the project.
+    return saved.has(assetDeletionKey(kind, row)) || saved.has(`${kind}:${String(row.path ?? row.id).toLowerCase()}`) || saved.has(`${kind}:${String(row.id).toLowerCase()}`);
   }
   const failureDialog = el('dialog', { class: 'dialog' }); document.body.append(failureDialog);
   const closeButton = dialog => { const close = baseButton(createIcon ? createIcon('close') : '×', () => dialog.close(), 'icon-button'); close.setAttribute('aria-label', say('关闭', 'Close')); return close; };
@@ -61,6 +73,7 @@ export function createAdvancedUi(ctx) {
   function restoreForms(root) { for (const node of root?.querySelectorAll('form[data-form-key]') ?? []) restoreForm(node); }
   function rememberResult(kind, result) {
     if (!result || typeof result !== 'object') return;
+    if (kind === 'fetch') result = { ...result.entry, ...result };
     const row = { kind, result, at: new Date().toISOString() }, key = result.directory ?? result.destination ?? result.indexPath ?? result.instanceId ?? result.pythonPath;
     extra.results = [row, ...extra.results.filter(item => item.kind !== kind || (item.result.directory ?? item.result.destination ?? item.result.indexPath ?? item.result.instanceId ?? item.result.pythonPath) !== key)].slice(0, 32);
     try { localStorage.setItem(storageKey('results'), JSON.stringify(extra.results)); } catch {}
@@ -830,7 +843,7 @@ export function createAdvancedUi(ctx) {
     reinstate(root, saved);
   }
   function renderSourceEntries(target) {
-    const data = extra.index, index = data.index ?? {}, entries = index.entries ?? [], allowPrivateNetwork = data.networkPolicy === 'trusted-private-ipv4';
+    const data = extra.index, source = extra.source, index = data.index ?? {}, entries = index.entries ?? [], allowPrivateNetwork = data.networkPolicy === 'trusted-private-ipv4';
     const search = el('input', { type: 'search', placeholder: t('marketplaceSearchPlaceholder'), 'aria-label': say('筛选软件', 'Filter software'), class: 'marketplace-search-input' });
     const kind = el('select', { 'aria-label': say('对象种类', 'Object kind'), class: 'source-kind-select' }, [['', t('filterAll')], ['pack', t('filterPacks')], ['module', t('filterModules')], ['template', t('filterTemplates')]].map(([val, title]) => el('option', { value: val }, title)));
     const platform = el('input', { placeholder: say('平台（如 win32-x64）', 'Platform (e.g. win32-x64)'), 'aria-label': say('平台筛选', 'Platform filter') });
@@ -864,9 +877,12 @@ export function createAdvancedUi(ctx) {
     const cards = el('div', { class: 'marketplace-cards-grid pack-grid' });
     const filter = () => {
       const query = search.value.toLowerCase(), os = platform.value.toLowerCase(), permission = license.value.toLowerCase();
-      const matches = entries.filter(entry => entry && (!kind.value || entry.kind === kind.value) && (!os || entry.platforms?.some(item => String(item).toLowerCase().includes(os))) && (!permission || String(entry.license).toLowerCase().includes(permission)) && JSON.stringify([entry.id, entry.title, entry.provides, entry.requires]).toLowerCase().includes(query));
-      countChip.textContent = say(`共 ${matches.length} 项可用内容`, `Showing ${matches.length} items`);
-      cards.replaceChildren(...matches.map(entry => {
+      const sourceRows = entries.map(entry => ({ ...entry, sourceId: data.sourceId ?? source, indexDigest: data.digest }));
+      const matches = groupAssets(sourceRows, { mode: 'source' }).filter(group => group.options.some(({ row: entry }) => entry && (!kind.value || entry.kind === kind.value) && (!os || entry.platforms?.some(item => String(item).toLowerCase().includes(os))) && (!permission || String(entry.license).toLowerCase().includes(permission)) && JSON.stringify([entry.id, entry.title, entry.version, entry.provides, entry.requires]).toLowerCase().includes(query)));
+      countChip.textContent = say(`共 ${matches.length} 个项目 · ${matches.reduce((sum, group) => sum + group.options.length, 0)} 个版本来源选项`, `Showing ${matches.length} projects · ${matches.reduce((sum, group) => sum + group.options.length, 0)} version/source options`);
+      cards.replaceChildren(...matches.map(group => {
+        const selected = assetVersionSelection.get(group);
+        const entry = selected?.row ?? { id: group.id, title: group.title, kind: group.kind };
         const kindLabel = { pack: say('📦 完整整合包', 'Pack'), module: say('🧩 功能模块', 'Module'), template: say('📋 起步模板', 'Template') }[entry.kind] ?? entry.kind;
         const kindTone = { pack: 'purple', module: 'teal', template: 'amber' }[entry.kind] ?? '';
 
@@ -896,15 +912,27 @@ export function createAdvancedUi(ctx) {
           note(say('内容会经过 SHA-256 完整性核验后安全保存到本机缓存目录。不安装额外依赖、不导入实例、不启动程序。', 'Contents are hash-verified into a new local cache directory. This does not install dependencies, import an instance, or execute programs.')),
           definition([
             [say('内容名称', 'Title'), entry.title ?? entry.id],
-            [say('来源索引', 'Source index'), extra.source],
+            [say('来源索引', 'Source index'), source],
             ['ID', entry.id],
             [say('许可协议', 'License'), entry.license ?? '—'],
             ['SHA-256', entry.sha256],
             [say('网络策略', 'Network policy'), allowPrivateNetwork ? say('可信私网／DNS 代理', 'Trusted private network / DNS proxy') : say('公共网络', 'Public network')]
           ])
         ], say('我已检查来源、网络策略和摘要，允许下载或复制该制品到本机缓存。', 'I reviewed the source, network policy, and digest and authorize downloading or copying this artifact to the local cache.'), async () => {
-          const fetched = await operation(await api('/api/sources/fetch', { ...(data.sourceId && data.receiptId ? { sourceId: data.sourceId, receiptId: data.receiptId } : { source: extra.source, indexDigest: data.digest, ...(allowPrivateNetwork ? { allowPrivateNetwork: true } : {}) }), entryId: entry.entryId }), 'fetch');
+          const fetched = await operation(await api('/api/sources/fetch', { ...(data.sourceId && data.receiptId ? { sourceId: data.sourceId, receiptId: data.receiptId } : { source, indexDigest: data.digest, ...(allowPrivateNetwork ? { allowPrivateNetwork: true } : {}) }), entryId: entry.entryId }), 'fetch');
+          const downloaded = { ...fetched.entry, ...fetched, path: fetched.directory };
+          if (['module', 'template'].includes(downloaded.kind)) {
+            const hidden = getDeletedObjects();
+            for (const key of [assetDeletionKey(downloaded.kind, downloaded), `${downloaded.kind}:${String(downloaded.id).toLowerCase()}`, `${downloaded.kind}:${String(downloaded.path).toLowerCase()}`]) hidden.delete(key);
+            try { localStorage.setItem('world-hub.launcher.deleted-objects', JSON.stringify([...hidden])); } catch {}
+          }
           await loadKnown();
+          if (['module', 'template'].includes(downloaded.kind)) {
+            const group = groupAssets(downloaded.kind === 'module' ? getModules() : getTemplates(), { kind: downloaded.kind }).find(item => item.id === downloaded.id);
+            const option = group?.options.find(item => sameDirectory(item.path, downloaded.directory));
+            if (option) assetVersionSelection.select(group, option.key);
+            navigate(downloaded.kind === 'module' ? 'modules' : 'templates');
+          }
           const targetHint = entry.kind === 'module'
             ? say('已自动收录至“我的模块”，可在模块列表查看或装配。', 'Cataloged in My Modules.')
             : entry.kind === 'template'
@@ -912,13 +940,13 @@ export function createAdvancedUi(ctx) {
               : say('可点击右上角“任务与结果”一键【导入并审阅】为实例。', 'Click "Tasks & results" in topbar to Import and review.');
           toast(`${say('已成功下载', 'Fetched')}: ${entry.title ?? entry.id}。${targetHint}`);
           renderSources();
-        }), 'button button-small button-primary');
+        }), 'button button-small button-primary', !selected);
 
         return el('article', { class: 'marketplace-card source-card panel' }, [
           el('div', { class: 'marketplace-card-head panel-heading' }, [
             el('div', {}, [
               el('h3', { class: 'marketplace-card-title' }, entry.title ?? entry.id),
-              el('p', { class: 'marketplace-card-sub mono subtle' }, `${entry.id}@${entry.version}`)
+              el('p', { class: 'marketplace-card-sub mono subtle' }, `${entry.id}@${entry.version ?? '—'}`)
             ]),
             pill(kindLabel, kindTone)
           ]),
@@ -926,6 +954,7 @@ export function createAdvancedUi(ctx) {
             el('span', { class: 'source-meta-tag' }, platformText),
             el('span', { class: 'source-meta-tag' }, `📜 ${entry.license ?? say('标准许可', 'Standard')}`)
           ]),
+          renderAssetVersionSelector({ el, say }, group, assetVersionSelection, { onChange: filter }),
           capsBox,
           techDetails,
           el('div', { class: 'marketplace-card-footer' }, [
@@ -2825,6 +2854,7 @@ export function createAdvancedUi(ctx) {
 
       const launchpad = el('div', { class: 'studio-launchpad', id: 'creator-source' }, [
         hero,
+        panel(say('从空白组合开始','Start an empty composition'),[el('p',{},say('直接加入独立模块并选择能力接线，无需已有整合包或模板。','Add independent modules and choose capability wiring without a base pack or template.')),button(say('新建整合包','Create pack'),()=>deploymentUi.compose(),'button button-primary')]),
         pathway1,
         pathway2,
         pathway3,
@@ -3282,8 +3312,8 @@ export function createAdvancedUi(ctx) {
     const seen = new Set();
     const add = mod => {
       if (!mod || !mod.id) return;
-      const key = mod.path ? mod.path.toLowerCase() : mod.id;
-      if (isDeletedObject('module', key) || isDeletedObject('module', mod.id)) return;
+      const key = assetDeletionKey('module', mod);
+      if (isDeletedObject('module', mod)) return;
       if (seen.has(key)) return;
       seen.add(key);
       list.push(mod);
@@ -3295,10 +3325,10 @@ export function createAdvancedUi(ctx) {
       if (row.kind === 'fetch' && row.result?.kind === 'module') {
         add({
           kind: 'module',
-          id: row.result.id,
-          version: row.result.version,
+          id: row.result.id ?? row.result.entry?.id,
+          version: row.result.version ?? row.result.entry?.version,
           path: row.result.directory,
-          title: row.result.title,
+          title: row.result.title ?? row.result.entry?.title,
           runtime: row.result.runtime,
           origin: 'cache'
         });
@@ -3312,8 +3342,8 @@ export function createAdvancedUi(ctx) {
     const seen = new Set();
     const add = tpl => {
       if (!tpl || !tpl.id) return;
-      const key = tpl.path ? tpl.path.toLowerCase() : tpl.id;
-      if (isDeletedObject('template', key) || isDeletedObject('template', tpl.id)) return;
+      const key = assetDeletionKey('template', tpl);
+      if (isDeletedObject('template', tpl)) return;
       if (seen.has(key)) return;
       seen.add(key);
       list.push(tpl);
@@ -3335,10 +3365,10 @@ export function createAdvancedUi(ctx) {
       if (row.kind === 'fetch' && row.result?.kind === 'template') {
         add({
           kind: 'template',
-          id: row.result.id,
-          version: row.result.version,
+          id: row.result.id ?? row.result.entry?.id,
+          version: row.result.version ?? row.result.entry?.version,
           path: row.result.directory,
-          title: row.result.title,
+          title: row.result.title ?? row.result.entry?.title,
           origin: 'cache'
         });
       }
@@ -3347,9 +3377,9 @@ export function createAdvancedUi(ctx) {
   }
 
   function updateModuleAndTemplateCounts() {
-    const modulesCount = getModules().length;
-    const templatesCount = getTemplates().length;
-    const packsCount = state.instances?.length ?? 0;
+    const modulesCount = groupAssets(getModules(), { kind: 'module' }).length;
+    const templatesCount = groupAssets(getTemplates(), { kind: 'template' }).length;
+    const packsCount = groupAssets(state.instances ?? [], { mode: 'instance' }).length;
     const navModules = $('#nav-modules-count');
     if (navModules) navModules.textContent = String(modulesCount);
     const navTemplates = $('#nav-templates-count');
@@ -3362,9 +3392,9 @@ export function createAdvancedUi(ctx) {
     const activeView = ['packs', 'modules', 'templates'].includes(explicitView ?? state.view)
       ? (explicitView ?? state.view)
       : 'packs';
-    const packsCount = state.instances?.length ?? 0;
-    const modulesCount = getModules().length;
-    const templatesCount = getTemplates().length;
+    const packsCount = groupAssets(state.instances ?? [], { mode: 'instance' }).length;
+    const modulesCount = groupAssets(getModules(), { kind: 'module' }).length;
+    const templatesCount = groupAssets(getTemplates(), { kind: 'template' }).length;
     updateModuleAndTemplateCounts();
 
     for (const viewName of ['packs', 'modules', 'templates']) {
@@ -3408,21 +3438,14 @@ export function createAdvancedUi(ctx) {
     const name = mod.title || mod.id;
     askConfirm({
       title: t('deleteModule'),
-      message: say(`确认从模块库中移除「${name}」？`, `Remove module "${name}" from module library?`),
+      message: say(`确认从模块库中移除「${name}」的所选版本 ${mod.version ?? '—'}（${mod.path ?? '—'}）？其他版本与目录保留。`, `Remove the selected version ${mod.version ?? '—'} of "${name}" (${mod.path ?? '—'})? Other versions and directories remain.`),
       danger: true,
       confirmText: t('delete'),
       onConfirm: () => {
-        const key = mod.path ? mod.path.toLowerCase() : mod.id;
-        saveDeletedObject('module', key);
-        saveDeletedObject('module', mod.id);
-        extra.knownObjects = extra.knownObjects.filter(item => {
-          const itemKey = item.path ? item.path.toLowerCase() : item.id;
-          return itemKey !== key && item.id !== mod.id;
-        });
-        extra.results = extra.results.filter(row => {
-          const rowKey = row.result?.directory ? row.result.directory.toLowerCase() : row.result?.id;
-          return rowKey !== key && row.result?.id !== mod.id;
-        });
+        const key = assetDeletionKey('module', mod);
+        saveDeletedObject('module', mod);
+        extra.knownObjects = extra.knownObjects.filter(item => item.kind !== 'module' || assetDeletionKey('module', item) !== key);
+        extra.results = extra.results.filter(row => row.result?.kind !== 'module' || assetDeletionKey('module', { ...row.result, path: row.result.directory }) !== key);
         updateModuleAndTemplateCounts();
         if (state.view === 'modules') renderModules();
         toast(say(`已移除模块「${name}」`, `Removed module "${name}"`));
@@ -3434,21 +3457,14 @@ export function createAdvancedUi(ctx) {
     const name = tpl.title || tpl.id;
     askConfirm({
       title: t('deleteTemplate'),
-      message: say(`确认从模板库中移除「${name}」？`, `Remove template "${name}" from template library?`),
+      message: say(`确认从模板库中移除「${name}」的所选版本 ${tpl.version ?? '—'}（${tpl.path ?? '—'}）？其他版本与目录保留。`, `Remove the selected version ${tpl.version ?? '—'} of "${name}" (${tpl.path ?? '—'})? Other versions and directories remain.`),
       danger: true,
       confirmText: t('delete'),
       onConfirm: () => {
-        const key = tpl.path ? tpl.path.toLowerCase() : tpl.id;
-        saveDeletedObject('template', key);
-        saveDeletedObject('template', tpl.id);
-        extra.knownObjects = extra.knownObjects.filter(item => {
-          const itemKey = item.path ? item.path.toLowerCase() : item.id;
-          return itemKey !== key && item.id !== tpl.id;
-        });
-        extra.results = extra.results.filter(row => {
-          const rowKey = row.result?.directory ? row.result.directory.toLowerCase() : row.result?.id;
-          return rowKey !== key && row.result?.id !== tpl.id;
-        });
+        const key = assetDeletionKey('template', tpl);
+        saveDeletedObject('template', tpl);
+        extra.knownObjects = extra.knownObjects.filter(item => item.kind !== 'template' || assetDeletionKey('template', item) !== key);
+        extra.results = extra.results.filter(row => !['create-template', 'fetch'].includes(row.kind) || assetDeletionKey('template', { ...row.result, path: row.result?.directory }) !== key);
         updateModuleAndTemplateCounts();
         if (state.view === 'templates') renderTemplates();
         toast(say(`已移除模板「${name}」`, `Removed template "${name}"`));
@@ -3461,7 +3477,7 @@ export function createAdvancedUi(ctx) {
     const root = $('#modules-content');
     if (!root) return;
 
-    const modules = getModules();
+    const modules = groupAssets(getModules(), { kind: 'module' });
     const hero = el('div', { class: 'page-heading modules-hero' }, [
       el('div', {}, [
         el('div', { class: 'eyebrow' }, 'YOUR LOCAL MODULES / 本地功能模块'),
@@ -3485,21 +3501,7 @@ export function createAdvancedUi(ctx) {
     const importModuleBtn = button([
       createIcon ? createIcon('plus') : '＋',
       el('span', {}, t('importModule'))
-    ], () => {
-      if (ctx.openPathPicker) {
-        const dummy = el('input', { type: 'hidden' });
-        dummy.addEventListener('change', async () => {
-          if (dummy.value) {
-            await loadKnown();
-            toast(say(`已识别模块：${dummy.value}`, `Discovered module: ${dummy.value}`));
-          }
-        });
-        document.body.append(dummy);
-        ctx.openPathPicker(dummy, 'module');
-      } else {
-        openCreator();
-      }
-    }, 'button button-primary');
+    ], () => deploymentUi.importArtifact('module'), 'button button-primary');
 
     const marketplaceBtn = button([
       createIcon ? createIcon('sources') : '🛍️',
@@ -3531,11 +3533,11 @@ export function createAdvancedUi(ctx) {
 
   function renderModulesList(container) {
     const q = extra.modulesSearch;
-    const modules = getModules().filter(m => {
+    const modules = groupAssets(getModules(), { kind: 'module' }).filter(group => group.options.some(({ row: m }) => {
       if (!q) return true;
-      const haystack = `${m.id} ${m.title ?? ''} ${m.description ?? ''} ${m.runtime?.kind ?? ''} ${m.provides?.map(p => typeof p === 'string' ? p : p.id).join(' ') ?? ''} ${m.requires?.map(r => typeof r === 'string' ? r : r.id).join(' ') ?? ''}`.toLowerCase();
+      const haystack = `${m.id} ${m.title ?? ''} ${m.version ?? ''} ${m.path ?? ''} ${m.description ?? ''} ${m.runtime?.kind ?? ''} ${m.provides?.map(p => typeof p === 'string' ? p : p.id).join(' ') ?? ''} ${m.requires?.map(r => typeof r === 'string' ? r : r.id).join(' ') ?? ''}`.toLowerCase();
       return haystack.includes(q);
-    });
+    }));
 
     const countLabel = $('#modules-collection-count');
     if (countLabel) countLabel.textContent = t('modulesCountLabel', { count: modules.length });
@@ -3547,19 +3549,7 @@ export function createAdvancedUi(ctx) {
           el('h3', {}, q ? t('noSearchResults') : t('noModulesFound')),
           el('p', {}, q ? null : t('noModulesHint')),
           el('div', { class: 'result-actions' }, [
-            button(t('importModule'), () => {
-              if (ctx.openPathPicker) {
-                const dummy = el('input', { type: 'hidden' });
-                dummy.addEventListener('change', async () => {
-                  if (dummy.value) {
-                    await loadKnown();
-                    toast(say(`已识别模块：${dummy.value}`, `Discovered module: ${dummy.value}`));
-                  }
-                });
-                document.body.append(dummy);
-                ctx.openPathPicker(dummy, 'module');
-              }
-            }, 'button button-primary'),
+            button(t('importModule'), () => deploymentUi.importArtifact('module'), 'button button-primary'),
             button(say('前往工坊浏览模块', 'Browse Marketplace'), () => navigate('sources'), 'button button-quiet')
           ])
         ])
@@ -3567,7 +3557,9 @@ export function createAdvancedUi(ctx) {
       return;
     }
 
-    const cards = modules.map(mod => {
+    const cards = modules.map(group => {
+      const selected = assetVersionSelection.get(group);
+      const mod = selected?.row ?? { id: group.id, title: group.title, description: say('原选项已不可用，请重新选择。', 'Previous selection unavailable; choose again.') };
       const kind = runtimeKind(mod);
       const runtimeBadge = el('span', { class: `runtime-kind-chip ${kind === 'python' ? 'badge-python' : kind === 'node' ? 'badge-node' : ''}` }, runtimeLabel(mod));
       const titleText = mod.title || friendlyModuleName(mod.id);
@@ -3599,10 +3591,12 @@ export function createAdvancedUi(ctx) {
           say('添加到整合包', 'Add to Pack')
         ].filter(Boolean), () => {
           addModuleToPackFlow(mod);
-        }, 'button button-primary button-small')
+        }, 'button button-primary button-small', !selected)
       ];
 
-      actions.push(button(t('delete'), () => confirmDeleteModule(mod), 'button button-danger-quiet button-small module-delete-btn'));
+      actions.push(button(t('delete'), () => confirmDeleteModule(mod), 'button button-danger-quiet button-small module-delete-btn', !selected));
+      actions.push(button(say('新建组合','Create composition'),()=>deploymentUi.compose(mod),'button button-small',!selected));
+      actions.push(button(say('接入本机 Hub','Connect to local Hub'),()=>deploymentUi.register(mod),'button button-small',!selected));
 
       const coverArt = renderSquareArt({
         icon: mod.icon ?? mod.metadata?.icon ?? mod.image,
@@ -3623,7 +3617,8 @@ export function createAdvancedUi(ctx) {
             el('div', { class: 'pack-card-sub mono' }, `${mod.id}${mod.version ? ` @v${mod.version}` : ''}`),
             el('p', { class: 'module-card-desc' }, descText),
             el('div', { class: 'module-contracts-row' }, contractTags),
-            mod.path ? el('p', { class: 'mono field-help module-path' }, mod.path) : null
+            mod.path ? el('p', { class: 'mono field-help module-path' }, mod.path) : null,
+            renderAssetVersionSelector({ el, say }, group, assetVersionSelection, { onChange: () => renderModulesList(container) })
           ].filter(Boolean))
         ]),
         el('div', { class: 'pack-card-footer' }, actions)
@@ -3638,7 +3633,7 @@ export function createAdvancedUi(ctx) {
     const root = $('#templates-content');
     if (!root) return;
 
-    const templates = getTemplates();
+    const templates = groupAssets(getTemplates(), { kind: 'template' });
     const hero = el('div', { class: 'page-heading templates-hero' }, [
       el('div', {}, [
         el('div', { class: 'eyebrow' }, 'PACK TEMPLATES & SCAFFOLDING / 整合包起步模板'),
@@ -3696,11 +3691,11 @@ export function createAdvancedUi(ctx) {
 
   function renderTemplatesList(container) {
     const q = extra.templatesSearch;
-    const templates = getTemplates().filter(t => {
+    const templates = groupAssets(getTemplates(), { kind: 'template' }).filter(group => group.options.some(({ row: t }) => {
       if (!q) return true;
-      const haystack = `${t.id} ${t.title ?? ''} ${t.description ?? ''} ${t.parameters?.map(p => p.name).join(' ') ?? ''}`.toLowerCase();
+      const haystack = `${t.id} ${t.title ?? ''} ${t.version ?? ''} ${t.path ?? ''} ${t.description ?? ''} ${t.parameters?.map(p => p.name).join(' ') ?? ''}`.toLowerCase();
       return haystack.includes(q);
-    });
+    }));
 
     const countLabel = $('#templates-collection-count');
     if (countLabel) countLabel.textContent = t('templatesCountLabel', { count: templates.length });
@@ -3720,7 +3715,9 @@ export function createAdvancedUi(ctx) {
       return;
     }
 
-    const cards = templates.map(tpl => {
+    const cards = templates.map(group => {
+      const selected = assetVersionSelection.get(group);
+      const tpl = selected?.row ?? { id: group.id, title: group.title, description: say('原选项已不可用，请重新选择。', 'Previous selection unavailable; choose again.') };
       const isOfficial = tpl.origin === 'builtin';
       const originBadge = el('span', { class: `runtime-kind-chip ${isOfficial ? 'badge-official' : 'badge-local'}` }, isOfficial ? say('官方起步', 'Official Starter') : say('自定义模板', 'Custom Template'));
       const titleText = tpl.title || tpl.id;
@@ -3735,8 +3732,8 @@ export function createAdvancedUi(ctx) {
           say('基于此模板创建整合包', 'Scaffold Pack')
         ].filter(Boolean), () => {
           completion.openTemplate(targetPath);
-        }, 'button button-primary button-small'),
-        button(t('delete'), () => confirmDeleteTemplate(tpl), 'button button-danger-quiet button-small template-delete-btn')
+        }, 'button button-primary button-small', !selected || !targetPath),
+        button(t('delete'), () => confirmDeleteTemplate(tpl), 'button button-danger-quiet button-small template-delete-btn', !selected)
       ];
 
       const coverArt = renderSquareArt({
@@ -3760,7 +3757,8 @@ export function createAdvancedUi(ctx) {
               el('span', { class: 'badge-label' }, say('可配参数', 'Parameters')),
               ...paramsSummary.map(p => pill(p, 'teal'))
             ]) : null,
-            tpl.path ? el('p', { class: 'mono field-help template-path' }, tpl.path) : null
+            tpl.path ? el('p', { class: 'mono field-help template-path' }, tpl.path) : null,
+            renderAssetVersionSelector({ el, say }, group, assetVersionSelection, { onChange: () => renderTemplatesList(container) })
           ].filter(Boolean))
         ]),
         el('div', { class: 'pack-card-footer' }, actions)
@@ -3808,6 +3806,7 @@ export function createAdvancedUi(ctx) {
   }
   window.addEventListener('beforeunload', event => { if (extra.edited && ['pending', 'saving', 'failed'].includes(extra.draftStatus)) { event.preventDefault(); event.returnValue = ''; } });
   return {
+    managePrograms: deploymentUi.managePrograms,
     label,
     languageChanged,
     sessionReady,

@@ -19,6 +19,10 @@ import { debugPageHtml } from '../debug/page.mjs';
 import { stringifyEnvelope } from './lib/wire-json.mjs';
 import { createManagementHttp } from '../management/management-http.mjs';
 
+// Optional process-owner adapter access. This is never exposed by transport or
+// management HTTP; only the parent's private stdio control uses this handle.
+export let ownedHub = null;
+
 function parseArgs(argv) {
   const args = { config: null, port: null, host: null, logDir: null, quiet: false, printToken: null, help: false };
   const aliases = new Set(['-c', '-p', '-q', '-h']);
@@ -123,6 +127,7 @@ async function main() {
   }
 
   const hub = await Hub.create(config);
+  ownedHub = hub;
   const management = await createManagementHttp(hub, config);
 
   const httpServer = createServer(async (req, res) => {

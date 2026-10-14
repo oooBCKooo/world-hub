@@ -2,16 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { workspace, samplePackage, environment, save, ROOT, expectedText, analyze } from '../launcher/helpers.mjs';
-import { startInstance, logsInstance } from '../../../scripts/runtime/index.mjs';
+import { startInstance, logsInstance, createLock } from '../../../scripts/runtime/index.mjs';
 const execute = promisify(execFile), cliPath = join(ROOT, 'bin/world-hub-pack.mjs');
 const envArgs = ['--node', environment.nodePath, '--python', environment.pythonPath];
 const licenses = ['--acknowledge-licenses', 'true'];
 async function cli(args) { const result = await execute(process.execPath, [cliPath, ...args], { cwd: ROOT, windowsHide: true, timeout: 45000, maxBuffer: 4 * 1024 * 1024 }); return JSON.parse(result.stdout); }
 test('AUTHOR-CLI-01 public generation, publication, discovery, retrieval and replacement deliver exact results in both languages', { timeout: 120000 }, async t => {
-  const app = await workspace(t), source = await samplePackage(app), original = await cli(['authoring', source, ...envArgs]);
+  const app = await workspace(t), source = await samplePackage(app);
+  if (process.platform === 'win32') {
+    // This case checks unchanged-caller replacement, not the sample application's
+    // two-second latency policy. Configure only its temporary Windows fixture.
+    const deskPath = join(source, 'modules/desk/program.mjs'), desk = await readFile(deskPath, 'utf8');
+    const budget = '{ timeoutMs: 2000, receiptTimeoutMs: 1000 }';
+    assert.equal(desk.split(budget).length - 1, 3);
+    await writeFile(deskPath, desk.replaceAll(budget, '{ timeoutMs: 10000, receiptTimeoutMs: 5000 }'));
+    await createLock(source, environment);
+  }
+  const original = await cli(['authoring', source, ...envArgs]);
   const oldSource = await readFile(join(source, 'modules/source/program.mjs')), oldDesk = await readFile(join(source, 'modules/desk/program.mjs'));
   let firstRun;
   for (const runtime of ['node', 'python']) {
@@ -29,7 +39,14 @@ test('AUTHOR-CLI-01 public generation, publication, discovery, retrieval and rep
     const session = await startInstance({ root: app.root, instanceId: runtime, trust: imported.digest, ...environment }); app.cleanups.push(() => session.close());
     const state = app.observe(await session.status());
     if (!firstRun) firstRun = state.runId; else assert.notEqual(state.runId, firstRun);
-    const text = '模块任意 🌍\r\n e\u0301 '; const response = await analyze(session.ready.entryUrl, text);
+    const text = '模块任意 🌍\r\n e\u0301 '; let response;
+    try { response = await analyze(session.ready.entryUrl, text); }
+    catch (issue) {
+      const failureLogs = await logsInstance({ root: app.root, instanceId: runtime });
+      app.record('analyze-failure-diagnostics', { runtime, logs: failureLogs });
+      t.diagnostic('AUTHOR_REQUEST_FAILURE ' + JSON.stringify({ runtime, logs: failureLogs }));
+      throw issue;
+    }
     assert.equal(response.result.provider, id); assert.deepEqual(response.result.output, expectedText(text));
     const logs = await logsInstance({ root: app.root, instanceId: runtime }); assert.equal(logs.runId, state.runId); assert.ok(Number.isFinite(Date.parse(logs.observedAt)));
     await session.close(); const historical = await logsInstance({ root: app.root, instanceId: runtime }); assert.equal(historical.runId, state.runId);

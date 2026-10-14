@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { mkdir, readFile, writeFile, lstat } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, lstat, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { ownProcess } from '../../../scripts/runtime/process.mjs';
@@ -59,7 +59,7 @@ test('PIPE-01 Hub stdout failure during real startup fails the operation while L
   const state = (await api.call('/api/instances/pipe-start')).instance.status;
   assert.equal(state.state, 'failed'); assert.ok(state.stoppedAt); assert.notEqual(state.cleanupIncomplete, true);
   assert.equal(alive(captured[0].child.pid), false); assert.equal(await exists(join(app.root, 'instances/pipe-start/owner.lock')), false);
-  assert.equal((await api.call('/api/session')).root, app.root);
+  assert.equal((await api.call('/api/session')).root, await realpath(app.root));
   app.record('real-hub-startup-pipe-error', { stream: 'stdout', error: operation.error, state,
     injectedEvent: true, actualOsFailureClaim: false, launcherAvailable: true, childExited: true });
 });
@@ -80,7 +80,7 @@ test('PIPE-02 running component stderr failure stops exact owned children and st
   assert.ok(state.components.every(component => component.exit)); assert.equal(alive(child.pid), false);
   assert.equal(await exists(join(app.root, 'instances/pipe-running/owner.lock')), false);
   const { logs } = await api.call('/api/instances/pipe-running/logs'); assert.equal(JSON.stringify(logs).includes(secret), false);
-  assert.match(logs.logs.fixture.stderr, /\[redacted\]/); assert.equal((await api.call('/api/session')).root, app.root);
+  assert.match(logs.logs.fixture.stderr, /\[redacted\]/); assert.equal((await api.call('/api/session')).root, await realpath(app.root));
   app.record('real-running-component-pipe-error', { stream: 'stderr', runId: running.runId, failure: state.failure,
     diagnosticBounded: true, diagnosticRedacted: true, launcherAvailable: true, allOwnedChildrenExited: true });
 });
@@ -131,7 +131,7 @@ for (const stream of ['stdout', 'stderr']) test(`PIPE-ENV-${stream} real venv to
   assert.equal(await exists(planned.plan.destination), false); assert.equal(api.server.manager.preparationOwners.size, 0);
   assert.deepEqual((await api.call('/api/environment', {})).environment, before);
   assert.equal(hash(await readFile(join(cache, PYTHON_RECIPE.filename))), PYTHON_RECIPE.sha256);
-  assert.equal((await api.call('/api/session')).root, app.root);
+  assert.equal((await api.call('/api/session')).root, await realpath(app.root));
   // Late pipe events after the tool's close must not start new cancellation timers.
   assert.doesNotThrow(() => captured[0].child[stream].emit('error', pipeError('late read ENOTCONN')));
   assert.equal(operation.error.code, 'PREPARATION_PIPE_FAILED');

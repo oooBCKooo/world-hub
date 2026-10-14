@@ -4,6 +4,8 @@
 
 Modules are external programs. They exchange information through their own bidirectional module bridges and agree on application contracts. The optional Runtime deployment profile and author tools below do not prescribe every program's shape or move business logic into Hub Core.
 
+Existing software, Electron desktop hosts and ordinary application source trees can follow the [independent-program guide](external-programs.en.md) without Launcher import. This deployment profile's directory and lifecycle declarations apply when choosing Runtime management; application source, module source and pack roots have different entry points.
+
 ```powershell
 npm install -g world-hub
 world-hub-pack init-module ./my-statistics --id author.statistics --runtime node

@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // An independent harness implementation. It shares the request/response
 // contract with the template harness, not its business algorithm or process.
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { isDirectExecution } from '../../scripts/cli-entry.mjs';
 import { runPurposePeerMain } from './peer.mjs';
 import { asObject, boundedText, channel, openState, respondOrPublish } from './common.mjs';
 
@@ -30,4 +29,4 @@ export async function startChecklistHarness(context) {
     } });
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) await runPurposePeerMain(startChecklistHarness);
+if (isDirectExecution(import.meta.url)) await runPurposePeerMain(startChecklistHarness);

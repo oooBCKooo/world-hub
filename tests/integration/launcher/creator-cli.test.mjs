@@ -64,11 +64,11 @@ test('CREATOR-CLI-01 public commands derive, exchange and apply a proposal while
   app.record('real-cli-derive-proposal-apply', { revision: derived.revision, proposalId: proposal.proposalId, sourceUnchanged: true, modulesExecuted: false });
 });
 
-test('CREATOR-CLI-02 explicit old-lock rebuild produces a new package and never rewrites the incompatible source', timeout, async t => {
+test('CREATOR-CLI-02 explicit current-format environment relock produces a new package and preserves source', timeout, async t => {
   const app = await fixture(t), lock = await json(join(app.directory, 'pack.lock'));
-  lock.hubVersion = '0.0.1'; await save(join(app.directory, 'pack.lock'), lock);
+  lock.hubVersion = '0.0.1'; lock.runtimes.node.version = '1.0.0'; await save(join(app.directory, 'pack.lock'), lock);
   const previous = await readFile(join(app.directory, 'pack.lock'));
-  await refuses(['plan', app.directory, ...nodeArgs], /Hub version/);
+  await refuses(['plan', app.directory, ...nodeArgs], /node version mismatch/i);
   const rebuilt = await cli(['rebuild', app.directory, '--destination', join(app.directory, 'rebuilt'), ...licenses, ...nodeArgs]);
   assert.equal(rebuilt.oldRequirements.hubVersion, '0.0.1');
   assert.equal(rebuilt.newRequirements.hubVersion, (await json(join(ROOT, 'package.json'))).version);
@@ -76,7 +76,7 @@ test('CREATOR-CLI-02 explicit old-lock rebuild produces a new package and never 
   assert.deepEqual(await readFile(join(app.directory, 'pack.lock')), previous);
   const inspected = await cli(['authoring', rebuilt.directory, ...nodeArgs]); assert.equal(inspected.revision, rebuilt.revision);
   await refuses(['rebuild', app.directory, '--destination', rebuilt.directory, ...licenses, ...nodeArgs], /exist/i);
-  app.record('real-cli-old-lock-rebuild', { oldRequirements: rebuilt.oldRequirements, newRequirements: rebuilt.newRequirements, sourceUnchanged: true });
+  app.record('real-cli-current-format-environment-relock', { oldRequirements: rebuilt.oldRequirements, newRequirements: rebuilt.newRequirements, sourceUnchanged: true });
 });
 
 test('CREATOR-CLI-03 source publication, pinned retrieval and archive-only offline cache recovery remain data-only', timeout, async t => {

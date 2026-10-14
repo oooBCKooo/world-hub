@@ -1,0 +1,10 @@
+{
+  "format": "world-hub.deployment/v1",
+  "title": { "zh": "文本来源", "en": "Text source" },
+  "description": { "zh": "独立保存文本，为明确绑定的使用者提供读取与更新能力。", "en": "Owns text storage and serves read/update requests from explicitly bound consumers." },
+  "topics": { "source": "sample/text/read" },
+  "bridges": { "main": { "publish": ["source"], "subscribe": ["source"] } },
+  "settings": [
+    { "key": "text", "label": { "zh": "初始文本（首次运行）", "en": "Initial text (first run)" }, "type": "string", "default": "你好，世界 🌍\nHello World Hub\n" }
+  ]
+}

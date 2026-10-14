@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { inspectPackage, createLock, validatePack, validateModule, validateLock } from './package.mjs';
 import { ordinaryPath, readBounded, collectFiles, hash, relativePath, privateJson } from './paths.mjs';
 import { doctorModule } from './developer.mjs';
+import { readSourceManifest, collectSourceFiles } from './source-guidance.mjs';
 
 const copy = value => JSON.parse(JSON.stringify(value));
 const sha = /^[a-f0-9]{64}$/;
@@ -51,8 +52,8 @@ async function prepareDerivation(original, options) {
     const component = pack.components.find(c => c.id === r.componentId);
     if (!component) throw new Error('Replacement refers to an absent component');
     const directory = await ordinaryPath(r.moduleDirectory);
-    const manifest = JSON.parse((await readBounded(join(directory, 'module.json'))).toString()); validateModule(manifest);
-    const files = await collectFiles(directory);
+    const manifest = JSON.parse((await readSourceManifest(directory, 'module.json')).toString()); validateModule(manifest);
+    const files = await collectSourceFiles(directory);
     if (!files.some(f => f.path === manifest.runtime.entry)) throw new Error('Replacement entry is absent');
     // One module ID has one content tree. Replacing a shared module changes every
     // reference to that ID; choosing a new ID affects only this component.
@@ -143,7 +144,7 @@ export async function previewAddition(source, options) {
   const original = await inspectAuthoring(source, options);
   if (original.pack.components.some(component => component.id === options.componentId)) throw new Error('Addition refers to an existing source component');
   const directory = await ordinaryPath(options.moduleDirectory);
-  const manifest = JSON.parse((await readBounded(join(directory, 'module.json'))).toString()); validateModule(manifest);
+  const manifest = JSON.parse((await readSourceManifest(directory, 'module.json')).toString()); validateModule(manifest);
   const component = copy(options.component ?? {
     id: options.componentId, module: manifest.id, settings: {}, after: [],
     bridges: Object.fromEntries(manifest.bridges.map(slot => [slot, { publish: [], subscribe: [] }]))
@@ -179,8 +180,8 @@ export async function derivePackage(source, options) {
   return { ...result, provenance, requiresNewExecutionReview: true };
   } catch (error) { error.incompleteDestination = destination; throw error; }
 }
-// Explicit lock migration is a creator action, never an import/start fallback.
-// The old content is checked even when its Hub/runtime versions are unavailable.
+// Rebuilds the environment of a current-format package after source checks.
+// Obsolete formats are rejected; import/start never rewrite a lock.
 export async function rebuildPackage(source, options) {
   cancelled(options); agreement(options);
   const directory = await ordinaryPath(source);
@@ -206,8 +207,8 @@ export async function rebuildPackage(source, options) {
     for (const m of modules) await copyTree(join(directory, m.source), m.files, join(destination, m.source), options);
     await createLock(destination, { ...options, moduleSources: lock.modules.map(m => m.source), pythonPackages: options.pythonPackages ?? lock.runtimes.python?.packages });
     const result = await inspectAuthoring(destination, options);
-    const oldRequirements = { hubVersion: lock.hubVersion, platform: lock.platform, runtimes: lock.runtimes };
-    const newRequirements = { hubVersion: result.review.lock.hubVersion, platform: result.review.lock.platform, runtimes: result.review.lock.runtimes };
+    const oldRequirements = { hubVersion: lock.hubVersion, hubCompatibility: lock.hubCompatibility, platform: lock.platform, runtimes: lock.runtimes };
+    const newRequirements = { hubVersion: result.review.lock.hubVersion, hubCompatibility: result.review.lock.hubCompatibility, platform: result.review.lock.platform, runtimes: result.review.lock.runtimes };
     const provenance = { format: 'world-hub.derivation/v1', operation: 'explicit-lock-rebuild', createdAt: new Date().toISOString(),
       from: { id: pack.id, version: pack.version, revision: baseRevision }, to: { id: result.pack.id, version: result.pack.version, revision: result.revision },
       oldRequirements, newRequirements, licenses: modules.map(m => ({ id: m.manifest.id, version: m.manifest.version, license: m.manifest.license })), redistributionAcknowledged: true };

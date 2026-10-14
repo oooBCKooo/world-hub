@@ -9,6 +9,10 @@ import { ownProcess } from './process.mjs';
 import { assertNoIncompleteUpgrades } from './upgrade.mjs';
 import { reviewIsolationPackage, planIsolation, ownIsolatedProcess } from './isolation.mjs';
 import { writeExistingUserConfiguration } from './isolation-user.mjs';
+import { prepareDependencies } from './dependency-prepare.mjs';
+import { ownHostedProcess } from './host-process.mjs';
+import { deploymentTopics } from './deployment.mjs';
+import { RUNTIME_API } from './compatibility.mjs';
 export { inspectPackage, importPackage, createLock } from './package.mjs';
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -45,6 +49,7 @@ export async function startInstance(options) {
   if (isolation && options.isolationTrust !== isolation.digest) throw Object.assign(new Error('Review the current package isolation policy, Docker executable and image before starting'), { code: 'ISOLATION_REVIEW_REQUIRED' });
   if (!isolation && options.isolationTrust !== undefined) throw Object.assign(new Error('An isolation review cannot be used for trusted-local execution'), { code: 'ISOLATION_REVIEW_REQUIRED' });
   const recorded = await json(join(stateDir, 'instance.json'));
+  if (recorded.hubVersion !== plan.hubVersion) throw Object.assign(new Error('Hub state belongs to another or unknown installed release; state migration must be explicit.'), { code: 'INSTANCE_HUB_STATE_VERSION' });
   if (recorded.instanceId !== options.instanceId || recorded.digest !== plan.digest) throw new Error('Instance review has changed; export/reimport and review this package/environment before starting');
   const lockFile = join(stateDir, 'owner.lock'), nonce = randomUUID();
   await ordinaryPath(lockFile, { allowMissing: true });
@@ -173,14 +178,16 @@ export async function startInstance(options) {
       checkCancelled();
       if (state.failure) throw new Error(state.failure.message);
       const c = plan.pack.components.find(c => c.id === id), m = plan.modules.find(m => m.manifest.id === c.module);
+      const deployed = m.deployment?.dependencies ? await prepareDependencies({directory:join(stateDir,'package',m.source),manifest:m.manifest,review:m.deployment,stateDir:join(stateDir,'deployments',m.manifest.id),signal:startupController.signal}) : null;
       const componentState = join(stateDir, 'programs', c.id); await ordinaryPath(join(stateDir, 'programs', c.id), { allowMissing: true });
       if (!userExecution) { await mkdir(componentState, { recursive: true, mode: 0o700 }); await mkdir(join(componentState, 'tmp'), { recursive: true, mode: 0o700 }); }
       const principal = peers[c.id].principal;
       const bridges = Object.entries(c.bridges).map(([slot, acl]) => ({ slot, endpoint, bridgeId: identity(`runtime.${c.id}.${slot}`),
         credential: principal, principal, token: tokens.get(c.id), publish: acl.publish.map(k => plan.pack.topics[k]), subscribe: acl.subscribe.map(k => plan.pack.topics[k]) }));
       const config = userExecution ? join(componentState, `.runtime-${nonce}.json`) : join(runDir, `${c.id}.json`);
-      const configuration = { format: 'world-hub.run/v1', instanceId: options.instanceId, componentId: c.id,
-        module: { id: m.manifest.id, version: m.manifest.version }, stateDir: componentState, settings: c.settings, topics: plan.pack.topics, peers, bridges };
+      const configuration = { format: RUNTIME_API, instanceId: options.instanceId, componentId: c.id,
+        module: { id: m.manifest.id, version: m.manifest.version }, stateDir: componentState, settings: c.settings, topics: deploymentTopics(plan.pack,c,m.deployment?.deployment), peers, bindings:plan.pack.bindings, bridges,
+        ...(deployed ? {deployment:deployed} : {}) };
       if (userExecution) { await writeExistingUserConfiguration(isolation.policy, config, configuration, plan.environment.node.executable); userConfigurationFiles.push(config); }
       else await privateJson(config, configuration);
       checkCancelled();
@@ -188,7 +195,7 @@ export async function startInstance(options) {
         communication: 'unknown', readiness: 'not-ready', health: { ready: false, lastCheckedAt: null }, bridges: [] };
       components.push(row);
       const executable = plan.environment[m.manifest.runtime.kind].executable;
-      const entry = join(stateDir, 'package', m.source, m.manifest.runtime.entry);
+      const entry = deployed ? join(deployed.directory,m.manifest.runtime.entry) : join(stateDir, 'package', m.source, m.manifest.runtime.entry);
       // Restore normal local imports without adding state cwd as an import
       // source or shortening the lifetime of the program's main module.
       const pythonArgs = m.manifest.runtime.kind === 'python'
@@ -199,7 +206,7 @@ export async function startInstance(options) {
         configPath: config, adapterDirectory: join(runDir, c.id + '-isolation'), entry: m.manifest.runtime.entry, runtime: m.manifest.runtime.kind,
         expectedRuntime: { version: plan.environment[m.manifest.runtime.kind].version, packages: plan.environment[m.manifest.runtime.kind].packages }, runtimeExecutable: executable, nodeExecutable: plan.environment.node.executable }) : null;
       const h = isolatedPlan ? await ownIsolatedProcess(isolatedPlan, { ...processOptions, trust: isolatedPlan.digest })
-        : ownProcess(executable, [...pythonArgs, entry, '--runtime-config', config], processOptions);
+        : await ownHostedProcess(executable, [...pythonArgs, entry, '--runtime-config', config], {...processOptions,ownedChildren:m.manifest.permissions.processes==='owned-children'});
       h.id = c.id; children.push(h); row.pid = h.pid; row.process = 'running';
       if (isolation) {
         const actual = await h.waitFor(event => event.event === 'isolation-ready', plan.pack.startupTimeoutMs);

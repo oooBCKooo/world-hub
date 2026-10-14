@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // Source, result sink and composer are separate processes. All are optional applications.
 import { randomUUID } from 'node:crypto';
+import { isDirectExecution } from '../../scripts/cli-entry.mjs';
 import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { runPurposePeerMain } from '../purpose-demos/peer.mjs';
 import { channel, openState } from '../purpose-demos/common.mjs';
 
@@ -235,4 +235,4 @@ export async function startCompositionPeer(context) {
   await starters[context.peer.id](context);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) await runPurposePeerMain(startCompositionPeer);
+if (isDirectExecution(import.meta.url)) await runPurposePeerMain(startCompositionPeer);

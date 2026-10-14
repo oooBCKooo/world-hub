@@ -1,5 +1,6 @@
 // Accept the actual source ZIP through its extracted optional Runtime and programs.
 import assert from 'node:assert/strict';
+import { isDirectExecution } from '../cli-entry.mjs';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile, lstat, readdir } from 'node:fs/promises';
@@ -187,7 +188,7 @@ export function parseEcosystemAcceptanceArguments(args) {
   if (!options.archive) throw new Error('--archive requires an actual ecosystem source ZIP');
   return options;
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   try { const result = await acceptEcosystemArchive(parseEcosystemAcceptanceArguments(process.argv.slice(2))); console.log(JSON.stringify(result)); if (!result.passed) process.exitCode = 1; }
   catch (error) { console.error(error.message); process.exitCode = 1; }
 }

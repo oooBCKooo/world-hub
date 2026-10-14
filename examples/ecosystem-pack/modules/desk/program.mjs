@@ -83,7 +83,14 @@ try {
   if (process.argv.length !== 4 || process.argv[2] !== '--runtime-config') throw fault('CLI_INVALID');
   const config = JSON.parse(await readFile(resolve(process.argv[3]), 'utf8'));
   const connection = config.bridges?.find(item => item.slot === 'main');
-  const sourcePrincipal = config.peers?.source?.principal, statsPrincipal = config.peers?.stats?.principal;
+  const selectedPrincipal = contract => {
+    if (typeof config.componentId !== 'string' || !Array.isArray(config.bindings) || !object(config.peers)) throw fault('CONFIG_INVALID');
+    const providers = [...new Set(config.bindings.filter(binding => binding.to === config.componentId
+      && binding.contract?.id === contract.id && binding.contract.version === contract.version).map(binding => binding.from))];
+    if (providers.length !== 1) throw fault('CONFIG_INVALID');
+    return config.peers[providers[0]]?.principal;
+  };
+  const sourcePrincipal = selectedPrincipal(sourceContract), statsPrincipal = selectedPrincipal(statsContract);
   const sourceTopic = config.topics?.source, statsTopic = config.topics?.stats;
   if (config.format !== 'world-hub.run/v1' || !connection || typeof config.stateDir !== 'string'
       || typeof sourcePrincipal !== 'string' || typeof statsPrincipal !== 'string'

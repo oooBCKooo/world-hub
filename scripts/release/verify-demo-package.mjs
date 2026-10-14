@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { isDirectExecution } from '../cli-entry.mjs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { verifyPackage } from './verify-package.mjs';
@@ -17,7 +18,7 @@ export async function verifyDemoPackage(root = defaultRoot) {
   return verifyPackage(root);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   try {
     const args = process.argv.slice(2);
     if (args.length && (args.length !== 2 || args[0] !== '--root' || !args[1].trim() || args[1].startsWith('--'))) {

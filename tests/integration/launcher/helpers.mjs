@@ -38,7 +38,11 @@ export async function filesBelow(root, prefix = '') {
 export async function workspace(t) {
   const directory = await mkdtemp(join(tmpdir(), 'world-hub-launcher-test-'));
   const evidence = await reserveEvidenceRun(join(ROOT, '.artifacts/launcher'));
-  const checkpoints = [], trackedPids = new Set(), cleanups = [];
+  const checkpoints = [], trackedPids = new Set(), trackedHandles = new Set(), cleanups = [];
+  const trackSession = session => {
+    assert.ok(Array.isArray(session?.children), 'Retain the actual Runtime ownership session');
+    for (const handle of session.children) { trackedHandles.add(handle); trackedPids.add(handle.pid); }
+  };
   const observe = status => {
     if (status.hub?.pid) trackedPids.add(status.hub.pid);
     for (const component of status.components ?? []) if (component.pid) trackedPids.add(component.pid);
@@ -48,14 +52,26 @@ export async function workspace(t) {
   t.after(async () => {
     for (const cleanup of [...cleanups].reverse()) await cleanup();
     await save(join(evidence.directory, 'scene.json'), { name: t.name, checkpoints,
-      processes: [...trackedPids].map(pid => ({ pid, aliveAfterCleanup: alive(pid) })) });
+      processes: [...trackedPids].map(pid => {
+        const handles = [...trackedHandles].filter(handle => handle.pid === pid);
+        const exitConfirmed = handles.length ? handles.every(handle => handle.exit && !handle.cleanupIncomplete
+          && (handle.child.exitCode !== null || handle.child.signalCode !== null)) : null;
+        return { pid, pidPresentAfterCleanup: alive(pid), ...(exitConfirmed === null ? {} : { exitConfirmed }), aliveAfterCleanup: exitConfirmed === null ? alive(pid) : !exitConfirmed };
+      }) });
     t.diagnostic('LAUNCHER_EVIDENCE ' + JSON.stringify({ report: join(evidence.directory, 'scene.json'), checkpoints: checkpoints.length }));
-    for (const pid of trackedPids) assert.equal(alive(pid), false, `Owned runtime process ${pid} survived cleanup`);
+    for (const pid of trackedPids) {
+      const handles = [...trackedHandles].filter(handle => handle.pid === pid);
+      if (!handles.length) assert.equal(alive(pid), false, `Owned runtime process ${pid} survived cleanup`);
+      for (const handle of handles) {
+        assert.ok(handle.exit && !handle.cleanupIncomplete, `Owned runtime child ${pid} lacks a confirmed close receipt`);
+        assert.ok(handle.child.exitCode !== null || handle.child.signalCode !== null, `Owned runtime child ${pid} lacks ChildProcess exit evidence`);
+      }
+    }
     assert.equal(dirname(resolve(directory)), resolve(tmpdir()));
     assert.ok(basename(directory).startsWith('world-hub-launcher-test-'));
     await rm(directory, { recursive: true, force: true });
   });
-  return { directory, root: join(directory, 'instances-root'), cleanups, observe, record, trackedPids };
+  return { directory, root: join(directory, 'instances-root'), cleanups, observe, record, trackedPids, trackSession };
 }
 
 export async function samplePackage(app) {

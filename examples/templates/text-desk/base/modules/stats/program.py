@@ -65,7 +65,8 @@ def result_for(message, config, caller):
                 "invocationId": invocation, "status": "failed", "provider": config["module"]["id"],
                 "error": {"code": code, "message": description, "retryable": False}}
 
-    if message.get("fromPrincipal") != caller:
+    allowed = caller if isinstance(caller, (set, list, tuple)) else {caller}
+    if message.get("fromPrincipal") not in allowed:
         return failure("PERMISSION_DENIED", "Caller is not authorized by this provider.")
     if not isinstance(body, dict) or body.get("contract") != CONTRACT:
         return failure("CONTRACT_MISMATCH", "Expected the supported exact contract.")
@@ -92,9 +93,17 @@ def main():
     config = json.loads(Path(arguments.runtime_config).read_text(encoding="utf-8"))
     connection = next(item for item in config["bridges"] if item["slot"] == "main")
     topic = config["topics"]["stats"]
-    caller = config["peers"]["desk"]["principal"]
-    if config["format"] != "world-hub.run/v1" or topic not in connection["publish"] or topic not in connection["subscribe"]:
+    if (config["format"] != "world-hub.run/v1" or not isinstance(config.get("componentId"), str)
+            or not isinstance(config.get("bindings"), list) or not isinstance(config.get("peers"), dict)
+            or topic not in connection["publish"] or topic not in connection["subscribe"]):
         raise ValueError("CONFIG_INVALID")
+    callers = set()
+    for binding in config["bindings"]:
+        if binding.get("from") == config["componentId"] and binding.get("contract") == CONTRACT:
+            principal = config["peers"].get(binding.get("to"), {}).get("principal")
+            if not isinstance(principal, str) or not principal:
+                raise ValueError("CONFIG_INVALID")
+            callers.add(principal)
     bridge = Bridge(connection["endpoint"], connection["bridgeId"], credential=connection["credential"],
                     token=connection["token"], timeout=3)
     threading.Thread(target=lifecycle, daemon=True).start()
@@ -134,7 +143,7 @@ def main():
         if message.get("type") == "delivery" and message.get("operation") == "request" and message.get("topic") == topic:
             token = "response-" + str(message["seq"])
             pending[token] = message["seq"]
-            bridge.send({"type": "respond", "requestToken": token, "requestSeq": message["seq"], "body": result_for(message, config, caller)})
+            bridge.send({"type": "respond", "requestToken": token, "requestSeq": message["seq"], "body": result_for(message, config, callers)})
         elif message.get("type") == "published" and message.get("requestToken") in pending:
             sequence = pending.pop(message["requestToken"])
             bridge.send({"type": "ack", "subscription": subscription, "seq": sequence})

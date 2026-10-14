@@ -14,6 +14,10 @@
 
 **模块桥（module bridge）**是程序与枢纽之间的双向通讯适配层。一个程序可以使用多个模块桥，也可以自行选择嵌入或独立运行等实现方式；采用模块桥不要求把程序改造成枢纽内核插件。
 
+已有程序、Electron 桌面宿主或自行管理的模块可按[独立程序接入指南](docs/ecosystem/external-programs.md)直接连接 Hub。Launcher 的整合包部署是可选方案，普通程序源码不必先导入 Launcher。
+
+Launcher 支持导入作者提供的模块 ZIP、从独立模块创建组合，或不创建整合包而接入本机 Hub。整合包、模块和模板的不同版本集中在同一项目卡片中选择，运行实例保持独立。步骤见[模块安装、自由装配与本机接入](docs/ecosystem/launcher-deployment.md)。
+
 ## 从统一入口开始
 
 ```powershell

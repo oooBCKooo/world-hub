@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // Pack and install in disposable prefixes. This command never publishes to npm.
 import assert from 'node:assert/strict';
+import { isDirectExecution } from '../cli-entry.mjs';
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startOwnedProgram } from '../../tests/helpers/owned-program.mjs';
-import { LAUNCHER_FILES, WORKSHOP_FILES, INTEROP_FILES, ECOSYSTEM_RUNTIME_FILES, ECOSYSTEM_SCHEMA_FILES, BUNDLED_TEMPLATE_FILES } from './build-package.mjs';
+import { LAUNCHER_FILES, WORKSHOP_FILES, INTEROP_FILES, ECOSYSTEM_RUNTIME_FILES, ECOSYSTEM_SCHEMA_FILES, BUNDLED_TEMPLATE_FILES, SOFT_UI_MODULE_FILES } from './build-package.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -16,7 +17,7 @@ const safe = value => value.replaceAll('\\', '/');
 const ecosystemFiles = [...ECOSYSTEM_RUNTIME_FILES,
   'docs/ecosystem/pack-spec.md', 'docs/ecosystem/runtime.md',
   ...ECOSYSTEM_SCHEMA_FILES];
-const developerMaterial = ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md', 'docs/ecosystem/launcher.md', ...ecosystemFiles, ...LAUNCHER_FILES, ...WORKSHOP_FILES, ...INTEROP_FILES, ...BUNDLED_TEMPLATE_FILES];
+const developerMaterial = ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md', 'docs/ecosystem/launcher.md', ...ecosystemFiles, ...LAUNCHER_FILES, ...WORKSHOP_FILES, ...INTEROP_FILES, ...BUNDLED_TEMPLATE_FILES, ...SOFT_UI_MODULE_FILES];
 
 async function findNpmCli() {
   const candidates = [process.env.npm_execpath, join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js'),
@@ -54,7 +55,7 @@ function allowedPackageFile(path) {
     'docs/images/hub-launcher.jpg', 'docs/images/hub-launcher-en.jpg',
     'docs/images/demo-event-desk-en.jpg', 'docs/images/demo-modular-assistant-en.jpg', 'docs/images/demo-digital-world-en.jpg',
     'docs/images/demo-capability-directory.jpg', 'docs/images/demo-capability-directory-en.jpg',
-    'docs/modules/text-statistics.contract.json', ...ecosystemFiles, ...LAUNCHER_FILES, ...WORKSHOP_FILES, ...INTEROP_FILES, ...BUNDLED_TEMPLATE_FILES].includes(path)
+    'docs/modules/text-statistics.contract.json', ...ecosystemFiles, ...LAUNCHER_FILES, ...WORKSHOP_FILES, ...INTEROP_FILES, ...BUNDLED_TEMPLATE_FILES, ...SOFT_UI_MODULE_FILES].includes(path)
     || /^src\/.+\.(?:mjs|js|html|css|json)$/.test(path)
     || /^docs\/.+\.md$/.test(path);
 }
@@ -159,7 +160,7 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
       }
       assert.deepEqual(entries.filter(file => !allowedPackageFile(file.path)).map(file => file.path), [], 'Unexpected or generated installed file');
       assert.ok(entries.every(file => !file.path.split('/').some(part => ['.local', '.artifacts', 'data', 'dist', 'node_modules'].includes(part))
-        && (!/^(?:tests|examples)\//.test(file.path) || BUNDLED_TEMPLATE_FILES.includes(file.path))));
+        && (!/^(?:tests|examples)\//.test(file.path) || BUNDLED_TEMPLATE_FILES.includes(file.path) || SOFT_UI_MODULE_FILES.includes(file.path))));
     }
     const directChecked = JSON.parse(await execute('Check installed CLI from a different cwd without writing data', process.execPath,
       [join(localPackage, 'bin/world-hub.mjs'), '--check', '--port', '0'], { cwd: workspace }));
@@ -357,7 +358,7 @@ try { await bridge.connect(); await bridge.registerChannels([{ name: 'npm/test/r
   return report;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   const options = {};
   const seen = new Set(); const argv = process.argv.slice(2);
   for (let index = 0; index < argv.length; index += 2) {

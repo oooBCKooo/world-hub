@@ -1,5 +1,6 @@
 // An ordinary external application with its own mod, never a Hub business API.
 import { createServer } from 'node:http';
+import { isDirectExecution } from '../../scripts/cli-entry.mjs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { join, resolve } from 'node:path';
@@ -122,7 +123,7 @@ export async function startExplorer(settings) {
     principal: bridge.welcome.principal, bridge: bridge.bridgeId }, close, bridge };
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   let app; let pending; let stopping = false;
   const stop = async () => {
     if (stopping) return; stopping = true;

@@ -1,15 +1,15 @@
 import { createServer } from 'node:http';
-import { readFile, open, unlink } from 'node:fs/promises';
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { join, resolve } from 'node:path';
-import { homedir } from 'node:os';
 import { LauncherManager, launcherError } from './manager.mjs';
 import { ordinaryPath, readBounded } from '../../scripts/runtime/paths.mjs';
 import { diagnose } from './diagnostics.mjs';
+import { acquireLauncherOwner, defaultLauncherRoot } from './owner-lock.mjs';
+import { currentHubCompatibility } from '../../scripts/runtime/compatibility.mjs';
 
 const secret = () => randomBytes(32).toString('base64url');
 const equals = (a, b) => typeof a === 'string' && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
-const defaultRoot = () => join(process.env.LOCALAPPDATA ?? join(homedir(), '.local', 'share'), 'WorldHub', 'launcher');
 function fields(body, allowed, required = []) {
   if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(k => !allowed.includes(k))
     || required.some(k => !Object.hasOwn(body, k))) throw launcherError('INVALID_INPUT', 'Missing or unsupported request fields.', 400);
@@ -17,7 +17,8 @@ function fields(body, allowed, required = []) {
     if (['accepted', 'redistributionAcknowledged', 'allowPrivateNetwork', 'enabled', 'observe'].includes(key)) { if (typeof value !== 'boolean') throw launcherError('INVALID_INPUT', `Invalid ${key}`, 400); }
     else if (['priority', 'revision', 'offset'].includes(key)) { if (!Number.isSafeInteger(value)) throw launcherError('INVALID_INPUT', `Invalid ${key}`, 400); }
     else if (key === 'expectedSha256' && value === '') { /* Explicitly clear an optional source pin. */ }
-    else if (['pack', 'component', 'values', 'identity', 'template', 'isolation', 'change', 'user', 'draft'].includes(key)) { if (!value || typeof value !== 'object' || Array.isArray(value)) throw launcherError('INVALID_INPUT', `Invalid ${key} object`, 400); }
+    else if (['pack', 'component', 'values', 'identity', 'template', 'isolation', 'change', 'user', 'draft','settings','topics','bridges'].includes(key)) { if (!value || typeof value !== 'object' || Array.isArray(value)) throw launcherError('INVALID_INPUT', `Invalid ${key} object`, 400); }
+    else if (['modules','bindings'].includes(key)) {if(!Array.isArray(value)||value.length>(key==='modules'?32:64)||value.some(item=>!item||typeof item!=='object'||Array.isArray(item)))throw launcherError('INVALID_INPUT',`Invalid ${key}`,400);}
     else if (key === 'statePolicies') { if (!Array.isArray(value) || value.length > 32 || value.some(policy => !policy || typeof policy !== 'object' || Array.isArray(policy))) throw launcherError('INVALID_INPUT', 'Invalid state policies', 400); }
     else if (key === 'replacements') {
       if (!Array.isArray(value) || value.length > 32) throw launcherError('INVALID_INPUT', 'Invalid replacements', 400);
@@ -39,24 +40,21 @@ async function requirements(directory) {
     await ordinaryPath(directory);
     const value = JSON.parse((await readBounded(join(resolve(directory), 'pack.lock'))).toString('utf8'));
     const short = text => typeof text === 'string' ? text.slice(0, 128) : null;
-    return { hubVersion: short(value.hubVersion), platform: { os: short(value.platform?.os), arch: short(value.platform?.arch) },
+    const installedHubVersion = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')).version;
+    return { format: short(value.format), generatedWithHubVersion: short(value.hubVersion), installedHubVersion,
+      hubCompatibility: value.hubCompatibility ? { wireVersion: short(value.hubCompatibility.wireVersion), runtimeApi: short(value.hubCompatibility.runtimeApi) } : null,
+      currentHubCompatibility: currentHubCompatibility(), platform: { os: short(value.platform?.os), arch: short(value.platform?.arch) },
       runtimes: Object.fromEntries(['node', 'python'].filter(kind => value.runtimes?.[kind]).map(kind => [kind, { version: short(value.runtimes[kind].version),
         ...(kind === 'python' ? { packages: Object.fromEntries(Object.entries(value.runtimes[kind].packages ?? {}).slice(0, 32).map(([name, version]) => [name.slice(0, 64), short(version)])) } : {}) }])) };
   } catch { return null; }
 }
 export async function createLauncherServer(options = {}) {
-  const manager = new LauncherManager({ ...options, root: options.root ?? defaultRoot() }); await manager.initialize();
-  const ownerPath = join(manager.root, 'launcher-owner.lock'), ownerNonce = randomUUID();
-  await ordinaryPath(ownerPath, { allowMissing: true });
-  let owner;
-  try { owner = await open(ownerPath, 'wx', 0o600); } catch (error) {
-    if (error.code === 'EEXIST') throw launcherError('LAUNCHER_LOCKED', 'This root already has a Launcher owner. Inspect abandoned locks manually; stored PIDs are never killed.');
-    throw error;
-  }
-  await owner.writeFile(JSON.stringify({ nonce: ownerNonce, pid: process.pid, startedAt: new Date().toISOString() })); await owner.close();
+  const owner = await acquireLauncherOwner(options.root ?? defaultLauncherRoot());
+  const manager = new LauncherManager({ ...options, root: owner.root });
+  try { await manager.initialize(); } catch (error) { await owner.release(); throw error; }
   const token = secret(), csrfToken = secret(), bootstrapCode = secret(), tokens = new Set([token]); let bootstrapUsed = false, url, closing;
   const context = () => ({ version: 'world-hub.launcher/v1', root: manager.root, defaults: manager.defaults, csrfToken,
-    softwareVersion: options.version ?? null, sandbox: false });
+    softwareVersion: options.version ?? null, sandbox: false, ownerRecovery: owner.recovered });
   const send = (response, status, body) => {
     response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' });
     response.end(JSON.stringify(body));
@@ -72,7 +70,7 @@ export async function createLauncherServer(options = {}) {
       if (['cross-site', 'same-site'].includes(request.headers['sec-fetch-site'])
         && !(document && request.headers['sec-fetch-mode'] === 'navigate' && request.headers['sec-fetch-dest'] === 'document'))
         throw launcherError('LOCAL_ORIGIN_REQUIRED', 'Only same-origin API and resource requests are accepted.', 403);
-      if (request.method === 'GET' && ['/', '/index.html', '/app.mjs', '/advanced.mjs', '/completion-ui.mjs', '/publisher-ui.mjs', '/isolation-ui.mjs', '/path-ui.mjs', '/task-ui.mjs', '/icons.mjs', '/style.css', '/i18n.mjs'].includes(target.pathname)) {
+      if (request.method === 'GET' && ['/', '/index.html', '/app.mjs', '/advanced.mjs', '/asset-versions.mjs', '/deployment-ui.mjs', '/completion-ui.mjs', '/publisher-ui.mjs', '/isolation-ui.mjs', '/path-ui.mjs', '/task-ui.mjs', '/icons.mjs', '/style.css', '/i18n.mjs'].includes(target.pathname)) {
         const navigationKeys = document ? ['instance', 'runId', 'hubOrigin', 'bridgeId', 'session'] : [];
         if ([...target.searchParams.keys()].some(key => !navigationKeys.includes(key) || target.searchParams.getAll(key).length !== 1
           || target.searchParams.get(key).length > 4096)) throw launcherError('INVALID_INPUT', 'Unsupported navigation query.', 400);
@@ -99,6 +97,22 @@ export async function createLauncherServer(options = {}) {
       if (request.method === 'POST') body = await bodyOf(request);
       let result, status = 200;
       if (target.pathname === '/api/session' && request.method === 'GET') result = context();
+      else if (target.pathname === '/api/artifacts/import' && request.method === 'POST') { fields(body,['path','kind'],['path','kind']);result=await manager.importArtifact(body); }
+      else if (target.pathname === '/api/deployment/inspect' && request.method === 'POST') { fields(body,['directory'],['directory']);result=await manager.localPrograms.inspect(body.directory); }
+      else if (target.pathname === '/api/compositions/preview' && request.method === 'POST') { fields(body,['id','version','title','license','modules','entry'],['id','modules']);result=await manager.compositionPreview(body); }
+      else if (target.pathname === '/api/compositions/create' && request.method === 'POST') { fields(body,['reviewId','accepted'],['reviewId','accepted']);result=manager.compositionCreate(body);status=202; }
+      else if (target.pathname === '/api/programs' && request.method === 'GET') result={programs:await manager.localPrograms.programs()};
+      else if (target.pathname === '/api/programs/preview' && request.method === 'POST') {fields(body,['programId','directory','settings','topics','bridges','bindings','nodePath','pythonPath'],['programId','directory']);result=await manager.localPrograms.preview(body);}
+      else if (target.pathname === '/api/programs/register' && request.method === 'POST') {fields(body,['reviewId','accepted'],['reviewId','accepted']);result=await manager.localPrograms.register(body);}
+      else if (/^\/api\/programs\/[a-z0-9][a-z0-9._-]{0,63}\/(review|start|stop|logs)$/.test(target.pathname)) {
+        const [,id,action]=target.pathname.match(/^\/api\/programs\/([^/]+)\/(.+)$/);
+        if(action==='logs'&&request.method==='GET')result={logs:await manager.localPrograms.logs(id)};
+        else if(request.method==='POST'){
+          fields(body,action==='start'?['reviewId','accepted']:[],action==='start'?['reviewId','accepted']:[]);
+          if(action==='review')result=await manager.localPrograms.reviewStart(id);
+          else {result=manager.launch('local-'+action,'$local-'+id,(_,signal)=>action==='start'?manager.localPrograms.start(id,{...body,signal}):manager.localPrograms.stop(id));status=202;}
+        } else throw launcherError('NOT_FOUND','Unknown local program action',404);
+      }
       else if (target.pathname === '/api/paths/browse' && request.method === 'POST') { fields(body, ['directory', 'purpose', 'offset']); result = await manager.paths.browse(body); }
       else if (target.pathname === '/api/paths/check' && request.method === 'POST') { fields(body, ['path', 'purpose'], ['path']); result = await manager.paths.check(body); }
       else if (target.pathname === '/api/paths/known' && request.method === 'GET') result = await manager.paths.known(manager);
@@ -180,20 +194,25 @@ export async function createLauncherServer(options = {}) {
       send(response, status, { ok: true, ...result });
     } catch (error) {
       const reqs = directory ? await requirements(directory) : null;
+      const diagnostic = diagnose(error);
       send(response, error.status ?? (directory ? 422 : 409), { ok: false, error: { code: error.code ?? (directory ? 'REVIEW_FAILED' : 'LAUNCHER_ERROR'), message: String(error.message).slice(0, 2048),
-        ...(error.incompleteDestination ? { incompleteDestination: error.incompleteDestination } : {}) }, diagnostic: diagnose(error),
-        ...(reqs ? { requirements: reqs, guidance: ['Choose a matching preinstalled interpreter and dependency version, or explicitly rebuild the package lock as its author; inspect again.'] } : {}) });
+        ...(error.compatibility ? { compatibility: error.compatibility } : {}),
+        ...(error.incompleteDestination ? { incompleteDestination: error.incompleteDestination } : {}) }, diagnostic,
+        ...(reqs ? { requirements: reqs, ...(['missing-interpreter', 'dependency', 'compatibility'].includes(diagnostic.kind) ? { guidance: [{
+          zh: '在“环境”中选择与锁要求匹配的已安装解释器和依赖，然后重新检查资源。',
+          en: 'Select installed interpreters and dependencies matching the lock in Environment, then inspect the resource again.'
+        }] } : {}) } : {}) });
     }
   });
   server.requestTimeout = 15000; server.headersTimeout = 15000; server.keepAliveTimeout = 1000;
   try { await new Promise((yes, no) => { server.once('error', no); server.listen(options.port ?? 0, '127.0.0.1', yes); }); }
-  catch (error) { await unlink(ownerPath); throw error; }
+  catch (error) { await manager.close(); await owner.release(); throw error; }
   url = `http://127.0.0.1:${server.address().port}/`; manager.url = url;
-  return { url, launchUrl: url + '#launch=' + bootstrapCode, token, csrfToken, root: manager.root, manager,
+  return { url, launchUrl: url + '#launch=' + bootstrapCode, token, csrfToken, root: manager.root, manager, ownerRecovery: owner.recovered,
     close: () => closing ??= (async () => {
       try {
         await manager.close(); await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); });
-        const owner = JSON.parse((await readBounded(ownerPath)).toString('utf8')); if (owner.nonce === ownerNonce) await unlink(ownerPath);
+        await owner.release();
       } catch (error) { closing = null; throw error; }
     })() };
 }

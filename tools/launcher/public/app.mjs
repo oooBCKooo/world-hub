@@ -3,6 +3,7 @@ import { createAdvancedUi } from './advanced.mjs';
 import { createPathUi } from './path-ui.mjs';
 import { createTaskUi } from './task-ui.mjs';
 import { createIcon, renderSquareArt } from './icons.mjs';
+import { groupAssets, createAssetVersionSelection, renderAssetVersionSelector } from './asset-versions.mjs';
 
 const $ = selector => document.querySelector(selector);
 const sessionKey = 'world-hub.launcher.session';
@@ -42,6 +43,7 @@ const deletionBlocked = instance => Boolean(operationFor(instance) || running(in
   || !['imported', 'stopped', 'detached', 'failed', 'deletion-incomplete'].includes(instance?.status?.state));
 let advanced, paths, tasks, restoringHistory = false, historyReady = false;
 const say = (zh, en) => state.language === 'zh' ? zh : en;
+const packVersionSelection = createAssetVersionSelection({storageKey:'world-hub.pack-version-selection/v1'});
 function updateConnectionState(online = state.online) {
   state.online = Boolean(online);
   const stateLabel = $('#connection-state');
@@ -100,7 +102,7 @@ let toastTimer;
 function toast(message) { clearTimeout(toastTimer); $('#toast').textContent = message; $('#toast').hidden = false; toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 6500); }
 
 class ApiError extends Error {
-  constructor(data, status) { super(data?.error?.message ?? `HTTP ${status}`); this.code = data?.error?.code; this.status = status; this.guidance = data?.guidance; this.requirements = data?.requirements; this.diagnostic = data?.diagnostic ?? data?.error?.diagnostic; this.incompleteDestination = data?.incompleteDestination ?? data?.error?.incompleteDestination; }
+  constructor(data, status) { super(data?.error?.message ?? `HTTP ${status}`); this.code = data?.error?.code; this.status = status; this.guidance = data?.guidance; this.requirements = data?.requirements; this.compatibility = data?.error?.compatibility; this.diagnostic = data?.diagnostic ?? data?.error?.diagnostic; this.incompleteDestination = data?.incompleteDestination ?? data?.error?.incompleteDestination; }
 }
 async function api(path, body) {
   if (!state.auth?.token && path !== '/api/session') throw new Error(t('sessionRequired'));
@@ -123,7 +125,12 @@ function errorContents(error) {
   const nodes = [error.diagnostic?.[state.language] ? el('p', {}, error.diagnostic[state.language]) : null, el('p', {}, error.message)].filter(Boolean);
   if (error.incompleteDestination) nodes.push(el('p', {}, `${t('destination')}: ${error.incompleteDestination}`));
   if (error.requirements) nodes.push(el('pre', { class: 'review-digest' }, JSON.stringify(error.requirements, null, 2)));
+  if (error.compatibility) nodes.push(el('pre', { class: 'review-digest' }, JSON.stringify(error.compatibility, null, 2)));
   if (error.guidance?.length) nodes.push(guidance(error.guidance));
+  if (error.diagnostic?.action?.view === 'sources' || ['PACK_LOCK_OBSOLETE', 'PACK_HUB_CONTRACT_UNSUPPORTED'].includes(error.code)) {
+    const action = button(say('打开软件源，获取当前资源', 'Open Software Sources for current resources'), () => { action.closest('dialog')?.close(); navigate('sources'); }, 'button button-primary');
+    action.setAttribute('data-repair-action', 'open-sources'); nodes.push(action);
+  }
   return nodes;
 }
 function renderError(target, error) { const node = $(target); node.className = 'notice notice-error'; node.replaceChildren(...errorContents(error)); node.hidden = false; }
@@ -189,7 +196,7 @@ function confirmDeleteInstance(instance) {
 function guidance(items) {
   const section = el('div', { class: 'review-section' }, el('h3', {}, t('repairSteps')));
   for (const item of items ?? []) {
-    const content = typeof item === 'string' ? item : [item.message, item.command, item.detail].filter(Boolean).join('\n') || JSON.stringify(item);
+    const content = typeof item === 'string' ? item : item[state.language] ?? ([item.message, item.command, item.detail].filter(Boolean).join('\n') || JSON.stringify(item));
     const pre = el('pre', { class: 'review-digest' }, content);
     const copy = button(t('copy'), async () => {
       try { await navigator.clipboard.writeText(content); toast(t('copied')); } catch { toast(t('copyUnavailable')); }
@@ -261,6 +268,21 @@ function packCard(instance) {
     ])
   ]);
 }
+function packProjectCard(group) {
+  const option = packVersionSelection.get(group), instance = option?.row;
+  const card = instance ? packCard(instance) : el('article', { class: 'pack-card asset-unavailable' }, [
+    el('div', { class: 'pack-card-content' }, [el('h3', { class: 'pack-card-title' }, group.title ?? group.id ?? t('unknown'))]),
+    el('div', { class: 'pack-card-footer' }, [button(t('viewDetails'), () => {}, 'button button-small', true), button(t('start'), () => {}, 'button button-small button-primary', true)])
+  ]);
+  card.setAttribute('data-pack-project', group.id ?? group.key);
+  const content = card.querySelector('.pack-card-content');
+  content.append(renderAssetVersionSelector({ el, say }, group, packVersionSelection, { onChange: () => renderPacks() }));
+  // Project grouping never merges lifecycle state: the selected instance still
+  // owns every action, while other live instances remain visible in the summary.
+  const live = group.options.filter(item => running(item.row) || exitUnconfirmed(item.row)).length;
+  content.append(el('p', { class: 'field-help asset-instance-summary' }, say(`${group.options.length} 个独立实例 · ${live} 个运行中或待确认退出`, `${group.options.length} independent instances · ${live} running or awaiting confirmed exit`)));
+  return card;
+}
 function defaultHubCard(hub) {
   const isRunning = hub.state === 'running';
   const busy = state.operations.has('hub:default');
@@ -315,15 +337,16 @@ function defaultHubCard(hub) {
 function empty(title, description, action) { return el('div', { class: 'empty-state' }, [el('div', { class: 'empty-icon', 'aria-hidden': 'true' }, createIcon('packs', 'icon-lg')), el('h3', {}, title), description ? el('p', {}, description) : null, action]); }
 function renderPacks() {
   const search = $('#search').value.trim().toLocaleLowerCase();
-  const instances = state.instances.filter(i => `${idOf(i)} ${i.pack?.id ?? ''} ${i.pack?.title ?? ''}`.toLocaleLowerCase().includes(search));
+  const projects = groupAssets(state.instances, { mode: 'instance' });
+  const matches = projects.filter(group => group.options.some(({ row: i }) => `${idOf(i)} ${i.pack?.id ?? ''} ${i.pack?.title ?? ''} ${i.pack?.version ?? ''}`.toLocaleLowerCase().includes(search)));
   const defaultHub = resolveDefaultHub();
   const matchDefaultHub = !search || 'launcher.default 默认hub 本机开发 调试 socket dev'.toLocaleLowerCase().includes(search);
-  $('#nav-count').textContent = String(state.instances.length);
-  $('#collection-count').textContent = t('items', { count: state.instances.length });
+  $('#nav-count').textContent = String(projects.length);
+  $('#collection-count').textContent = say(`${projects.length} 个项目 · ${state.instances.length} 个独立实例`, `${projects.length} projects · ${state.instances.length} independent instances`);
   advanced?.renderAssetTabs?.(state.view);
 
-  const cards = instances.map(packCard);
-  if (matchDefaultHub) cards.push(defaultHubCard(defaultHub));
+  const cards = matches.map(packProjectCard);
+  if (matchDefaultHub) {const card=defaultHubCard(defaultHub);card.append(button(say('管理本机独立程序','Manage local independent programs'),()=>advanced.managePrograms(),'button button-quiet'));cards.push(card);}
 
   if (!cards.length) {
     $('#packs-list').replaceChildren(empty(t(search ? 'noSearchResults' : 'emptyTitle'), search ? null : t('emptyDescription'), search ? null : el('div', { class: 'result-actions' }, [button(t('importPack'), openImport, 'button button-primary'), button(say('查找本机整合包', 'Find local packs'), () => { openImport(); void paths.open($('#import-form').elements.directory, 'pack'); }, 'button'), button(say('从软件源获取', 'Fetch from sources'), () => navigate('sources'), 'button button-quiet')])));
@@ -620,7 +643,19 @@ function moduleView(module, review, full = true) {
 function reviewView(data, mode = 'execution') {
   const review = data.review;
   const nodes = [el('div', { class: 'review-summary' }, [el('div', {}, [el('h3', {}, review.pack?.title ?? review.pack?.id ?? '—'), el('p', {}, `${review.pack?.id ?? '—'} · v${review.pack?.version ?? '—'}`)]), pill(data.isolation ? data.isolation.profile : t('noSandbox'), 'amber')]), el('div', { class: `notice ${mode === 'execution' ? 'notice-warning' : ''}` }, mode === 'execution' && data.isolation ? (state.language === 'zh' ? '请核对执行模式与固定限制。Docker 模式隔离文件、网络与进程，并可开放审阅过的界面通道；已有 Linux 用户模式只分离账号，保留该账号的普通权限。协议内的信息与代码仍需信任。' : 'Inspect the execution profile and fixed restrictions. Docker isolates files, network, and processes with an optional reviewed UI tunnel. Existing Linux user mode separates accounts and retains their ordinary permissions. Protocol data and code still require trust.') : t(mode === 'execution' ? 'codeExecutionNotice' : 'importNoExecution')), el('div', { class: 'review-section' }, [el('h3', {}, t('source')), el('p', { class: 'review-digest' }, review.directory ?? '—')]), el('div', { class: 'review-section' }, [el('h3', {}, t('modulesPermissions')), el('div', { class: 'review-modules' }, (review.modules ?? []).map(module => moduleView(module, review, false)))]), el('div', { class: 'review-section' }, [el('h3', {}, t('executionOrder')), el('div', { class: 'review-order' }, (review.order ?? []).flatMap((id, i) => [i ? '→' : null, el('span', {}, id)]))]), el('div', { class: 'review-section' }, [el('h3', {}, t('environmentReview')), ...runtimeEnvironment(review.environment)])];
+  nodes.push(el('div', { class: 'review-section', 'data-review-hub-compatibility': '' }, [
+    el('h3', {}, say('Hub 与运行接口', 'Hub and Runtime API')),
+    definition([
+      [say('当前 Hub 发行版本', 'Installed Hub release'), review.hubVersion ?? review.hubCompatibility?.installedHubVersion ?? '—'],
+      [say('生成锁时的发行版本（记录）', 'Lock generation release (metadata)'), review.lock?.hubVersion ?? '—'],
+      [say('锁格式', 'Lock format'), review.lock?.format ?? '—'],
+      [say('要求的线协议 / 当前线协议', 'Required / current wire protocol'), `${review.lock?.hubCompatibility?.wireVersion ?? '—'} / ${review.hubCompatibility?.actual?.wireVersion ?? '—'}`],
+      [say('要求的 Runtime 接口 / 当前接口', 'Required / current Runtime API'), `${review.lock?.hubCompatibility?.runtimeApi ?? '—'} / ${review.hubCompatibility?.actual?.runtimeApi ?? '—'}`],
+    ]),
+    el('p', { class: 'field-help' }, say('兼容性由通讯和运行接口契约判断。生成锁时的发行版本仅作记录；执行授权仍绑定当前安装环境的审阅。', 'Compatibility is checked against communication and Runtime API contracts. The lock generation release is metadata; execution approval remains bound to a review of the current installed environment.')),
+  ]));
   if (data.isolation) nodes.push(el('details', { class: 'json-details', open: true }, [el('summary', {}, data.isolation.profile), el('pre', {}, JSON.stringify(data.isolation, null, 2))]));
+  for(const module of review.modules??[]) if(module.deployment?.dependencies) nodes.push(el('div',{class:'notice'},[el('h3',{},say('依赖准备','Dependency preparation')),el('p',{},say('启动时将在此实例的私有目录安装锁定的官方 npm 依赖；Electron 配方下载官方桌面运行时，不执行模块自定义安装命令。','Starting prepares locked official npm dependencies in this instance’s private directory. The Electron recipe downloads its official desktop runtime; module installation commands are not run.')),el('pre',{},JSON.stringify(module.deployment.dependencies,null,2))]));
   if (data.sourceReceipt?.publisherEvidence) nodes.push(advanced.publisherReport(data.sourceReceipt.publisherEvidence));
   if (data.sourceReceipt) nodes.push(el('details', { class: 'json-details', open: true }, [el('summary', {}, t('sourceReceipt')), el('p', {}, t('integrityNotIdentity')), el('pre', {}, JSON.stringify(data.sourceReceipt, null, 2))]));
   if (data.permissionDiff?.length) nodes.push(el('div', { class: 'notice notice-warning' }, [el('h3', {}, t('permissionChanges')), el('p', {}, t('changesRequireReview')), ...data.permissionDiff.map(change => el('div', { class: 'review-module' }, [el('h4', {}, change.module ?? '—'), ...Object.keys({ ...change.before, ...change.after }).filter(key => JSON.stringify(change.before?.[key]) !== JSON.stringify(change.after?.[key])).map(key => el('p', {}, `${key}: ${display(change.before?.[key])} → ${display(change.after?.[key])}`))]))]));

@@ -325,7 +325,9 @@ if (process.argv.includes('--large-helper')) {
   test('blob: 100 MiB disk transfer verifies SHA-256 with bounded process memory', async () => {
     const { stdout } = await promisify(execFile)(process.execPath,
       ['--expose-gc', '--max-old-space-size=48', fileURLToPath(import.meta.url), '--large-helper'],
-      { timeout: 45000, maxBuffer: 1024 * 1024 });
+      // Hosted Windows disk I/O can exceed 45 seconds for the same 100 MiB
+      // fixture. This checks integrity and bounded memory, not a latency SLA.
+      { timeout: process.platform === 'win32' ? 90000 : 45000, maxBuffer: 1024 * 1024 });
     const result = JSON.parse(stdout.trim());
     assert.equal(result.size, 100 * 1024 * 1024); assert.equal(result.chunkBytes, 256 * 1024);
     // Node external-memory accounting can retain the previous GC interval's

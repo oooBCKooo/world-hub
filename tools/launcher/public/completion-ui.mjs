@@ -4,6 +4,7 @@ export function createCompletionUi(ctx) {
   let templateDirectory = '', templateInspection = null;
   const inputJson = (f, key) => JSON.parse(value(f, key));
   const completed = async result => { await refresh({ explicit: true }); return result; };
+  const lockSummary = lock => `${say('生成锁时的发行版本（记录）', 'Lock generation release (metadata)')} ${lock.hubVersion} · ${say('线协议', 'Wire')} ${lock.hubCompatibility?.wireVersion ?? '—'} · Runtime ${lock.hubCompatibility?.runtimeApi ?? '—'}`;
   function candidateSummary(preview) {
     const none = say('无', 'None'), list = rows => rows?.length ? rows.map(row => typeof row === 'string' ? row : `${row.id}@${row.version}`).join(', ') : none;
     const fields = value => value ? Object.entries(value).map(([key, item]) => `${key}: ${Array.isArray(item) ? list(item) : item}`).join('; ') || none : none;
@@ -34,7 +35,7 @@ export function createCompletionUi(ctx) {
       if (!dir) throw new Error(say('请先输入或选择包含 template.json 的模板目录。', 'Please enter or select a template directory containing template.json.'));
       templateDirectory = dir; const data = await api('/api/templates/inspect', { directory: templateDirectory });
       templateInspection = data.inspection;
-      results.replaceChildren(note(`${data.inspection.manifest.title} · ${data.inspection.manifest.id}@${data.inspection.manifest.version} · Hub ${data.inspection.lock.hubVersion}`), jsonView(say('模板与参数', 'Template and parameters'), data.inspection), instantiateForm(templateDirectory, data.inspection));
+      results.replaceChildren(note(`${data.inspection.manifest.title} · ${data.inspection.manifest.id}@${data.inspection.manifest.version} · ${lockSummary(data.inspection.lock)}`), jsonView(say('模板与参数', 'Template and parameters'), data.inspection), instantiateForm(templateDirectory, data.inspection));
     }, say('输入包含 template.json 和 base 目录的工程模板路径。', 'Enter a template directory containing template.json and base.'), 'template-inspect');
     const create = form([field('directory', say('完整锁定基包目录', 'Complete locked base pack directory')), field('template', say('模板声明 JSON', 'Template declaration JSON'), '', { multiline: true }), field('destination', say('新的模板目录', 'New template directory'))], say('审阅并创建模板', 'Review and create template'), async f => {
       const body = { directory: value(f, 'directory'), template: inputJson(f, 'template'), destination: value(f, 'destination'), redistributionAcknowledged: true };
@@ -66,7 +67,7 @@ export function createCompletionUi(ctx) {
       }));
       const identity = value(f, 'identity'), input = { directory, values, ...(identity ? { identity: JSON.parse(identity) } : {}) };
       const review = await api('/api/templates/preview', input), destination = value(f, 'destination');
-      reviewAction(say('生成新的锁定包', 'Create a new locked pack'), [note(`${review.preview.pack.title} · ${review.preview.pack.id}@${review.preview.pack.version} · Hub ${review.preview.lock.hubVersion}`), jsonView(say('将写入的参数', 'Parameters to write'), review.preview.values, true), jsonView(say('完整参数与锁预览', 'Complete parameters and lock preview'), review.preview)], say('我已审阅参数、来源、公开内容与再分发许可。', 'I reviewed parameters, sources, public contents, and redistribution licenses.'), async () => {
+      reviewAction(say('生成新的锁定包', 'Create a new locked pack'), [note(`${review.preview.pack.title} · ${review.preview.pack.id}@${review.preview.pack.version} · ${lockSummary(review.preview.lock)}`), jsonView(say('将写入的参数', 'Parameters to write'), review.preview.values, true), jsonView(say('完整参数与锁预览', 'Complete parameters and lock preview'), review.preview)], say('我已审阅参数、来源、公开内容与再分发许可。', 'I reviewed parameters, sources, public contents, and redistribution licenses.'), async () => {
         await operation(await api('/api/templates/instantiate', { previewId: review.previewId, destination, redistributionAcknowledged: true }), 'instantiate-template', result => {
           const notice = note(say(`已生成：${result.directory}`, `Created: ${result.directory}`));
           notice.append(button(say('导入生成的包', 'Import generated pack'), () => { openImport(); document.querySelector('#import-form').elements.directory.value = result.directory; }, 'button button-primary'));

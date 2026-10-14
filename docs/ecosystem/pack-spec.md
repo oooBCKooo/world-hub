@@ -1,5 +1,7 @@
 # 外部程序整合包声明 v1
 
+可选的作者部署默认值、锁定依赖准备和本机 Node 所属子进程 profile 见[部署扩展](launcher-deployment.md)与 [deployment.schema.json](deployment.schema.json)。Hub 不读取这些文件；原有 `processes: none` 模块继续兼容。
+
 这套开放声明描述一组外部程序怎样部署和接线。它与可选的[参考 Runtime](runtime.md)共同构成本地导入、启动、停止和重建的实验。Hub 仍只负责通讯；它不读取这些清单、不选择程序、不安装依赖、不执行业务。
 
 这里的 **模块桥（module bridge）是通信适配层**，**可部署模块（module）是外部程序包**。两者不是同一对象。一个程序可以具有多座模块桥；模块桥可以嵌入既有应用，也可以作为独立适配器。可部署模块的启动入口和生命周期约定只适用于选择这套部署工具的程序，不是接入 Hub 的要求。没有 module、pack、目录、Runtime 或 Launcher 的程序仍可按照[通讯协议](../specs/protocol.md)和自己的 SDK 接入。
@@ -24,11 +26,11 @@ text-desk/
     desk/sdk/...
 ```
 
-`pack.json` 表达组合意图；`module.json` 描述一个可启动部署包；`pack.lock` 锁定当前组合使用的完整模块源码与环境版本。规范独立于下载网站。v1 参考实现只导入本地普通目录，不下载远程程序、不解压不受信任归档、不执行安装脚本。
+`pack.json` 表达组合意图；`module.json` 描述一个可启动部署包；`pack.lock` 锁定当前组合使用的完整模块源码、通信／启动配置契约与宿主环境。当前锁格式为 `world-hub.pack-lock/v2`，旧锁格式不受支持。规范独立于下载网站；静态检查、导入和启动授权仍是独立步骤。
 
 机器形状见 [module.schema.json](module.schema.json)、[pack.schema.json](pack.schema.json) 和 [pack-lock.schema.json](pack-lock.schema.json)，采用 JSON Schema 2020-12。参考 Runtime 的手工校验实现是它的 v1 支持范围的权威实现：Schema 之外还必须检查路径、实际文件集合、大小限额、标识重复、交叉引用、依赖环、契约绑定及解释器环境。只通过 Schema 不足以导入或启动。
 
-v1 对象采用封闭字段，未知字段拒绝；程序自己的 `settings` 是开放 JSON 对象。版本使用 `^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$` 的精确版本语法，不支持 `+build` 或版本范围，不隐式推导兼容性。这是此部署 profile 的简化语法，不是通用 SemVer 校验器。module ID、pack ID、组件 ID、桥槽及主题别名采用 `^[a-z0-9][a-z0-9._-]{0,63}$`。能力契约 ID 是程序间开放声明，不是 Hub 内置信息类别。
+当前 module／pack v1 与 pack-lock v2 对象采用封闭字段，未知字段拒绝；程序自己的 `settings` 是开放 JSON 对象。版本使用 `^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$` 的精确版本语法，不支持 `+build` 或版本范围，不隐式推导兼容性。这是此部署 profile 的简化语法，不是通用 SemVer 校验器。module ID、pack ID、组件 ID、桥槽及主题别名采用 `^[a-z0-9][a-z0-9._-]{0,63}$`。能力契约 ID 是程序间开放声明，不是 Hub 内置信息类别。
 
 模块与组件各为 1–32 个，主题表为 1–64 项，单模块桥槽为 1–8 个，单个 provides／requires 为 0–32 个。启动、健康和停止期限各为 100–60000 毫秒。有限规模是参考部署工具的保护范围，不是 Hub 全局模块数或信息种类的上限。
 
@@ -121,16 +123,17 @@ v1 对象采用封闭字段，未知字段拒绝；程序自己的 `settings` �
 
 `entry.component` 选择整合包入口程序。入口 URL 由该程序启动后提供；参考 Runtime 只接受其声明过的 loopback HTTP 服务地址。URL 可用不证明完整业务成功。`settings` 是程序自己的公开配置，Runtime 不解释其业务含义。不要把密码、API key 或私人正文放入可分享的 settings；导出会保留 pack 配置。
 
-## pack.lock：完整源码和环境版本
+## pack.lock：完整源码、通信契约和环境
 
 ```json
 {
-  "format": "world-hub.pack-lock/v1",
+  "format": "world-hub.pack-lock/v2",
   "pack": {
     "id": "demo.polyglot", "version": "1.0.0",
     "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
   },
-  "hubVersion": "0.16.1",
+  "hubVersion": "0.19.0",
+  "hubCompatibility": { "wireVersion": "0.1", "runtimeApi": "world-hub.run/v1" },
   "platform": { "os": "win32", "arch": "x64" },
   "runtimes": {
     "node": { "version": "22.23.2" },
@@ -150,9 +153,13 @@ v1 对象采用封闭字段，未知字段拒绝；程序自己的 `settings` �
 
 上述零 hash 只说明形状，不能通过实际校验；完整示例还须列出其他模块及所有随包文件。`pack.sha256` 是 `pack.json` 原始文件字节的 SHA-256，不是重新序列化对象的 hash。模块 files 是源目录中**完整且准确**的普通文件集合，每个 path 相对其 source。缺文件、多文件、内容改动、重复路径、大小写冲突、链接或目录逃逸均须拒绝。目录之外的解释器、Hub 和第三方库不偷偷混进“源码锁定”的证明范围。
 
-`hubVersion`、解释器版本及 Python 库版本固定当前运行环境的兼容选择。Python `packages` 是最多 32 项的预安装分发包名到精确版本的映射；锁定工具默认检查 `websockets:15.0.1`，另一个 Python 程序可以显式选择自己的依赖集合。这不是允许自动运行依赖安装脚本。版本相同不能证明解释器或已安装第三方库的二进制字节相同；这份 v1 锁没有下载这些制品，也没有给它们提供签名或二进制哈希。锁校验不是来源认证、安全证明、OS 隔离或所有业务行为可复现的保证。
+`hubVersion` 只记录生成锁时所用产品发布版本，不是导入或启动的兼容条件。`hubCompatibility` 必须完整声明当前通信协议 `wireVersion: "0.1"` 和模块启动配置 `runtimeApi: "world-hub.run/v1"`；两者均须与当前实现完全一致。不存在旧协议实现、范围推断或自动降级。旧版、未知格式、缺少契约或不受支持的契约均拒绝；应由作者提供当前格式的整合包。
+
+OS／架构、解释器版本及 Python 库版本仍是精确要求。Python `packages` 是最多 32 项的预安装分发包名到精确版本的映射；锁定工具默认检查 `websockets:15.0.1`，另一个 Python 程序可以显式选择自己的依赖集合。这不是允许自动运行依赖安装脚本。版本相同不能证明解释器或已安装第三方库的二进制字节相同；源码锁不下载这些制品，也不给它们提供签名或二进制哈希。锁校验不是来源认证、安全证明、OS 隔离或所有业务行为可复现的保证。
 
 变更模块源码、pack 接线、权限或环境选择后，应使用显式锁定工具重新生成锁并审阅。导入／启动不得因不匹配自动更新锁。另一平台或解释器版本需要明确重新锁定；不静默忽略平台信息。
+
+**English — current compatibility contract.** Only `world-hub.pack-lock/v2` is accepted. `hubVersion` records the product release used to generate the lock; it does not require that release at import or start. `hubCompatibility` must exactly match the current wire protocol (`0.1`) and module run-configuration API (`world-hub.run/v1`). Missing, obsolete or unknown lock formats and unsupported contracts are rejected, without fallback. OS, architecture, interpreter and Python dependency versions remain exact requirements. The source hashes and full file set are still verified. Matching communications contracts do not establish compatibility of existing application or Hub persistent data; backup restore retains its separate actual-Hub-release checks.
 
 ## 标识、状态与留存
 

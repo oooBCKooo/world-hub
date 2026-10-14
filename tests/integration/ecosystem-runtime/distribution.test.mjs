@@ -11,6 +11,7 @@ import { buildEcosystemPackage, ECOSYSTEM_SOURCE_FILES, ECOSYSTEM_PACK_FILES,
 import { ECOSYSTEM_RUNTIME_FILES, ECOSYSTEM_SCHEMA_FILES, LAUNCHER_FILES, WORKSHOP_FILES, BUNDLED_TEMPLATE_FILES } from '../../../scripts/release/build-package.mjs';
 import { verifyPackage } from '../../../scripts/release/verify-package.mjs';
 import { createLock } from '../../../scripts/runtime/package.mjs';
+import { PACK_LOCK_FORMAT_V2, currentHubCompatibility } from '../../../scripts/runtime/compatibility.mjs';
 
 const repository = fileURLToPath(new URL('../../../', import.meta.url));
 const pythonPath = process.env.WORLD_HUB_RUNTIME_TEST_PYTHON ?? (process.platform === 'win32' ? 'python.exe' : 'python3');
@@ -24,6 +25,11 @@ before(async () => {
     await copyFile(join(repository, local), join(source, local));
   }
   await createLock(join(source, 'examples/ecosystem-pack'), { nodePath: process.execPath, pythonPath });
+  const lockPath = join(source, 'examples/ecosystem-pack/pack.lock');
+  const lock = JSON.parse(await readFile(lockPath, 'utf8'));
+  assert.equal(lock.format, PACK_LOCK_FORMAT_V2);
+  lock.hubVersion = '0.18.0';
+  await writeFile(lockPath, JSON.stringify(lock, null, 2) + '\n');
   bundle = join(temporary, '中文 空格 跨语言源码包');
   built = await buildEcosystemPackage({ sourceRoot: source, output: bundle });
 });
@@ -40,6 +46,9 @@ test('ecosystem source distribution carries exact locked programs, Runtime and s
   assert.equal(manifest.runtime, null); assert.equal(manifest.externalRuntimes.node.version, '22.23.2');
   assert.equal(manifest.externalRuntimes.python.version, '3.14.0');
   assert.equal(manifest.externalRuntimes.python.packages.websockets, '15.0.1');
+  const lock = JSON.parse(await readFile(join(bundle, 'examples/ecosystem-pack/pack.lock'), 'utf8'));
+  assert.equal(lock.hubVersion, '0.18.0'); assert.deepEqual(lock.hubCompatibility, currentHubCompatibility());
+  assert.ok(ECOSYSTEM_RUNTIME_FILES.includes('scripts/runtime/compatibility.mjs'));
   assert.deepEqual(manifest.mutable, ['data/**']);
   assert.equal((await verifyPackage(bundle)).passed, true);
   for (const local of [...ECOSYSTEM_PACK_FILES, ...ECOSYSTEM_RUNTIME_FILES, ...ECOSYSTEM_SCHEMA_FILES, ...LAUNCHER_FILES, ...WORKSHOP_FILES, ...BUNDLED_TEMPLATE_FILES]) {
@@ -64,6 +73,8 @@ test('distributed Runtime CLI is self-contained and can inspect the byte-exact s
   const plan = JSON.parse(result.stdout);
   assert.equal(plan.startsModules, false); assert.equal(plan.sandbox, false);
   assert.equal(plan.modules.length, 3); assert.match(plan.digest, /^[a-f0-9]{64}$/);
+  assert.equal(plan.hubCompatibility.recordedHubVersion, '0.18.0');
+  assert.equal(plan.hubCompatibility.mode, 'contracts'); assert.equal(plan.hubCompatibility.compatible, true);
   assert.equal((await verifyPackage(bundle)).passed, true, 'Inspection must not mutate packaged files');
   const guide = await readFile(join(bundle, 'examples/ecosystem-pack/README.md'), 'utf8');
   for (const match of guide.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
@@ -83,6 +94,19 @@ test('ecosystem builder rejects overwritten destinations, locked file damage and
   await writeFile(join(extra, 'examples/ecosystem-pack/modules/source/private.json'), '{"runtime":"generated"}');
   await assert.rejects(buildEcosystemPackage({ sourceRoot: extra, output: target }), /undeclared or generated files/);
   await assert.rejects(access(target), { code: 'ENOENT' });
+});
+
+test('ecosystem source builder refuses obsolete lock formats and unsupported current contracts before output', async () => {
+  for (const change of ['obsolete', 'unsupported']) {
+    const changed = join(temporary, 'lock-' + change); await cp(source, changed, { recursive: true });
+    const file = join(changed, 'examples/ecosystem-pack/pack.lock'), lock = JSON.parse(await readFile(file, 'utf8'));
+    if (change === 'obsolete') { lock.format = 'world-hub.pack-lock/v1'; delete lock.hubCompatibility; }
+    else lock.hubCompatibility.runtimeApi = 'world-hub.run/v999';
+    await writeFile(file, JSON.stringify(lock, null, 2) + '\n');
+    const output = join(temporary, 'rejected-' + change);
+    await assert.rejects(buildEcosystemPackage({ sourceRoot: changed, output }), /Unsupported lock format|Unsupported Hub compatibility contract/);
+    await assert.rejects(access(output), { code: 'ENOENT' });
+  }
 });
 
 test('ecosystem source builder exposes a strict source-only command-line interface', () => {

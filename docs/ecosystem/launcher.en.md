@@ -30,6 +30,10 @@ Use `--port 0` for an assigned port, and `--node <executable>` or `--python <exe
 
 An accepted start or stop request is not proof that a process is running or has exited. Closing a browser tab does not stop an instance. Stop the backend with Ctrl+C and wait for its reported result. Unconfirmed cleanup retains diagnostics and the actual ownership needed to retry stopping; an old PID is not authority to terminate a process.
 
+Launcher accepts only the current `world-hub.pack-lock/v2` format. Its `hubVersion` records the product release used to generate the lock; it is not an import/start compatibility requirement. `hubCompatibility` must exactly match the current wire protocol (`0.1`) and module run-configuration API (`world-hub.run/v1`). A different recorded product release alone does not block import. Obsolete/unknown lock formats and unsupported contracts are refused, with no legacy implementation, automatic conversion or fallback. Source hashes, platform, interpreter and dependency versions remain strict requirements.
+
+For a current-format package whose interpreter or platform selection needs to change, the author can explicitly create and test a new lock, or use **Copy and rebuild lock** to verify the source and create a separately reviewed copy for the selected environment. This interface rejects obsolete/unknown formats. Existing Hub state and private backup restore retain separate checks against the actual Hub product release; matching communication contracts do not establish persistent-data compatibility.
+
 ## Paths, drafts and operations
 
 [The bilingual interaction guide](../launcher-ux.md#english) explains the local picker, bounded user-triggered discovery, recoverable private Creator drafts, tasks and results, responsive navigation and language selection.
@@ -45,6 +49,22 @@ Saved drafts retain public configuration and candidate source records. Restorati
 **Tasks & results** can reconnect to tasks after a page refresh while the same Launcher backend is running. It retains up to the latest 128 tasks in that process; history does not survive a backend restart. Output files and private drafts have their own persistence. Cancellation is a request and may leave partial output; inspect its final result.
 
 ## Environment and execution boundaries
+
+### Crash recovery and Launcher ownership
+
+On Windows and Linux, Launcher holds an operating-system exclusive guard through owner creation and confirmed cleanup. Windows case and 8.3 aliases share the canonical root. Normal shutdown removes `launcher-owner.lock`. Startup recovers a valid leftover owner only when the operating system explicitly reports its recorded PID absent (`ESRCH`), installing complete replacement metadata atomically without a delete/create gap.
+
+A live PID, including a reused PID, permission-denied or unknown probes, truncated metadata and unreadable locks remain protected. Older active Launchers are also protected even though they have no new guard. No recorded process is killed. Other platforms currently retain stale locks conservatively.
+
+```powershell
+world-hub ui --inspect-lock
+world-hub ui --inspect-lock --root F:\hub-instances
+world-hub ui --clean-lock --root F:\hub-instances
+```
+
+Inspection is read-only: it prints the root, lock path, state, reason and recoverability, without creating directories/configuration, starting services or reading instance control credentials. `live-or-reused` confirms current PID existence, not identity. `unknown` requires investigating the original owner or unreadable/incomplete metadata. Corruption is not proof of exit. Explicit cleanup uses the same proven-dead check as startup; no unchecked `--force` exists. Lock operations are standalone and cannot be combined with `--open`.
+
+Recovering root ownership does not adopt or stop existing children. Instance `owner.lock`, `control.json` and data stay unchanged, and root-owner death does not establish child exit. Recovery is reported in `launcher-ready.ownerRecovery` and the local `/api/session`; subsequent instance operations still obey Runtime ownership and fresh execution review.
 
 Path discovery reads files without executing programs. Explicit environment checks run fixed version and dependency probes using the selected trusted interpreters, without executing package entry points or install scripts. Missing or mismatched environments prevent starting. Launcher does not automatically download interpreters or execute third-party repair commands.
 

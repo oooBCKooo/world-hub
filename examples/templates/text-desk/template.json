@@ -1,7 +1,7 @@
 {
   "format": "world-hub.template/v1",
   "id": "demo.text-template",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "title": "Reusable text workbench / 可复用文本工作台",
   "license": "MIT",
   "base": "base",

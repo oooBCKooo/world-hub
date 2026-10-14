@@ -1,0 +1,19 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "title":"Optional author-selected deployment defaults",
+  "type":"object","additionalProperties":false,
+  "required":["format","title","description","topics","bridges","settings"],
+  "properties":{
+    "format":{"const":"world-hub.deployment/v1"},
+    "title":{"$ref":"#/$defs/localized"},"description":{"$ref":"#/$defs/localized"},
+    "topics":{"type":"object","minProperties":1,"maxProperties":64,"propertyNames":{"pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"},"additionalProperties":{"type":"string","minLength":1,"maxLength":512}},
+    "bridges":{"type":"object","minProperties":1,"maxProperties":8,"additionalProperties":{"type":"object","additionalProperties":false,"required":["publish","subscribe"],"properties":{"publish":{"$ref":"#/$defs/aliases"},"subscribe":{"$ref":"#/$defs/aliases"}}}},
+    "settings":{"type":"array","maxItems":64,"items":{"type":"object","additionalProperties":false,"required":["key","label","type","default"],"properties":{"key":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"},"label":{"$ref":"#/$defs/localized"},"type":{"enum":["string","number","boolean"]},"default":{"type":["string","number","boolean"]},"min":{"type":"number"},"max":{"type":"number"}}}},
+    "dependencies":{"type":"object","additionalProperties":false,"required":["kind","manifest","lock","recipes"],"properties":{"kind":{"const":"npm-lock"},"manifest":{"const":"package.json"},"lock":{"const":"package-lock.json"},"recipes":{"type":"array","maxItems":1,"items":{"const":"electron"}}}}
+  },
+  "$defs":{
+    "localized":{"type":"object","minProperties":1,"additionalProperties":false,"properties":{"zh":{"type":"string","minLength":1,"maxLength":2048},"en":{"type":"string","minLength":1,"maxLength":2048}}},
+    "aliases":{"type":"array","maxItems":64,"uniqueItems":true,"items":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"}}
+  },
+  "$comment":"Runtime deployment.mjs additionally validates concrete topics, exact bridge slots, matching field default types, duplicate keys, sensitive-setting keys, and locked official dependency origins and integrity."
+}

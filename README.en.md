@@ -14,6 +14,10 @@ World Hub is their shared communications crossroads: it accepts, addresses, reta
 
 A **module bridge** is a bidirectional communication adapter between a program and the Hub. A program can use multiple module bridges and choose how to implement them, including embedded adapters or separate processes. Using a module bridge does not require turning the program into a Hub Core plugin.
 
+Existing applications, Electron desktop hosts and self-managed modules can follow the [independent-program guide](docs/ecosystem/external-programs.en.md) to connect directly. Launcher pack deployment is optional; ordinary application source does not need Launcher import.
+
+Launcher supports author-supplied module ZIPs, compositions created from independent modules, and programs using the local Hub without a pack. Versions share a project card while runtime instances remain independent. See [installation, composition and local connections](docs/ecosystem/launcher-deployment.en.md).
+
 ## Start with the unified interface
 
 ```powershell
