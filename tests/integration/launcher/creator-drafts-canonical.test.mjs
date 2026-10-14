@@ -60,8 +60,10 @@ test('DRAFT-CANONICAL-03 Windows case, real 8.3 aliases and namespace paths shar
   await mkdir(replacement, { recursive: true }); await mkdir(other);
   const canonical = await realpath(source), canonicalReplacement = await realpath(replacement);
   const script = "$ProgressPreference = 'SilentlyContinue'; [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); $fso = New-Object -ComObject Scripting.FileSystemObject; [Console]::Out.Write($fso.GetFolder($env:WH_DRAFT_ALIAS_TEST).ShortPath)";
+  // A cold Windows PowerShell/COM startup can exceed five seconds on a hosted
+  // runner. This bounds only the path fixture, not a program or Hub operation.
   const shortPath = value => execFileSync('powershell.exe', ['-NoProfile', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
-    { env: { ...process.env, WH_DRAFT_ALIAS_TEST: value }, encoding: 'utf8', windowsHide: true, timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    { env: { ...process.env, WH_DRAFT_ALIAS_TEST: value }, encoding: 'utf8', windowsHide: true, timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   const shortSource = shortPath(source), shortReplacement = shortPath(replacement);
   const distinctShortAlias = shortSource.toLowerCase() !== canonical.toLowerCase();
   if (!distinctShortAlias) t.diagnostic('This volume has no distinct 8.3 alias; case and namespace identity still run.');
