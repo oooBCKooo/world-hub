@@ -75,9 +75,11 @@ export async function collectFiles(root) {
       if (info.isSymbolicLink()) throw new Error(`Package link is not allowed: ${path}`);
       if (info.isDirectory()) await visit(path);
       else if (info.isFile()) {
+        if (info.size > 8 * 1024 * 1024) throw Object.assign(new Error(`Expected ordinary file of at most ${8 * 1024 * 1024} bytes: ${full}`),
+          { code: 'MODULE_SOURCE_LIMIT', sourceRelativePath: path, limitBytes: 8 * 1024 * 1024 });
         const content = await readBounded(full, 8 * 1024 * 1024);
         bytes += content.length;
-        if (bytes > 64 * 1024 * 1024 || files.length >= 4096) throw new Error('Module source tree exceeds v1 size or file-count bound');
+        if (bytes > 64 * 1024 * 1024 || files.length >= 4096) throw Object.assign(new Error('Module source tree exceeds v1 size or file-count bound'), { code: 'MODULE_SOURCE_LIMIT' });
         files.push({ path, sha256: hash(content) });
       } else throw new Error(`Package special file is not allowed: ${path}`);
     }

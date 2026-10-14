@@ -3,8 +3,8 @@ import { readBounded, ordinaryPath } from '../../scripts/runtime/paths.mjs';
 import { open } from 'node:fs/promises';
 import { WorkshopStore, initializeAdmin } from './store.mjs';
 import { createWorkshopServer } from './server.mjs';
-import { pathToFileURL } from 'node:url';
 import { resolve, join } from 'node:path';
+import { isDirectExecution } from '../../scripts/cli-entry.mjs';
 
 function argumentsOf(args) {
   const value = {}; for (let i = 0; i < args.length; i++) {
@@ -53,4 +53,4 @@ export async function main(args = process.argv.slice(2)) {
   const stop = async () => { if (stopping) return; stopping = true; try { await service.close(); } catch { console.error('Workshop shutdown could not release its owned data lock.'); process.exitCode = 1; } };
   process.once('SIGINT', stop); process.once('SIGTERM', stop);
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main().catch(() => { console.error('Workshop command failed. Check the private configuration, ownership and operation inputs; no credentials are logged.'); process.exitCode = 1; });
+if (isDirectExecution(import.meta.url)) main().catch(() => { console.error('Workshop command failed. Check the private configuration, ownership and operation inputs; no credentials are logged.'); process.exitCode = 1; });

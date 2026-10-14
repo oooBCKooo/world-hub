@@ -1,4 +1,5 @@
 import { readFile, lstat, readdir } from 'node:fs/promises';
+import { isDirectExecution } from '../cli-entry.mjs';
 import { createHash } from 'node:crypto';
 import { resolve, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,7 +35,7 @@ export async function verifyPackage(root, { allowConfigChange = false } = {}) {
   await visit(root);
   return { passed: failed.length === 0, version: manifest.version, kind: manifest.kind, checkedFiles: manifest.files.length, allowedRuntimeData: allowed, skippedConfiguration, failed, note: 'Checks accidental changes against the supplied manifest; not a publisher signature' };
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   let root = fileURLToPath(new URL('../../', import.meta.url)); let allowConfigChange = false;
   const args = process.argv.slice(2);
   for (let i = 0; i < args.length; i++) {

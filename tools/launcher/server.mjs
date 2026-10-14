@@ -1,15 +1,14 @@
 import { createServer } from 'node:http';
-import { readFile, open, unlink } from 'node:fs/promises';
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { join, resolve } from 'node:path';
-import { homedir } from 'node:os';
 import { LauncherManager, launcherError } from './manager.mjs';
 import { ordinaryPath, readBounded } from '../../scripts/runtime/paths.mjs';
 import { diagnose } from './diagnostics.mjs';
+import { acquireLauncherOwner, defaultLauncherRoot } from './owner-lock.mjs';
 
 const secret = () => randomBytes(32).toString('base64url');
 const equals = (a, b) => typeof a === 'string' && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
-const defaultRoot = () => join(process.env.LOCALAPPDATA ?? join(homedir(), '.local', 'share'), 'WorldHub', 'launcher');
 function fields(body, allowed, required = []) {
   if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(k => !allowed.includes(k))
     || required.some(k => !Object.hasOwn(body, k))) throw launcherError('INVALID_INPUT', 'Missing or unsupported request fields.', 400);
@@ -45,18 +44,12 @@ async function requirements(directory) {
   } catch { return null; }
 }
 export async function createLauncherServer(options = {}) {
-  const manager = new LauncherManager({ ...options, root: options.root ?? defaultRoot() }); await manager.initialize();
-  const ownerPath = join(manager.root, 'launcher-owner.lock'), ownerNonce = randomUUID();
-  await ordinaryPath(ownerPath, { allowMissing: true });
-  let owner;
-  try { owner = await open(ownerPath, 'wx', 0o600); } catch (error) {
-    if (error.code === 'EEXIST') throw launcherError('LAUNCHER_LOCKED', 'This root already has a Launcher owner. Inspect abandoned locks manually; stored PIDs are never killed.');
-    throw error;
-  }
-  await owner.writeFile(JSON.stringify({ nonce: ownerNonce, pid: process.pid, startedAt: new Date().toISOString() })); await owner.close();
+  const owner = await acquireLauncherOwner(options.root ?? defaultLauncherRoot());
+  const manager = new LauncherManager({ ...options, root: owner.root });
+  try { await manager.initialize(); } catch (error) { await owner.release(); throw error; }
   const token = secret(), csrfToken = secret(), bootstrapCode = secret(), tokens = new Set([token]); let bootstrapUsed = false, url, closing;
   const context = () => ({ version: 'world-hub.launcher/v1', root: manager.root, defaults: manager.defaults, csrfToken,
-    softwareVersion: options.version ?? null, sandbox: false });
+    softwareVersion: options.version ?? null, sandbox: false, ownerRecovery: owner.recovered });
   const send = (response, status, body) => {
     response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' });
     response.end(JSON.stringify(body));
@@ -187,13 +180,13 @@ export async function createLauncherServer(options = {}) {
   });
   server.requestTimeout = 15000; server.headersTimeout = 15000; server.keepAliveTimeout = 1000;
   try { await new Promise((yes, no) => { server.once('error', no); server.listen(options.port ?? 0, '127.0.0.1', yes); }); }
-  catch (error) { await unlink(ownerPath); throw error; }
+  catch (error) { await manager.close(); await owner.release(); throw error; }
   url = `http://127.0.0.1:${server.address().port}/`; manager.url = url;
-  return { url, launchUrl: url + '#launch=' + bootstrapCode, token, csrfToken, root: manager.root, manager,
+  return { url, launchUrl: url + '#launch=' + bootstrapCode, token, csrfToken, root: manager.root, manager, ownerRecovery: owner.recovered,
     close: () => closing ??= (async () => {
       try {
         await manager.close(); await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); });
-        const owner = JSON.parse((await readBounded(ownerPath)).toString('utf8')); if (owner.nonce === ownerNonce) await unlink(ownerPath);
+        await owner.release();
       } catch (error) { closing = null; throw error; }
     })() };
 }

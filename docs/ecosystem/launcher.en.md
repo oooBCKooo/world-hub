@@ -46,6 +46,22 @@ Saved drafts retain public configuration and candidate source records. Restorati
 
 ## Environment and execution boundaries
 
+### Crash recovery and Launcher ownership
+
+On Windows and Linux, Launcher holds an operating-system exclusive guard through owner creation and confirmed cleanup. Windows case and 8.3 aliases share the canonical root. Normal shutdown removes `launcher-owner.lock`. Startup recovers a valid leftover owner only when the operating system explicitly reports its recorded PID absent (`ESRCH`), installing complete replacement metadata atomically without a delete/create gap.
+
+A live PID, including a reused PID, permission-denied or unknown probes, truncated metadata and unreadable locks remain protected. Older active Launchers are also protected even though they have no new guard. No recorded process is killed. Other platforms currently retain stale locks conservatively.
+
+```powershell
+world-hub ui --inspect-lock
+world-hub ui --inspect-lock --root F:\hub-instances
+world-hub ui --clean-lock --root F:\hub-instances
+```
+
+Inspection is read-only: it prints the root, lock path, state, reason and recoverability, without creating directories/configuration, starting services or reading instance control credentials. `live-or-reused` confirms current PID existence, not identity. `unknown` requires investigating the original owner or unreadable/incomplete metadata. Corruption is not proof of exit. Explicit cleanup uses the same proven-dead check as startup; no unchecked `--force` exists. Lock operations are standalone and cannot be combined with `--open`.
+
+Recovering root ownership does not adopt or stop existing children. Instance `owner.lock`, `control.json` and data stay unchanged, and root-owner death does not establish child exit. Recovery is reported in `launcher-ready.ownerRecovery` and the local `/api/session`; subsequent instance operations still obey Runtime ownership and fresh execution review.
+
 Path discovery reads files without executing programs. Explicit environment checks run fixed version and dependency probes using the selected trusted interpreters, without executing package entry points or install scripts. Missing or mismatched environments prevent starting. Launcher does not automatically download interpreters or execute third-party repair commands.
 
 Default **trusted-local** execution has no OS sandbox. Optional Node/Python container protection and existing Linux user identity separation require explicit configuration and review. Existing Linux user mode separates accounts without claiming to sandbox that account. Independent instance directories and Hub identities are not filesystem access isolation by themselves. Inspect the profile displayed in each execution review.

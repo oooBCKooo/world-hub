@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { mkdir, copyFile, writeFile, lstat } from 'node:fs/promises';
+import { isDirectExecution } from '../cli-entry.mjs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ordinaryPath } from '../runtime/paths.mjs';
@@ -22,7 +23,7 @@ export async function buildIndependentAuthorKit(output) {
     credentialsExcluded: true, sourceHashes: {}, artifactHashes: {}, operatorVerified: false }, null, 2) + '\n');
   return { directory, files: [...authorKitFiles, 'README.md', 'acceptance-record.json'], humanAcceptanceCompleted: false, containsExistingProvider: false };
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   const args = process.argv.slice(2);
   if (args.length !== 2 || args[0] !== '--output' || !args[1]) throw new Error('Use --output <new-existing-parent-directory>');
   console.log(JSON.stringify(await buildIndependentAuthorKit(args[1])));

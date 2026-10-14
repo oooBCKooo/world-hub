@@ -3,6 +3,7 @@
 // original Ctrl+C shutdown flushes storage on Windows as well as Unix.
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { isDirectExecution } from './cli-entry.mjs';
 import { acquireDataLocks, checkEnvironment, checkPortAvailable, observeReady, openManagementPage, parseArgs, readyUrls } from './launcher-support.mjs';
 
 export const BUNDLE_ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -84,7 +85,7 @@ export async function runLauncher(argv = process.argv.slice(2), { bundleRoot = B
   } finally { process.argv = originalArgv; }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   runLauncher().catch(error => {
     process.stderr.write(`整合包启动失败：${error.message}\n`);
     if (process.connected && typeof process.send === 'function') {

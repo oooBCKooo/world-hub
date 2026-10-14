@@ -2,7 +2,8 @@ import { readFile, readdir, mkdir, writeFile, lstat, realpath } from 'node:fs/pr
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { hash, relativePath, ordinaryPath, readBounded, collectFiles, privateJson, processCwd, processPath, checkPythonExecutablePath } from './paths.mjs';
+import { hash, relativePath, ordinaryPath, readBounded, privateJson, processCwd, processPath, checkPythonExecutablePath } from './paths.mjs';
+import { readSourceManifest, collectSourceFiles } from './source-guidance.mjs';
 
 export const repository = fileURLToPath(new URL('../../', import.meta.url));
 const idPattern = /^[a-z0-9][a-z0-9._-]{0,63}$/;
@@ -145,7 +146,9 @@ export function validateLock(lock) {
   }
   for (const a of lock.modules) for (const b of lock.modules) if (a !== b && b.source.toLowerCase().startsWith(a.source.toLowerCase() + '/')) throw new Error('Overlapping module source trees');
 }
-async function loadJson(file) { const raw = await readBounded(file); let value; try { value = JSON.parse(raw.toString('utf8')); } catch { throw new Error(`Invalid JSON: ${file}`); } return { value, raw }; }
+async function loadJson(file) { const raw = ['module.json', 'pack.json'].includes(file.split(/[\\/]/).at(-1))
+  ? await readSourceManifest(dirname(file), file.split(/[\\/]/).at(-1)) : await readBounded(file);
+  let value; try { value = JSON.parse(raw.toString('utf8')); } catch { throw new Error(`Invalid JSON: ${file}`); } return { value, raw }; }
 function checkNodePackagePaths(modules, directory) {
   if (process.platform !== 'win32') return;
   for (const module of modules.filter(m => m.manifest.runtime.kind === 'node')) {
@@ -168,7 +171,7 @@ export async function inspectPackage(packDirectory, options = {}) {
   const modules = [];
   for (const locked of lock.modules) {
     const source = join(directory, locked.source);
-    const actual = await collectFiles(source);
+    const actual = await collectSourceFiles(source);
     if (actual.length !== locked.files.length || actual.some(f => locked.files.find(x => x.path === f.path)?.sha256 !== f.sha256)) throw new Error(`Module file hash or file set mismatch: ${locked.id}`);
     const { value: manifest } = await loadJson(join(source, 'module.json')); validateModule(manifest);
     if (manifest.id !== locked.id || manifest.version !== locked.version) throw new Error('Locked module identity/version mismatch');
@@ -209,7 +212,7 @@ export async function createLock(packDirectory, options = {}) {
   const modules = [];
   for (const source of sources) {
     relativePath(source); const { value: manifest } = await loadJson(join(directory, source, 'module.json')); validateModule(manifest);
-    modules.push({ id: manifest.id, version: manifest.version, source, files: await collectFiles(join(directory, source)) });
+    modules.push({ id: manifest.id, version: manifest.version, source, files: await collectSourceFiles(join(directory, source)) });
   }
   const node = await interpreter(options.nodePath, 'node');
   const runtimes = { node: { version: node.version } };

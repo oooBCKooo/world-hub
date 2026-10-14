@@ -36,6 +36,23 @@ Launcher 默认展示整合包管理。Hub 管理与通信工作台仍使用现�
 
 关闭浏览器标签页不等于停止实例。结束后台时在启动它的终端使用 Ctrl+C，并等待 `launcher-stopped`。后台清理本次自己监督的进程；启动失败但清理未确认时也保留真实所属 Runtime 的清理句柄，允许再次停止。无法确认退出时报告错误并保留服务与所有权，不宣称停机完成。
 
+### Launcher 异常退出与所有权诊断
+
+Windows 和 Linux 启动时使用操作系统独占 guard，并持有到所属进程退出确认与正常清理结束。Windows 路径大小写和 8.3 别名归一到同一个 root。正常停止会释放 `launcher-owner.lock`；崩溃留下有效锁时，只有操作系统明确报告保存的 PID 不存在（`ESRCH`）才自动恢复。完整新元数据原子替换旧文件，不在“删除旧锁／创建新锁”之间开放竞争窗口。
+
+保存的 PID 仍存在（包括被其他进程复用）、探测遭拒（如 `EPERM`）、锁被截断或元数据不完整时均保留锁并拒绝接管；不会依据 PID 杀进程。旧版 Launcher 即使没有新 guard，其活跃或未知所有者也阻止接管。其他平台目前保守保留残留锁，不自动解除。
+
+可以在普通终端执行只读检查，无须找到隐藏的 AppData 目录：
+
+```powershell
+world-hub ui --inspect-lock
+world-hub ui --inspect-lock --root F:\hub-instances
+```
+
+检查输出 root、锁路径、状态、原因和可恢复性；不启动服务、不创建配置或数据目录，也不读取实例控制凭据。`live-or-reused` 表示当前 PID 存在，不能据此确认进程身份；`unknown` 需要先查明原 Launcher 是否仍在运行及文件为何不可读取。锁损坏并不证明原程序已停止。可选的 `world-hub ui --clean-lock --root F:\hub-instances` 只执行与自动恢复相同的死亡验证；不支持无检查的 `--force`。清理是独立命令，不能同时使用 `--open`。
+
+恢复只处理 Launcher root 所有权。已有子进程可能仍在运行；实例 `owner.lock`、`control.json` 与数据均保留，不自动接管或终止它们，也不把旧 root PID 死亡解释为所有实例已停止。恢复结果出现在 `launcher-ready.ownerRecovery` 及本机 `/api/session` 中，后续实例操作仍遵守 Runtime 的原有锁和当前审阅要求。
+
 ## 环境检测与修复
 
 检查使用宿主的平台／架构和 pack.lock 的要求，核对已选择解释器的真实路径、版本、二进制 SHA-256 及预安装依赖版本。Node 默认使用运行工具的 Node；Python 依照 Runtime 的默认查找规则或用户明确选择的路径解析。

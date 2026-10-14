@@ -20,6 +20,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14.0'
+      - name: Linux Launcher ownership recovery and linked CLI entry paths
+        run: node --test --test-timeout=120000 --test-concurrency=1 tests/integration/launcher/owner-lock.test.mjs tests/integration/npm/entry-paths.test.mjs
       - name: Explicitly prepare host Python and a digest-bound Python container fixture
         run: |
           python -m pip install -r sdk/python/requirements.txt

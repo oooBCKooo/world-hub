@@ -1,5 +1,6 @@
 // Source-only reference pack distribution. Runtime, Hub and business remain separate.
 import { mkdir, readFile, writeFile, lstat, access } from 'node:fs/promises';
+import { isDirectExecution } from '../cli-entry.mjs';
 import { createHash } from 'node:crypto';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +25,7 @@ export const ECOSYSTEM_PACK_FILES = Object.freeze(['README.md', 'pack.json', 'pa
   ...Object.entries(moduleFiles).flatMap(([id, names]) => names.map(name => `modules/${id}/${name}`))]
   .map(name => packPrefix + name));
 const documentation = ['README.en.md', ...SDK_DOCUMENTATION_FILES,
+  'docs/ecosystem/external-programs.md', 'docs/ecosystem/external-programs.en.md',
   ...['README', 'onboarding', 'development', 'deployment', 'verification', 'repository', 'releases', 'npm']
     .map(name => `docs/${name}.md`),
   ...['index', 'boundaries', 'protocol', 'reliability-access', 'directed-and-bulk', 'management',
@@ -174,7 +176,7 @@ export function parseEcosystemBuildArguments(args) {
   if (args.length !== 2 || args[0] !== '--output' || !args[1] || args[1].startsWith('--')) throw new Error('Usage: build-ecosystem-package.mjs [--output new-directory]');
   return { output: args[1] };
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   try { console.log(JSON.stringify(await buildEcosystemPackage(parseEcosystemBuildArguments(process.argv.slice(2))))); }
   catch (error) { console.error(error.message); process.exitCode = 1; }
 }

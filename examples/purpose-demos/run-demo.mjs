@@ -1,5 +1,6 @@
 // Owns an isolated demonstration session. All business is in external peers.
 import { access, lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { isDirectExecution } from '../../scripts/cli-entry.mjs';
 import { constants } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -162,7 +163,7 @@ export async function startPurposeDemo({ profile: id, stateDirectory = null, ope
   } catch (error) { await close(); throw error; }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   let session; let pending; let stopping = false;
   const stop = async () => {
     if (stopping) return; stopping = true;

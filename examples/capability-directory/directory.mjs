@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // An optional external catalog. The Hub neither loads nor interprets manifests.
 import { randomUUID } from 'node:crypto';
+import { isDirectExecution } from '../../scripts/cli-entry.mjs';
 import { readFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { join } from 'node:path';
 import { runPurposePeerMain } from '../purpose-demos/peer.mjs';
 import { channel, openState } from '../purpose-demos/common.mjs';
 
@@ -93,4 +93,4 @@ export async function startDirectory(context) {
     } });
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) await runPurposePeerMain(startDirectory);
+if (isDirectExecution(import.meta.url)) await runPurposePeerMain(startDirectory);

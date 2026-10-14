@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDirectExecution } from '../scripts/cli-entry.mjs';
 import { runLauncher } from '../scripts/launcher.mjs';
 import { checkEnvironment, parseArgs } from '../scripts/launcher-support.mjs';
 import { normalizeConfig } from '../src/hub/lib/store.mjs';
@@ -14,12 +15,15 @@ export const HELP = `世界枢纽 npm 命令（前台运行）
   world-hub [--config <path>] [--data-dir <path>] [--port <n>] [--open]
   world-hub --check [--config <path>] [--data-dir <path>] [--port <n>]
   world-hub ui [--open] [--root <path>] [--port <n>] [--node <exe>] [--python <exe>]
+  world-hub ui [--inspect-lock | --clean-lock] [--root <path>]
 
   --config, -c <path>  使用自己的配置；相对路径以当前工作目录为基准
   --data-dir <path>    明确指定通讯日志、大对象与管理状态的数据根
   --port, -p <n>       本次覆盖监听端口；0 至 65535，0 为系统分配
   --check             只读检查；不会创建配置、数据或运行锁，也不启动服务
   --open              就绪后打开本机管理界面
+  ui --inspect-lock   只读检查 Launcher 根目录的所有者锁
+  ui --clean-lock     仅清理已明确退出的本机所有者锁；不杀进程
   --help, -h          显示帮助
 
 未指定配置时，首次启动会在当前目录 world-hub-data/hub.json 写入参考配置，
@@ -108,7 +112,7 @@ export async function runNpmCli(argv = process.argv.slice(2), options = {}) {
   return runLauncher(launcherArgs, { bundleRoot: options.packageRoot ?? PACKAGE_ROOT });
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   runNpmCli().catch(error => {
     process.stderr.write(`世界枢纽启动失败：${error.message}\n`);
     if (process.connected && typeof process.send === 'function') {

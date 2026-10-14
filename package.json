@@ -72,6 +72,7 @@
     "config/hub.json",
     "scripts/launcher.mjs",
     "scripts/launcher-support.mjs",
+    "scripts/cli-entry.mjs",
     "docs/**/*.md",
     "docs/modules/text-statistics.contract.json",
     "docs/images/hub-topology.jpg",

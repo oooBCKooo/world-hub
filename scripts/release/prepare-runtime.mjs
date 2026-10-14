@@ -1,4 +1,5 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { isDirectExecution } from '../cli-entry.mjs';
 import { createHash } from 'node:crypto';
 import { resolve, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -37,7 +38,7 @@ export async function prepareRuntime({ node = process.execPath, download = false
   await writeFile(join(directory, 'provenance.json'), JSON.stringify(provenance, null, 2) + '\n', { flag: 'wx' });
   return { directory, ...provenance };
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   const args = process.argv.slice(2); const options = {};
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--node') options.node = args[++i];

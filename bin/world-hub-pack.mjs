@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { realpath } from 'node:fs/promises';
+import { isDirectExecution } from '../scripts/cli-entry.mjs';
 import { inspectPackage, createLock, importPackage, startInstance, statusInstance, logsInstance, stopInstance, exportInstance,
   backupInstance, inspectBackup, restoreInstance, storageInstance, detachInstance, reattachInstance,
   inspectAuthoring, previewReplacement, derivePackage, rebuildPackage, exportProposal, applyProposal, readSourceIndex, fetchSourceArtifact, publishArtifact, attachPublisherEvidence } from '../scripts/runtime/index.mjs';
@@ -111,7 +112,7 @@ export function parseArgs(argv) {
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
   if (args.help) { process.stdout.write(HELP); return; }
-  if (args.version) { process.stdout.write(JSON.parse((await readBounded(fileURLToPath(new URL('../package.json', import.meta.url)))).toString()).version + '\n'); return; }
+  if (args.version) { process.stdout.write(JSON.parse((await readBounded(await realpath(fileURLToPath(new URL('../package.json', import.meta.url))))).toString()).version + '\n'); return; }
   if (args.completion) { process.stdout.write(completionScript(args.completion)); return; }
   const print = value => console.log(JSON.stringify(value));
   const { command, packDirectory, options } = args;
@@ -171,6 +172,6 @@ export function completionScript(shell) {
   if (shell === 'zsh') return `#compdef world-hub-pack\n_arguments '*:command or option:(${words.join(' ')})'\n`;
   return commands.map(command => `complete -c world-hub-pack -f -a '${command}'`).join('\n') + '\n';
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   main().catch(error => { console.error(JSON.stringify({ ok: false, error: { code: 'PACK_RUNTIME_ERROR', message: error.message } })); process.exitCode = 1; });
 }

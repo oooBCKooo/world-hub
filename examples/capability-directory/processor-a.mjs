@@ -1,11 +1,22 @@
 #!/usr/bin/env node
 // Independent provider A: only the public contract and the mod SDK are shared.
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Bridge } from '../../sdk/javascript/bridge-kit.mjs';
+
+// Keep this standalone provider dependent only on standard libraries and SDK.
+function isDirectExecution(moduleUrl) {
+  if (!process.argv[1]) return false;
+  try {
+    const invoked = realpathSync.native(resolve(process.argv[1]));
+    const current = realpathSync.native(fileURLToPath(moduleUrl));
+    return process.platform === 'win32' ? invoked.toLowerCase() === current.toLowerCase() : invoked === current;
+  } catch { return false; }
+}
 
 const PROVIDER = 'metrics-a', PRINCIPAL = 'demo.capability-directory.metrics-a';
 const EXPLORER = 'demo.capability-directory.explorer', COMPOSER = 'demo.capability-directory.composer';
@@ -139,4 +150,4 @@ async function main(argv) {
   try { runtime = await startProcessorA(options); if (stopping) await runtime.close(); else { const event = runtime.ready(); console.log(JSON.stringify(event)); process.send?.(event); } }
   catch (error) { await stop(); throw error; }
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) main(process.argv.slice(2)).catch(error => { console.error(error.message); process.exitCode = 1; });
+if (isDirectExecution(import.meta.url)) main(process.argv.slice(2)).catch(error => { console.error(error.message); process.exitCode = 1; });

@@ -18,6 +18,7 @@
 | 按用途探索事件面板、模块化助手、数字世界和能力替换 | [用途演示整合包](examples/purpose-demos.md) |
 | 独立编写可替换的能力提供者 | [提供者接入契约](modules/provider-contract.md)、[机器契约](modules/text-statistics.contract.json)、[JS SDK](../sdk/javascript/README.md) |
 | 生成 Node / Python 模块、诊断环境并验证真实替换结果 | [模块作者快速开始](ecosystem/developer.md)、[English](ecosystem/developer.en.md) |
+| 接入 Electron 桌面宿主、原有软件或自行管理的程序 | [独立程序接入](ecosystem/external-programs.md)、[English](ecosystem/external-programs.en.md) |
 | 用公开 CLI 验证自己的能力契约结果 | [互操作基准](ecosystem/interop.md)、[第十八期范围](ecosystem/phase18.md) |
 | 社区到本地的跨角色验收、来源与执行信任 | [Workshop E2E](ecosystem/phase18-workshop.md)、[信任边界](ecosystem/trust.md) |
 | 外部能力目录、公开合同与独立处理器替换 | [能力目录示例](examples/capability-directory.md) |

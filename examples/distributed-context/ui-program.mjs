@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // This external UI owns workflow and presentation. All peer traffic uses its mod.
 import { createServer } from 'node:http';
+import { isDirectExecution } from '../../scripts/cli-entry.mjs';
 import { readFile } from 'node:fs/promises';
 import { randomUUID, randomBytes, timingSafeEqual } from 'node:crypto';
-import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { join } from 'node:path';
 import { acquireStateLease, cliLifecycle, connectPeer, loadSettings, StateFile } from './lib/program-kit.mjs';
 
 const MAX_REQUESTS = 128;
@@ -358,7 +358,7 @@ async function startLeasedUi(settings, lease) {
   };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (isDirectExecution(import.meta.url)) {
   startUiProgram(loadSettings()).then((program) => cliLifecycle(program, { program: 'ui', url: program.url }))
     .catch((error) => { process.stderr.write(`${error.stack ?? error}\n`); process.exitCode = 1; });
 }

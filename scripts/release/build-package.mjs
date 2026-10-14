@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile, readdir, lstat, access } from 'node:fs/promises';
+import { isDirectExecution } from '../cli-entry.mjs';
 import { createHash } from 'node:crypto';
 import { join, resolve, dirname, basename, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,12 +29,12 @@ export const BUNDLED_TEMPLATE_FILES = Object.freeze(['template.json', 'base/pack
   ...['module.json', 'program.mjs', 'bridge-kit.mjs', 'blob-client.mjs', 'index.html', 'ui.js', 'LICENSE'].map(file => 'base/modules/desk/' + file)]
   .map(file => 'examples/templates/text-desk/' + file));
 export const ECOSYSTEM_RUNTIME_FILES = Object.freeze(['bin/world-hub-pack.mjs',
-  ...['index', 'runtime', 'package', 'paths', 'process', 'hub-process', 'maintenance', 'authoring', 'sources', 'developer', 'template', 'upgrade', 'staged-upgrade', 'completion-cli', 'publisher-trust', 'publisher-store', 'publisher-cli', 'isolation', 'isolation-wrapper', 'isolation-channel', 'isolation-http', 'isolation-user', 'isolation-user-supervisor'].map(name => `scripts/runtime/${name}.mjs`),
+  ...['index', 'runtime', 'package', 'paths', 'source-guidance', 'process', 'hub-process', 'maintenance', 'authoring', 'sources', 'developer', 'template', 'upgrade', 'staged-upgrade', 'completion-cli', 'publisher-trust', 'publisher-store', 'publisher-cli', 'isolation', 'isolation-wrapper', 'isolation-channel', 'isolation-http', 'isolation-user', 'isolation-user-supervisor'].map(name => `scripts/runtime/${name}.mjs`),
   'scripts/runtime/isolation-wrapper.py',
   'scripts/runtime/templates/node/program.mjs', 'scripts/runtime/templates/node/logic.mjs', 'scripts/runtime/templates/node/logic.test.mjs',
   'scripts/runtime/templates/python/program.py', 'scripts/runtime/templates/python/logic.py', 'scripts/runtime/templates/python/test_logic.py']);
-export const LAUNCHER_FILES = Object.freeze(['bin/world-hub.mjs',
-  ...['cli', 'server', 'manager', 'source-registry', 'paths-service', 'creator-drafts', 'environment', 'environment-prepare', 'diagnostics', 'topology'].map(name => `tools/launcher/${name}.mjs`),
+export const LAUNCHER_FILES = Object.freeze(['bin/world-hub.mjs', 'scripts/cli-entry.mjs',
+  ...['cli', 'server', 'owner-lock', 'manager', 'source-registry', 'paths-service', 'creator-drafts', 'environment', 'environment-prepare', 'diagnostics', 'topology'].map(name => `tools/launcher/${name}.mjs`),
   ...['index.html', 'app.mjs', 'style.css', 'i18n.mjs', 'advanced.mjs', 'completion-ui.mjs', 'publisher-ui.mjs', 'isolation-ui.mjs', 'path-ui.mjs', 'task-ui.mjs', 'icons.mjs'].map(name => `tools/launcher/public/${name}`)]);
 export const WORKSHOP_FILES = Object.freeze(['tools/workshop/cli.mjs', 'tools/workshop/store.mjs', 'tools/workshop/server.mjs',
   ...['index.html', 'app.mjs', 'style.css'].map(name => `tools/workshop/public/${name}`)]);
@@ -150,7 +151,7 @@ export async function buildPackage({ output, runtimeDirectory = null, sourceRoot
   await writeFile(output + '.build.json', JSON.stringify(result, null, 2) + '\n', { flag: 'wx' });
   return result;
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   const args = process.argv.slice(2); const options = {};
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--output') options.output = args[++i];

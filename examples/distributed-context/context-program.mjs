@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Context selection is this external program's business. The hub sees only envelopes.
 import { open } from 'node:fs/promises';
-import { resolve, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { isDirectExecution } from '../../scripts/cli-entry.mjs';
+import { join } from 'node:path';
 import { acquireStateLease, cliLifecycle, connectPeer, loadSettings, StateFile } from './lib/program-kit.mjs';
 
 const MAX_RECORDS = 256;
@@ -204,7 +204,7 @@ async function startLeasedContext(settings, lease) {
   } };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (isDirectExecution(import.meta.url)) {
   startContextProgram(loadSettings()).then((program) => cliLifecycle(program, { program: 'context' }))
     .catch((error) => { process.stderr.write(`${error.stack ?? error}\n`); process.exitCode = 1; });
 }

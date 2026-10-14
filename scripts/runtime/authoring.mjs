@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { inspectPackage, createLock, validatePack, validateModule, validateLock } from './package.mjs';
 import { ordinaryPath, readBounded, collectFiles, hash, relativePath, privateJson } from './paths.mjs';
 import { doctorModule } from './developer.mjs';
+import { readSourceManifest, collectSourceFiles } from './source-guidance.mjs';
 
 const copy = value => JSON.parse(JSON.stringify(value));
 const sha = /^[a-f0-9]{64}$/;
@@ -51,8 +52,8 @@ async function prepareDerivation(original, options) {
     const component = pack.components.find(c => c.id === r.componentId);
     if (!component) throw new Error('Replacement refers to an absent component');
     const directory = await ordinaryPath(r.moduleDirectory);
-    const manifest = JSON.parse((await readBounded(join(directory, 'module.json'))).toString()); validateModule(manifest);
-    const files = await collectFiles(directory);
+    const manifest = JSON.parse((await readSourceManifest(directory, 'module.json')).toString()); validateModule(manifest);
+    const files = await collectSourceFiles(directory);
     if (!files.some(f => f.path === manifest.runtime.entry)) throw new Error('Replacement entry is absent');
     // One module ID has one content tree. Replacing a shared module changes every
     // reference to that ID; choosing a new ID affects only this component.
@@ -143,7 +144,7 @@ export async function previewAddition(source, options) {
   const original = await inspectAuthoring(source, options);
   if (original.pack.components.some(component => component.id === options.componentId)) throw new Error('Addition refers to an existing source component');
   const directory = await ordinaryPath(options.moduleDirectory);
-  const manifest = JSON.parse((await readBounded(join(directory, 'module.json'))).toString()); validateModule(manifest);
+  const manifest = JSON.parse((await readSourceManifest(directory, 'module.json')).toString()); validateModule(manifest);
   const component = copy(options.component ?? {
     id: options.componentId, module: manifest.id, settings: {}, after: [],
     bridges: Object.fromEntries(manifest.bridges.map(slot => [slot, { publish: [], subscribe: [] }]))

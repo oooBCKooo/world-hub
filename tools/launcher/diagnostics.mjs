@@ -1,6 +1,8 @@
 // User guidance describes an action; it never authorizes a repair or executes it.
 export function diagnose(error) {
   const message = String(error.message), code = error.code ?? 'LAUNCHER_ERROR';
+  if (['external-program', 'module-source', 'pack-source', 'deployment-source-limit'].includes(error.diagnostic?.kind)
+      && typeof error.diagnostic.zh === 'string' && typeof error.diagnostic.en === 'string') return { ...error.diagnostic, code };
   let kind = 'action-failed';
   if (/cleanup|exits.*unconfirmed/i.test(message) || error.cleanupIncomplete) kind = 'cleanup-unconfirmed';
   else if (/stale|supervisor.*unavailable|different.*run|ended.*run/i.test(message)) kind = 'stale-run';

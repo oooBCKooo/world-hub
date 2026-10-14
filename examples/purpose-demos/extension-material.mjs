@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // A separate external source program. Its context contract matches a document
 // or database adapter; its state and business do not live in the Hub.
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { isDirectExecution } from '../../scripts/cli-entry.mjs';
 import { runPurposePeerMain } from './peer.mjs';
 import { asObject, boundedText, channel, openState, respondOrPublish } from './common.mjs';
 
@@ -21,4 +20,4 @@ export async function startExtensionMaterial(context) {
     } });
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) await runPurposePeerMain(startExtensionMaterial);
+if (isDirectExecution(import.meta.url)) await runPurposePeerMain(startExtensionMaterial);

@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile, lstat, access } from 'node:fs/promises';
+import { isDirectExecution } from '../cli-entry.mjs';
 import { createHash } from 'node:crypto';
 import { join, resolve, dirname, basename, sep, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +24,7 @@ export const DEMO_FILES = Object.freeze([
 ]);
 const lifecycleFiles = ['tests/helpers/owned-program.mjs', 'examples/distributed-context/hub-process.mjs'];
 const documentationFiles = [
+  'docs/ecosystem/external-programs.md', 'docs/ecosystem/external-programs.en.md',
   'README.en.md',
   'examples/capability-directory/README.md',
   'examples/purpose-demos/README.md', 'sdk/javascript/README.md', 'sdk/python/README.md',
@@ -37,6 +39,7 @@ const documentationFiles = [
 export const DEMO_SOURCE_FILES = Object.freeze([
   ...APPLICATION_FILES, ...SDK_FILES, ...DEMO_FILES, ...lifecycleFiles,
   'scripts/release/verify-package.mjs', 'scripts/release/verify-demo-package.mjs',
+  'scripts/cli-entry.mjs',
   'config/hub.json', 'LICENSE', ...documentationFiles, ...MODULE_CONTRACT_FILES, ...DOCUMENTATION_IMAGE_FILES,
 ]);
 
@@ -250,7 +253,7 @@ export function parseDemoBuildArguments(args) {
   return options;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   try { console.log(JSON.stringify(await buildDemoPackages(parseDemoBuildArguments(process.argv.slice(2))))); }
   catch (error) { console.error(error.stack ?? error); process.exitCode = 1; }
 }

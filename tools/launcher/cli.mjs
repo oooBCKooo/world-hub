@@ -1,9 +1,10 @@
-import { fileURLToPath } from 'node:url';
-import { resolve, join } from 'node:path';
+import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { createLauncherServer } from './server.mjs';
 import { processCwd } from '../../scripts/runtime/paths.mjs';
+import { inspectLauncherOwner, cleanLauncherOwner, defaultLauncherRoot } from './owner-lock.mjs';
+import { isDirectExecution } from '../../scripts/cli-entry.mjs';
 
 async function openLauncherPage(url) {
   const target = new URL(url);
@@ -23,19 +24,26 @@ export function parseUiArgs(args) {
   const options = {}, seen = new Set(), names = { '--root': 'root', '--node': 'nodePath', '--python': 'pythonPath', '--port': 'port' };
   for (let index = 0; index < args.length; index++) {
     const option = args[index]; if (seen.has(option)) throw new Error(`Repeated option: ${option}`); seen.add(option);
-    if (option === '--open' || option === '--help') { options[option.slice(2)] = true; continue; }
+    if (['--open', '--help', '--inspect-lock', '--clean-lock'].includes(option)) { options[option.slice(2)] = true; continue; }
     if (!names[option] || !args[index + 1] || args[index + 1].startsWith('--')) throw new Error(`Invalid option: ${option}`);
     options[names[option]] = args[++index];
   }
   if (options.port !== undefined) { options.port = Number(options.port); if (!Number.isInteger(options.port) || options.port < 0 || options.port > 65535) throw new Error('Invalid port'); }
+  if (options['inspect-lock'] && options['clean-lock']) throw new Error('Choose --inspect-lock or --clean-lock.');
+  if ((options['inspect-lock'] || options['clean-lock']) && ['open', 'port', 'nodePath', 'pythonPath'].some(key => options[key] !== undefined)) throw new Error('Lock inspection/cleanup is a separate operation; use only --root.');
   return options;
 }
 export async function runUiCli(args = process.argv.slice(2)) {
   const options = parseUiArgs(args);
-  if (options.help) { process.stdout.write('World Hub unified local interface\n\nworld-hub ui [--open] [--root directory] [--port number] [--node executable] [--python executable]\n\nManage reviewed packs, private backups, creator tools and optional sources. Explicit finite dependency preparation; no OS sandbox.\n'); return; }
+  if (options.help) { process.stdout.write('World Hub unified local interface\n\nworld-hub ui [--open] [--root directory] [--port number] [--node executable] [--python executable]\nworld-hub ui --inspect-lock [--root directory]\nworld-hub ui --clean-lock [--root directory]\n\nInspect is read-only. Cleanup only retires valid metadata when the recorded PID is explicitly absent (Windows/Linux). Live, reused, inaccessible and malformed owners are retained. No process is killed and instance locks are unchanged. Startup recovers the same proven dead Launcher locks automatically.\nManage reviewed packs, private backups, creator tools and optional sources. Explicit finite dependency preparation; no OS sandbox.\n'); return; }
+  if (options['inspect-lock'] || options['clean-lock']) {
+    const inspect = options['inspect-lock'] ? inspectLauncherOwner : cleanLauncherOwner;
+    process.stdout.write(JSON.stringify(await inspect(options.root ?? defaultLauncherRoot()), null, 2) + '\n'); return;
+  }
   const version = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')).version;
   const launcher = await createLauncherServer({ ...options, version });
-  process.stdout.write(JSON.stringify({ event: 'launcher-ready', version, url: launcher.url, launchUrl: launcher.launchUrl, root: launcher.root }) + '\n');
+  process.stdout.write(JSON.stringify({ event: 'launcher-ready', version, url: launcher.url, launchUrl: launcher.launchUrl, root: launcher.root,
+    ...(launcher.ownerRecovery ? { ownerRecovery: launcher.ownerRecovery } : {}) }) + '\n');
   let closing = false;
   const close = async () => {
     if (closing) return; closing = true;
@@ -49,4 +57,4 @@ export async function runUiCli(args = process.argv.slice(2)) {
   }
   return launcher;
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) runUiCli().catch(error => { process.stderr.write(error.message + '\n'); process.exitCode = 2; });
+if (isDirectExecution(import.meta.url)) runUiCli().catch(error => { process.stderr.write(error.message + '\n'); process.exitCode = 2; });

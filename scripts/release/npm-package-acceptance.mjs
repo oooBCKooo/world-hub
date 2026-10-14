@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Pack and install in disposable prefixes. This command never publishes to npm.
 import assert from 'node:assert/strict';
+import { isDirectExecution } from '../cli-entry.mjs';
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
@@ -357,7 +358,7 @@ try { await bridge.connect(); await bridge.registerChannels([{ name: 'npm/test/r
   return report;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   const options = {};
   const seen = new Set(); const argv = process.argv.slice(2);
   for (let index = 0; index < argv.length; index += 2) {

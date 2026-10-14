@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // This newly introduced source registers a new information topic through its
 // own mod. The Hub does not know what traffic, vehicles or congestion mean.
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { isDirectExecution } from '../../scripts/cli-entry.mjs';
 import { runPurposePeerMain } from './peer.mjs';
 import { asObject, channel, openState, respondOrPublish } from './common.mjs';
 
@@ -44,4 +43,4 @@ export async function startTrafficSource(context) {
   context.defer(async () => { clearInterval(timer); await tail; });
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) await runPurposePeerMain(startTrafficSource);
+if (isDirectExecution(import.meta.url)) await runPurposePeerMain(startTrafficSource);

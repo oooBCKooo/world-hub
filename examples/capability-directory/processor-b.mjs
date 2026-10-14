@@ -1,11 +1,22 @@
 #!/usr/bin/env node
 // Provider B implements the published semantics with an independent algorithm.
 import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { randomUUID, webcrypto } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Bridge } from '../../sdk/javascript/bridge-kit.mjs';
+
+// Keep this standalone provider dependent only on standard libraries and SDK.
+function isDirectExecution(moduleUrl) {
+  if (!process.argv[1]) return false;
+  try {
+    const invoked = realpathSync.native(resolve(process.argv[1]));
+    const current = realpathSync.native(fileURLToPath(moduleUrl));
+    return process.platform === 'win32' ? invoked.toLowerCase() === current.toLowerCase() : invoked === current;
+  } catch { return false; }
+}
 
 const name = 'metrics-b', identity = 'demo.capability-directory.metrics-b';
 const trustedController = 'demo.capability-directory.explorer', normalCaller = 'demo.capability-directory.composer';
@@ -163,4 +174,4 @@ async function run(argumentsList) {
   try { provider = await startProcessorB(options); if (ending) await provider.close(); else { const event = provider.ready(); console.log(JSON.stringify(event)); process.send?.(event); } }
   catch (problem) { await finish(); throw problem; }
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) run(process.argv.slice(2)).catch(problem => { console.error(problem.message); process.exitCode = 1; });
+if (isDirectExecution(import.meta.url)) run(process.argv.slice(2)).catch(problem => { console.error(problem.message); process.exitCode = 1; });
