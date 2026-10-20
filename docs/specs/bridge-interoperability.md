@@ -4,7 +4,7 @@ Hub 使用 wire 0.1 的 UTF-8 JSON WebSocket 和协商后的 directed-v1／blob-
 
 ## 必须保持的通讯正确性
 
-任何语言的桥遵守[通讯契约](protocol.md)和[定向／附件扩展](directed-and-bulk.md)。真实 hello/welcome 决定通讯身份与可用特性；bridge、稳定 principal、一次连接 session 各有用途。主题和 body.kind 由模块桥／程序选择，身份与主题权限由部署配置授权。不能伪造成功、隐瞒拒绝或混淆本地发送、Hub 接纳和程序完成。
+任何语言的桥遵守[通讯契约](protocol.md)和[定向／附件扩展](directed-and-bulk.md)。真实 hello/welcome 决定通讯身份与可用特性；bridge、稳定 principal、一次连接 session 各有用途。主题和 body.kind 由枢纽桥／程序选择，身份与主题权限由部署配置授权。不能伪造成功、隐瞒拒绝或混淆本地发送、Hub 接纳和程序完成。
 
 当前绑定使用完整 UTF-8 JSON 文本 WebSocket 消息。底层接收若分片，先组装完整消息再严格解码，不能在跨缓冲区字符中间解析。非法 JSON 的 NaN／Infinity 不能作为数字编码发送。桥可以声明自己的资源上限，超过时明确失败，不能静默截断或扩大 Hub 实际接受范围。
 

@@ -1,6 +1,8 @@
-# PowerShell 模块桥
+# PowerShell 枢纽桥
 
 本 SDK 采用仓库 [MIT 许可](../../LICENSE)。它引用 .NET 系统 API，不复制 .NET 运行时；系统运行时遵循自己的许可。
+
+枢纽桥是程序与枢纽之间的通讯适配器；一个模块由程序及其枢纽桥组成。一个程序可以使用多个独立的枢纽桥。
 
 `HubBridge.psm1` 和 `HubBridge.cs` 使用 `.NET System.Net.WebSockets.ClientWebSocket` 直接连接 Hub。PowerShell 7 的 `Add-Type` 编译通用桥类型，无需 Node 或 dotnet SDK。模块载入不连接、不注册、不执行程序业务。
 

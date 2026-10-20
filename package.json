@@ -12,7 +12,7 @@
     "url": "https://github.com/oooBCKooo/world-hub/issues"
   },
   "keywords": [
-    "module-bridge",
+    "hub-bridge",
     "bridge",
     "websocket",
     "messaging",
@@ -216,7 +216,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "type": "module",
-  "description": "Communications crossroads for external programs connected through bidirectional module bridges.",
+  "description": "Communications crossroads for external programs connected through bidirectional hub bridges.",
   "engines": {
     "node": ">=22.4.0"
   },

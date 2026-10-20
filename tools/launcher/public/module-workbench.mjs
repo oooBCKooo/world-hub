@@ -177,7 +177,7 @@ export function createModuleWorkbench(ctx) {
 
       simple.append(
         el('div', { class: 'sh-section-card panel' }, [
-          el('h3', {}, say('模块桥通信权限', 'Module bridge permissions')),
+          el('h3', {}, say('枢纽桥通信权限', 'Hub bridge permissions')),
           message(say('声明插槽是否允许向世界枢纽发送或抽取具体别名的消息，保障进程隔离安全。', 'Declare publish and subscribe permissions per slot for secure process isolation.')),
           ...bridgeSlots
         ])
@@ -249,7 +249,7 @@ export function createModuleWorkbench(ctx) {
           el('div', { class: 'sh-editor-grid' }, [
             field(say('公开参数 (JSON)', 'Public settings (JSON)'), editors.settings),
             field(say('通道别名 → 地址 (JSON)', 'Topic aliases → addresses (JSON)'), editors.topics),
-            field(say('模块桥发送 / 抽取权限 (JSON)', 'Bridge publish / subscribe permissions (JSON)'), editors.bridges),
+            field(say('枢纽桥发送 / 抽取权限 (JSON)', 'Bridge publish / subscribe permissions (JSON)'), editors.bridges),
             field(say('能力提供者绑定 (JSON)', 'Capability provider bindings (JSON)'), editors.bindings)
           ]),
           button(say('更新表单', 'Update form'), () => { try { for (const [key, editor] of Object.entries(editors)) draft[key] = JSON.parse(editor.value); render(); } catch (error) { ctx.error(error); } }, 'button button-quiet')

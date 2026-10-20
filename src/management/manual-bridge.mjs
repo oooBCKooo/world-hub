@@ -1,4 +1,4 @@
-// A browser program's own module bridge. No administrator proxy, automatic ACK, release,
+// A browser program's own hub bridge. No administrator proxy, automatic ACK, release,
 // reconnect, or business interpretation. Raw body text is the routing source.
 const encoder = new TextEncoder();
 const fail = (code, message, frame) => Object.assign(new Error(message), { code, ...(frame ? { frame } : {}) });
@@ -76,7 +76,7 @@ export class ManualBridge {
   get connected() { return this.ws?.readyState === 1 && this.welcome !== null; }
   state(status, extra = {}) { safeCallback(this.onState, { status, ...extra }); }
   pendingCount() { return this.requests.size + [...this.subscriptions.values()].filter((s) => s.wait).length + this.unsubscribing.size; }
-  requireReady() { if (!this.connected) throw fail('NOT_CONNECTED', 'connect this browser module bridge before sending'); }
+  requireReady() { if (!this.connected) throw fail('NOT_CONNECTED', 'connect this browser hub bridge before sending'); }
   requireFeature(name) { this.requireReady(); if (!this.welcome.features?.includes(name)) throw fail('FEATURE_UNSUPPORTED', `Hub did not negotiate ${name}`); }
   awaitOperation(resolve, reject, remove, { timeoutMs = this.options.timeoutMs, signal } = {}) {
     if (!positive(timeoutMs)) throw fail('TIMEOUT_INVALID', 'timeoutMs must be a positive safe integer');
@@ -136,7 +136,7 @@ export class ManualBridge {
   }
   close() {
     ++this.generation; const socket = this.ws; this.ws = null; this.welcome = null;
-    this.abortPending(fail('DISCONNECTED', 'browser module bridge disconnected by user'));
+    this.abortPending(fail('DISCONNECTED', 'browser hub bridge disconnected by user'));
     if (socket && socket.readyState < 2) { try { socket.close(1000, 'user disconnected'); } catch { /* Already closing. */ } }
     this.state('closed');
   }
@@ -145,7 +145,7 @@ export class ManualBridge {
     this.requireReady();
     if (typeof raw !== 'string') throw fail('FRAME_INVALID', 'raw frame must be text');
     const frameBytes = encoder.encode(raw).byteLength;
-    if (frameBytes > this.options.maxFrameBytes) throw fail('FRAME_TOO_LARGE', 'frame exceeds this browser module bridge local byte limit');
+    if (frameBytes > this.options.maxFrameBytes) throw fail('FRAME_TOO_LARGE', 'frame exceeds this browser hub bridge local byte limit');
     const frame = parseManualEnvelope(raw);
     if (this.ws.bufferedAmount + frameBytes > this.options.maxBufferedBytes) throw fail('SEND_BUFFER_FULL', 'browser send queue is full; retry after it drains');
     try { this.ws.send(raw); } catch { throw fail('SEND_FAILED', 'browser could not queue this frame'); }

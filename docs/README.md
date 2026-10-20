@@ -1,6 +1,6 @@
 # 文档入口
 
-世界枢纽只负责程序间通信。程序选择自己的模块桥、主题、信息种类、上下文和业务。运行 `world-hub --open`，在通信管理界面管理同一个本机 Hub 上的模块实例、模块组、接线和启动计划。
+世界枢纽只负责程序间通信。模块可理解为“程序 + 枢纽桥”；枢纽桥负责程序与 Hub 之间的双向通信。程序选择自己的枢纽桥、主题、信息种类、上下文和业务。运行 `world-hub --open`，在通信管理界面管理同一个本机 Hub 上的模块实例、模块组、接线和启动计划。
 
 | 阅读目标 | 入口 |
 | --- | --- |
@@ -9,7 +9,7 @@
 | 交付通信管理界面可导入的模块 | [模块声明](ecosystem/modules.md)、[作者指南](ecosystem/developer.md)、[English](ecosystem/developer.en.md) |
 | 自行运行的桌面宿主、服务和已有软件 | [独立程序接入](ecosystem/external-programs.md)、[English](ecosystem/external-programs.en.md) |
 | 直接启动 Hub、配置、数据与容量 | [部署](deployment.md) |
-| npm CLI 与三个语言 SDK | [npm 包](npm.md)、[模块桥接入](onboarding.md) |
+| npm CLI 与三个语言 SDK | [npm 包](npm.md)、[枢纽桥接入](onboarding.md) |
 | 通信边界、协议和可靠性 | [现行规格](specs/index.md) |
 | 独立编写可替换提供者 | [提供者契约](modules/provider-contract.md)、[机器契约](modules/text-statistics.contract.json)、[互操作基准](ecosystem/interop.md) |
 | 获取模块与检查来源 | [软件来源](ecosystem/sources.md)、[信任边界](ecosystem/trust.md) |

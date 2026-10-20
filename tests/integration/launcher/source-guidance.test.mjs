@@ -29,7 +29,7 @@ test('bare external source gets actionable static CLI and Launcher guidance with
     headers: { authorization: `Bearer ${server.token}`, 'x-csrf-token': server.csrfToken, 'content-type': 'application/json' }, body: JSON.stringify({ directory: source }) });
   const result = await response.json();
   assert.equal(result.ok, false); assert.equal(result.diagnostic.kind, 'external-program');
-  assert.match(result.diagnostic.en, /optional Runtime/); assert.match(result.diagnostic.zh, /模块桥/);
+  assert.match(result.diagnostic.en, /optional Runtime/); assert.match(result.diagnostic.zh, /枢纽桥/);
   assert.deepEqual(await readFile(new URL('../../../config/hub.json', import.meta.url)), before);
 });
 

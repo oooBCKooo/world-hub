@@ -1,6 +1,8 @@
-# Node JavaScript 模块桥
+# Node JavaScript 枢纽桥
 
 本 SDK 采用仓库 [MIT 许可](../../LICENSE)。通过 npm 的稳定导出入口使用时，安装与导入方法见[npm 包](../../docs/npm.md)；下文相对路径用于源码仓库。
+
+枢纽桥是程序与枢纽之间的通讯适配器；一个模块由程序及其枢纽桥组成。一个程序可以使用多个独立的枢纽桥。
 
 `bridge-kit.mjs` 是供外部程序选用的 Node 桥；`blob-client.mjs` 提供外部文件／流上传与下载。Hub 不加载这些程序接口。运行需要 Node 22.4.0 或以上，没有 npm 依赖。浏览器使用独立的 `src/management/manual-bridge.mjs`，不能直接导入含 Node 文件 API 的模块。
 
@@ -13,7 +15,7 @@
 | 接口 | 意义 |
 | --- | --- |
 | `connect()`、`close()` | 等握手、有限关闭；SDK 可在断线后按自己的策略重连 |
-| `registerChannels(channels)` | 模块桥声明合法主题与方向，不建立业务 handler 或扩大 ACL |
+| `registerChannels(channels)` | 枢纽桥声明合法主题与方向，不建立业务 handler 或扩大 ACL |
 | `publish()`、`publishConfirmed()` | 本地发送与等待 Hub 接纳是不同接口 |
 | `subscribe()`、`replay()`、`unsubscribe()`、`cursorOf()` | 订阅、显式重读、清理和本地已处理游标 |
 | `ack(message)`、`flushAcks()` | 确认本连接订阅的实际投递，不释放消息 |

@@ -20,7 +20,7 @@ Keep the terminal running and use Ctrl+C to stop cleanly. The manager cleans up 
 
 | Interface function | Purpose |
 | --- | --- |
-| Topology canvas and information flow | Observe the Hub, programs, module bridges and actual communication |
+| Topology canvas and information flow | Observe the Hub, programs, hub bridges and actual communication |
 | Local import and online Workshop | Acquire module/group artifacts, choose releases and review imports |
 | Module inspector | Inspect instance settings, wiring, processes, logs and actual bridge sessions |
 | Groups and scope selection | Organize existing instances and group startup plans |
@@ -45,7 +45,7 @@ Import and download obtain source only. Registration, configuration and startup 
 
 Keep credentials in private local files, not public settings. Declared permissions are not OS isolation. Process state, self-reported readiness and real bridge connections are separate observations. Acceptance, ACK and health checks do not prove a business outcome.
 
-The management interface distinguishes owned instances from independently connected programs, presents actual sessions and supports topic authorizations. Revoking communication access does not stop an external application's process. Manual communication uses the management page's own module bridge.
+The management interface distinguishes owned instances from independently connected programs, presents actual sessions and supports topic authorizations. Revoking communication access does not stop an external application's process. Manual communication uses the management page's own hub bridge.
 
 ## Paths and unavailable choices
 

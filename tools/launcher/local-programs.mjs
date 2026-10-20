@@ -45,7 +45,7 @@ function configuration(input, manifest, deployment = {}) {
   }
   if (new Set(Object.values(topics)).size !== names.length) throw error('LOCAL_TOPIC_DUPLICATE', 'Each topic alias must name a distinct topic.');
   const bridges = clone(input.bridges ?? deployment.bridges ?? {});
-  if (!plain(bridges) || Object.keys(bridges).length !== manifest.bridges.length || manifest.bridges.some(slot => !Object.hasOwn(bridges, slot))) throw error('LOCAL_BRIDGES_INVALID', 'Configure every declared module bridge slot exactly once.');
+  if (!plain(bridges) || Object.keys(bridges).length !== manifest.bridges.length || manifest.bridges.some(slot => !Object.hasOwn(bridges, slot))) throw error('LOCAL_BRIDGES_INVALID', 'Configure every declared hub bridge slot exactly once.');
   for (const [slot, rules] of Object.entries(bridges)) {
     if (!manifest.bridges.includes(slot) || !plain(rules) || Object.keys(rules).some(key => !['publish', 'subscribe'].includes(key))) throw error('LOCAL_BRIDGES_INVALID', 'Bridge configuration must contain only publish and subscribe topic aliases.');
     for (const direction of ['publish', 'subscribe']) if (!Array.isArray(rules[direction]) || rules[direction].length > 64 || new Set(rules[direction]).size !== rules[direction].length || rules[direction].some(alias => !names.includes(alias))) throw error('LOCAL_BRIDGES_INVALID', 'Bridge permissions must refer to existing topic aliases.');
@@ -179,7 +179,7 @@ export class LocalPrograms {
     const snapshot = await response.json(), identity = this.identities.get(id);
     if (!row.manifest.bridges.every(slot => snapshot.bridges?.some(bridge => bridge.principal === identity.principal
         && bridge.declaredId === `local.${hash(id + ':' + slot).slice(0, 24)}` && bridge.authenticated === true)))
-      throw error('LOCAL_PREREQUISITE_NOT_READY', `The prerequisite ${id} has no confirmed authenticated module bridge connections.`);
+      throw error('LOCAL_PREREQUISITE_NOT_READY', `The prerequisite ${id} has no confirmed authenticated hub bridge connections.`);
     return this.public(row);
   }
   startStartupPlan(input = {}) {

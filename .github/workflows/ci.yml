@@ -20,7 +20,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14.0'
-      - name: Install the Python module bridge dependency
+      - name: Install the Python hub bridge dependency
         run: python -m pip install -r sdk/python/requirements.txt
       - name: Select the installed Python executable for runtime acceptance
         run: python -c 'import os,sys; print("WORLD_HUB_RUNTIME_TEST_PYTHON=" + os.path.realpath(sys.executable))' >> "$GITHUB_ENV"

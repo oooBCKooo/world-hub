@@ -45,7 +45,7 @@
         },
         {
           "path": "index.html",
-          "sha256": "10903595a45b46be324e2a0e27659e29133d7c08dfda2d691609bb417e57b521"
+          "sha256": "36987f2dcd96c2845d3683d7b3f0d162771fe94ee067f88e865dbc047a3bd192"
         },
         {
           "path": "LICENSE",
@@ -61,7 +61,7 @@
         },
         {
           "path": "ui.js",
-          "sha256": "e1b2d471ad0a489a1a50ab2297f15cf1482276824ac6f2f2be24d2e69d9d7840"
+          "sha256": "9dc31f4fdee092a158c1ba3602b8611683a385aceb3fd43a6903ffde4723df9e"
         }
       ]
     },
@@ -107,7 +107,7 @@
         },
         {
           "path": "hub_bridge.py",
-          "sha256": "6ce792c5f440b871faa9a5961a00ede742e8d32f746a66257d296286eee6aae0"
+          "sha256": "e1442c9cbbe37b1227a3cc7c62a123f4c78141a249565c732e596f7d8df2b21a"
         },
         {
           "path": "LICENSE",

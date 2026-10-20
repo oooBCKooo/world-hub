@@ -2,7 +2,7 @@
 
 [English](developer.en.md) · [模块声明](modules.md) · [独立程序接入](external-programs.md)
 
-先确定程序负责的业务和公开契约，再选择 SDK 或自行实现模块桥。Hub 不规定页面、模型、业务数据或内部架构。
+先确定程序负责的业务和公开契约，再选择 SDK 或自行实现枢纽桥。Hub 不规定页面、模型、业务数据或内部架构。
 
 1. 用[通信协议](../specs/protocol.md)和对应 [JavaScript](../../sdk/javascript/README.md)、[Python](../../sdk/python/README.md)、[PowerShell](../../sdk/powershell/README.md) SDK 实现双向连接。
 2. 约定主题、消息格式、定向请求与结果语义，校验调用方和回应方身份。抽取、ACK 与业务完成分别处理。

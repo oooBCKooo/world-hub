@@ -306,7 +306,7 @@ const expectedScenes = demo ? ['P7-12'] : Array.from({ length: 14 }, (_, i) => `
 const passed = !error && scenes.length === expectedScenes.length && expectedScenes.every((id) => scenes.some((row) => row.id === id && row.passed)) && unchangedHub.every((row) => row.unchanged);
 const report = { passed, version: JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8')).version, wire: '0.1', node: process.version, platform: process.platform, arch: process.arch, demo, startedAt, endedAt: new Date().toISOString(), expectedScenes, passedScenes: scenes.filter((row) => row.passed).length, scenes,
   hubs: scene?.hubs, processes: scene?.processes, sources, unchangedHub, ...(error ? { error } : {}),
-  scope: 'Actual local JS, Python and PowerShell processes use their own WebSocket module bridges; external fixture programs define every business action.',
+  scope: 'Actual local JS, Python and PowerShell processes use their own WebSocket hub bridges; external fixture programs define every business action.',
   limitations: ['PowerShell transport is C# ClientWebSocket hosted by pwsh, not a standalone .NET SDK acceptance', 'Only recorded Windows/Node/Python/PowerShell versions tested', 'No Linux, cross-machine, arbitrary third-party program or long-duration acceptance', 'Cross-language out-of-order/duplicate ACK, interrupted-upload resume and bad SHA-256 not executed in these 14 scenes', 'Reference bridges expose complete wire frames; no implicit ACK/release, persistent cursors, reconnect or exactly-once business guarantee'] };
 await writeFile(join(directory, 'report.json'), JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
 await saveLatestEvidence(evidenceRun, report);

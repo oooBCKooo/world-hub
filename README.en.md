@@ -4,17 +4,17 @@
 
 **Connect everything. Compose freely. Decouple systems. Make hardcoded connections adaptable. Plug and unplug everything. Route information freely. Extend with open-ended modules.**
 
-Keep editors, conversations, knowledge sources, model executors, tools and interfaces in independent programs. Let their bidirectional module bridges exchange information. Programs can be replaced while their peers follow shared communication and application contracts.
+Keep editors, conversations, knowledge sources, model executors, tools and interfaces in independent programs. Let their bidirectional hub bridges exchange information. Programs can be replaced while their peers follow shared communication and application contracts.
 
 ```text
-Program A ↔ bridge ─┐                  ┌─ bridge ↔ Program B
-Program C ↔ bridge ─┼─ one Global Hub ─┼─ bridge ↔ Program D
-External app ↔ bridge┘                  └─ bridge ↔ other programs
+Program A    ↔ hub bridge ─┐                  ┌─ hub bridge ↔ Program B
+Program C    ↔ hub bridge ─┼─ one Global Hub ─┼─ hub bridge ↔ Program D
+External app ↔ hub bridge ─┘                  └─ hub bridge ↔ other programs
 ```
 
 The Hub accepts, addresses, retains and forwards information. Programs own business rules, information types, context, workflows and results. Bridges register channels; the Hub does not enumerate application categories.
 
-A **module** is an independently installable program artifact. A **module bridge** is its bidirectional communication adapter. A program may use several bridges, embedded or separate. It does not have to become a Hub Core plugin.
+A **module** combines a program and its **hub bridge** in an independently installable artifact. A hub bridge is the bidirectional communication adapter that connects the program to the Hub. A program may use several hub bridges, embedded or separate. It does not have to become a Hub Core plugin.
 
 ## Start with modules
 

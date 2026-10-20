@@ -33,7 +33,7 @@ export async function previewComposition(input) {
       safeId(key,'combined topic alias');aliases[alias]=key;pack.topics[key]=topic;
     }
     const declaredBridges=selected.bridges??defaults.bridges,bridges={};
-    for(const [slot,acl] of Object.entries(declaredBridges)) bridges[slot]=Object.fromEntries(['publish','subscribe'].map(action=>[action,acl[action].map(alias=>{if(!aliases[alias])throw error('Module bridge refers to an unknown topic');return aliases[alias];})]));
+    for(const [slot,acl] of Object.entries(declaredBridges)) bridges[slot]=Object.fromEntries(['publish','subscribe'].map(action=>[action,acl[action].map(alias=>{if(!aliases[alias])throw error('Hub bridge refers to an unknown topic');return aliases[alias];})]));
     const settings=selected.settings??Object.fromEntries((defaults?.settings??[]).map(field=>[field.key,field.default]));
     validateDeploymentSettings(defaults,settings,{publicSource:true});
     // Keep per-program alias names as a public input without dictating how an

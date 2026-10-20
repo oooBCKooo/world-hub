@@ -1,6 +1,6 @@
 # 跨语言文本台整合包
 
-这个本地样例由三个真实独立程序组成：JavaScript 文本来源、Python 统计提供者、JavaScript 浏览器文本台。每个程序携带自己的 模块桥源文件，经普通 Hub 完成双向通讯。Runtime 只负责清单校验和程序运行；文本、统计规则、调用顺序和成果都由这三个程序处理。
+这个本地样例由三个真实独立程序组成：JavaScript 文本来源、Python 统计提供者、JavaScript 浏览器文本台。每个程序携带自己的 枢纽桥源文件，经普通 Hub 完成双向通讯。Runtime 只负责清单校验和程序运行；文本、统计规则、调用顺序和成果都由这三个程序处理。
 
 | 程序 | 入口 | 责任 | 自己保存的状态 |
 | --- | --- | --- | --- |
@@ -68,7 +68,7 @@ node bin/world-hub-pack.mjs import dist/exported-text-desk --root data/pack-rebu
 - 每个 receipt 包含 `step`、`requestSeq`、`responseSeq`、`fromPrincipal` 和 `senderSession`，不返回 token。
 - 本机 HTTP 拒绝外域浏览器 Origin；同时分析时返回 `ANALYSIS_BUSY`。本地超时返回 `status:'uncertain'`，不会把它当作 Python 一定未执行，也不会自动重试。
 
-三个程序都接受 `--runtime-config <私有JSON文件>`，通过 stdout 输出 `module-ready`；stdin `{"command":"health","id":"..."}` 得到同 id 的 `module-health`；stdin `{"command":"stop"}`、EOF 或正常终止信号关闭本程序所属连接和服务。该生命周期接口独立于 模块桥 通讯，普通 Hub 程序无需实现它。程序 ready、自报健康、进程存活、Hub 通讯连接和单次业务完成分别观察。
+三个程序都接受 `--runtime-config <私有JSON文件>`，通过 stdout 输出 `module-ready`；stdin `{"command":"health","id":"..."}` 得到同 id 的 `module-health`；stdin `{"command":"stop"}`、EOF 或正常终止信号关闭本程序所属连接和服务。该生命周期接口独立于 枢纽桥 通讯，普通 Hub 程序无需实现它。程序 ready、自报健康、进程存活、Hub 通讯连接和单次业务完成分别观察。
 
 ## 验证范围
 

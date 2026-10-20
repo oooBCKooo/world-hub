@@ -1725,7 +1725,7 @@ export class CanvasModesController {
           <span id="bottom-orch-summary" class="hidden" style="font-size:11px; color:#fbbf24; font-family:var(--mono); white-space:nowrap; text-overflow:ellipsis; overflow:hidden;"></span>
         </div>
         <div class="bottom-right-actions">
-          <button type="button" class="bottom-toggle-stream-btn" id="btn-manual-console" title="用界面自己的模块桥手动操作通讯" data-i18n="↗ 通讯工作台" data-i18n-title="用界面自己的模块桥手动操作通讯">
+          <button type="button" class="bottom-toggle-stream-btn" id="btn-manual-console" title="用界面自己的枢纽桥手动操作通讯" data-i18n="↗ 通讯工作台" data-i18n-title="用界面自己的枢纽桥手动操作通讯">
             ↗ 通讯工作台
           </button>
           <button type="button" class="bottom-toggle-stream-btn" id="btn-retention-toggle" title="查看留存与容量边界" data-i18n="📦 留存容量" data-i18n-title="查看留存与容量边界">

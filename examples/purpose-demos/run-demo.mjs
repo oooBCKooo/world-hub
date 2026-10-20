@@ -106,7 +106,7 @@ export async function startPurposeDemo({ profile: id, stateDirectory = null, ope
     // Management annotations describe the credential principal, not a declared
     // instance label. A program's multiple mod connections share this annotation;
     // their actual instances and channels remain separately observable.
-    annotations[principal] = { bridgeName: `${peer.label} · 模块桥`,
+    annotations[principal] = { bridgeName: `${peer.label} · 枢纽桥`,
       programs: [{ id: principal, name: peer.label }] };
   }
   const explorerPrincipal = principalFor(profile.id, 'explorer');

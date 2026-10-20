@@ -99,7 +99,7 @@ async function run() {
       const bridge = status.bridges.find(item => item.bridgeId === identity);
       assert.ok(bridge.channels.length > 0); assert.ok(bridge.subscriptions.length > 0); assert.equal(bridge.authenticated, false, 'the demo explicitly uses tokenless loopback ACL entries');
     }
-    report.checks.push({ name: 'three actual independent module bridges and registered channels', passed: true });
+    report.checks.push({ name: 'three actual independent hub bridges and registered channels', passed: true });
     const state = await json('/manage/api/state');
     for (const [identity, program] of [['sample.alpha', 'program.alpha'], ['sample.beta', 'program.beta'], ['sample.panel', 'program.panel']]) {
       const bridge = state.bridges.find(item => item.key === identity);

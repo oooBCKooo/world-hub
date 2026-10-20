@@ -1,5 +1,5 @@
 // These scenarios coordinate separate ordinary program processes; only their
-// external mod bridges touch the Hub. The coordinator checks files and receipts.
+// external hub bridges touch the Hub. The coordinator checks files and receipts.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { stat } from 'node:fs/promises';
