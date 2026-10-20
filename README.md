@@ -12,7 +12,7 @@ World Hub 是独立程序之间的通信十字路口。程序通过各自的双�
 外部程序 ↔ 枢纽桥┘                └─ 枢纽桥 ↔ 其他程序
 ```
 
-本项目只包含**非界面部分**：通信服务、SDK、CLI、管理 API、模块资源与运行工具，以及可选的社区后端、Skill 和 MCP。可视化管理和社区网页属于独立的 [World Hub UI](docs/specs/ui-separation.md) 项目。Hub 不加载该项目，不需要浏览器或页面文件。
+本项目只包含**非界面部分**：通信服务、SDK、CLI、管理 API、模块资源与运行工具，以及可选的社区后端、Skill 和 MCP。可视化管理和社区网页属于独立的 [World Hub UI](https://github.com/oooBCKooo/world-hub-ui) 项目，见[分离边界](docs/specs/ui-separation.md)。Hub 不加载该项目，不需要浏览器或页面文件。
 
 ## 启动无界面 Hub
 
@@ -43,6 +43,7 @@ import { Bridge } from 'world-hub/bridge';
 const bridge = new Bridge({
   url: process.env.HUB_URL,
   bridgeId: 'my-program',
+  credential: process.env.HUB_CREDENTIAL,
   token: process.env.HUB_BRIDGE_TOKEN,
 });
 await bridge.connect();

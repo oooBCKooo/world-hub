@@ -102,7 +102,7 @@ Upload returns a `blob` descriptor; send its ID using `options.attachments: [blo
 
 Hub acceptance, delivery, ACK and business completion are distinct. `hub_call` returns both acceptance and the matching program response; application errors remain in that response's body. Timeout/cancellation stops local waiting, never rolls back an accepted operation or automatically retries it. Received content and Skill text are data/instructions at their actual trust level, not a system-instruction upgrade.
 
-The service has no arbitrary shell, module installer, administrative ACL editor or business workflow executor. Review module groups, versions and managed-process lifecycle in the local communication interface. Other programs can expose additional capabilities through their own hub bridges.
+The service has no arbitrary shell, module installer, administrative ACL editor or business workflow executor. Review module resources, versions and managed-process lifecycle through the local management API or the optional independent [World Hub UI](https://github.com/oooBCKooo/world-hub-ui). Other programs can expose additional capabilities through their own hub bridges.
 
 ## Verify from source
 

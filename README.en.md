@@ -12,7 +12,7 @@ Program C ↔ hub bridge ─┼─ one Global Hub ──┼─ hub bridge ↔ Pr
 Other app ↔ hub bridge ┘             └─ hub bridge ↔ Other app
 ```
 
-This repository contains **headless components only**: the server, SDKs, CLI, management APIs, module resource and process tools, optional Workshop backend, Skill and MCP. Browser management and community pages are a separate [World Hub UI](docs/specs/ui-separation.md) project. Hub neither imports that project nor requires a browser or UI assets to start.
+This repository contains **headless components only**: the server, SDKs, CLI, management APIs, module resource and process tools, optional Workshop backend, Skill and MCP. Browser management and community pages are a separate [World Hub UI](https://github.com/oooBCKooo/world-hub-ui) project; see the [separation boundary](docs/specs/ui-separation.md). Hub neither imports that project nor requires a browser or UI assets to start.
 
 ## Start a headless Hub
 
@@ -42,6 +42,7 @@ import { Bridge } from 'world-hub/bridge';
 const bridge = new Bridge({
   url: process.env.HUB_URL,
   bridgeId: 'my-program',
+  credential: process.env.HUB_CREDENTIAL,
   token: process.env.HUB_BRIDGE_TOKEN,
 });
 await bridge.connect();
