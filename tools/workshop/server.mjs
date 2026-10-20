@@ -43,7 +43,7 @@ function config(options) {
   return { base, insecure, bind, port, allowedHosts: new Set(allowedHosts), secureCookie: options.secureCookie !== false };
 }
 export async function createWorkshopServer(options = {}) {
-  const settings = config(options), store = await WorkshopStore.open(options); let uploadBusy = false, downloads = 0, closing, baseURL, origin, stopPoll, pollBusy = false, resolveClosed;
+  const settings = config(options), store = await WorkshopStore.open(options); let uploadBusy = false, downloads = 0, configurationReads = 0, closing, baseURL, origin, stopPoll, pollBusy = false, resolveClosed;
   const closed = new Promise(resolveClosure => { resolveClosed = resolveClosure; });
   const rates = new Map();
   function rate(key, limit, windowMs = 60000) {
@@ -66,7 +66,7 @@ export async function createWorkshopServer(options = {}) {
       if (!['GET', 'HEAD', 'POST'].includes(request.method)) throw workshopError('METHOD_NOT_ALLOWED', 'Use GET, HEAD or POST.', 405);
       const rawToken = sessionCookie(request), user = store.userForSession(rawToken);
       const path = target.pathname;
-      const staticFiles = new Map([['/workshop', 'index.html'], ['/workshop/', 'index.html'], ['/workshop/index.html', 'index.html'], ['/workshop/app.mjs', 'app.mjs'], ['/workshop/style.css', 'style.css']]);
+      const staticFiles = new Map([['/workshop', 'index.html'], ['/workshop/', 'index.html'], ['/workshop/index.html', 'index.html'], ['/workshop/app.mjs', 'app.mjs'], ['/workshop/style.css', 'style.css'], ['/workshop/artifact-config-view.mjs', 'artifact-config-view.mjs']]);
       if (staticFiles.has(path) && ['GET', 'HEAD'].includes(request.method)) {
         if (target.search) throw workshopError('INVALID_INPUT', 'Static pages do not accept query parameters.');
         const file = staticFiles.get(path), bytes = await readFile(new URL('./public/' + file, import.meta.url));
@@ -126,11 +126,23 @@ export async function createWorkshopServer(options = {}) {
         const parameters = Object.fromEntries(target.searchParams); for (const field of ['offset', 'limit']) if (Object.hasOwn(parameters, field)) { if (!/^\d+$/.test(parameters[field])) throw workshopError('INVALID_INPUT', 'Invalid pagination.'); parameters[field] = Number(parameters[field]); }
         send(response, 200, store.catalog(parameters, user)); return;
       }
-      const publicationMatch = /^\/workshop\/api\/publications\/([a-z0-9][a-z0-9._-]{0,127})(?:\/(comments|proposals|visibility|presentation)(?:\/([a-z0-9][a-z0-9._-]{0,127}))?)?$/.exec(path);
-      if (request.method === 'GET' && publicationMatch && !publicationMatch[2]) {
+      const publicationMatch = /^\/workshop\/api\/publications\/([a-z0-9][a-z0-9._-]{0,127})(?:\/(comments|proposals|visibility|presentation|configuration)(?:\/([a-z0-9][a-z0-9._-]{0,127}))?)?$/.exec(path);
+      if (request.method === 'GET' && publicationMatch && (!publicationMatch[2] || publicationMatch[2] === 'configuration' && !publicationMatch[3])) {
+        // Gate visibility before reserving parse capacity, and never cache an
+        // unbounded collection of decoded artifacts or source files in memory.
         const detail = store.detail(publicationMatch[1], user);
-        if (detail.publication.kind === 'module-group') detail.moduleGroup = await store.groupManifest(publicationMatch[1], user);
-        send(response, 200, detail); return;
+        if (configurationReads >= 2) throw workshopError('CONFIGURATION_BUSY', 'Configuration preview capacity reached; retry shortly.', 503);
+        rate('configuration-read', 240); configurationReads++;
+        try {
+          const configuration = await store.configuration(publicationMatch[1], user);
+          if (publicationMatch[2] === 'configuration') send(response, 200, configuration);
+          else {
+            detail.configuration = configuration;
+            if (detail.publication.kind === 'module-group') detail.moduleGroup = configuration.manifest;
+            send(response, 200, detail);
+          }
+        } finally { configurationReads--; }
+        return;
       }
       if (request.method === 'GET' && publicationMatch?.[2] === 'proposals' && publicationMatch[3]) { send(response, 200, await store.proposal(publicationMatch[1], publicationMatch[3], user)); return; }
       if (request.method === 'GET' && path === '/workshop/api/users') { if (!user) throw workshopError('AUTH_REQUIRED', 'Sign in first.', 401); send(response, 200, store.users(user)); return; }
@@ -145,14 +157,16 @@ export async function createWorkshopServer(options = {}) {
       }
       const presentationUpload = publicationMatch?.[2] === 'presentation' && !publicationMatch[3];
       const publicationUpload = path === '/workshop/api/publications';
-      const upload = publicationUpload || presentationUpload || (publicationMatch?.[2] === 'proposals' && !publicationMatch[3]);
+      const artifactPreview = path === '/workshop/api/artifacts/preview';
+      const upload = artifactPreview || publicationUpload || presentationUpload || (publicationMatch?.[2] === 'proposals' && !publicationMatch[3]);
       if (upload) { if (uploadBusy) throw workshopError('UPLOAD_BUSY', 'Another upload is being validated; retry shortly.', 503); uploadBusy = true; uploadOwned = true; rate(`upload:${user.id}`, 10); }
       if (authentication) rate('global-auth', 24);
-      const body = await readJson(request, publicationUpload ? MAX_PUBLICATION_REQUEST : presentationUpload ? MAX_PRESENTATION_REQUEST : upload ? MAX_UPLOAD : 16384); let result, status = 200, headers = {};
+      const body = await readJson(request, artifactPreview ? MAX_UPLOAD + 1024 : publicationUpload ? MAX_PUBLICATION_REQUEST : presentationUpload ? MAX_PRESENTATION_REQUEST : upload ? MAX_UPLOAD : 16384); let result, status = 200, headers = {};
       if (path === '/workshop/api/login') { fields(body, ['username', 'password'], ['username', 'password']); rate(`login:${String(body.username).slice(0, 40)}`, 8); result = await store.login(body.username, body.password); }
       else if (path === '/workshop/api/register') { fields(body, ['username', 'password', 'invitation'], ['username', 'password', 'invitation']); result = await store.register(body.username, body.password, body.invitation); status = 201; }
       else if (path === '/workshop/api/logout') { fields(body, []); result = await store.logout(rawToken); headers['set-cookie'] = cookie('', true); }
       else if (path === '/workshop/api/invitations') { fields(body, []); result = await store.invite(user); status = 201; }
+      else if (artifactPreview) { fields(body, ['artifact'], ['artifact']); result = store.previewArtifact(user, body); }
       else if (path === '/workshop/api/publications') { fields(body, ['artifact', 'redistributionAcknowledged', 'title', 'publisherEvidence', 'presentation'], ['artifact', 'redistributionAcknowledged']); result = await store.publish(user, body); status = result.duplicate ? 200 : 201; }
       else if (presentationUpload) { fields(body, ['presentation'], ['presentation']); result = await store.updatePresentation(user, publicationMatch[1], body.presentation); }
       else if (publicationMatch?.[2] === 'comments' && !publicationMatch[3]) { fields(body, ['text'], ['text']); rate(`comment:${user.id}`, 20); result = await store.comment(user, publicationMatch[1], body.text); status = 201; }

@@ -203,11 +203,13 @@
     "tools/launcher/topology.mjs",
     "tools/workshop/cli.mjs",
     "tools/workshop/public/app.mjs",
+    "tools/workshop/public/artifact-config-view.mjs",
     "tools/workshop/public/index.html",
     "tools/workshop/public/style.css",
     "tools/workshop/server.mjs",
     "tools/workshop/store.mjs",
-    "tools/workshop/media.mjs"
+    "tools/workshop/media.mjs",
+    "tools/workshop/artifact-configuration.mjs"
   ],
   "publishConfig": {
     "access": "public",

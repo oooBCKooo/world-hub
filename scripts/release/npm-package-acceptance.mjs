@@ -260,7 +260,7 @@ try {
   assert.equal((await api('health')).value.ok, true); assert.equal((await api('api/me')).value.user, null);
   const index = (await api('index.json')).value; assert.equal(index.format, 'world-hub.source-index/v1'); assert.ok(Array.isArray(index.entries));
   assert.deepEqual((await api('api/catalog')).value.publications, []);
-  for (const [path, file] of [['', 'index.html'], ['app.mjs', 'app.mjs'], ['style.css', 'style.css']]) {
+  for (const [path, file] of [['', 'index.html'], ['app.mjs', 'app.mjs'], ['style.css', 'style.css'], ['artifact-config-view.mjs', 'artifact-config-view.mjs']]) {
     const response = await fetch(new URL(path, service.url), { redirect: 'error', signal: AbortSignal.timeout(5000) }); assert.equal(response.status, 200); assert.match(response.headers.get('content-security-policy'), /script-src 'self'/); assert.equal(sha(Buffer.from(await response.arrayBuffer())), sha(await readFile(join(packageRoot, 'tools/workshop/public', file))));
   }
   const authenticated = await api('api/login', { username: 'npmadmin', password });
@@ -269,11 +269,18 @@ try {
   assert.equal((await api('api/me', undefined, actor)).value.user.username, 'npmadmin');
   assert.equal((await api('api/invitations', {}, { cookie: actor.cookie }, 403)).value.error.code, 'CSRF_REQUIRED');
   assert.equal((await api('api/invitations', {}, actor, 403, { origin: 'https://external.invalid' })).value.error.code, 'ORIGIN_REQUIRED');
+  const manifest = { format: 'world-hub.module/v1', id: 'npm.preview', version: '1.0.0', license: 'MIT', platforms: ['win32-x64', 'linux-x64'], runtime: { kind: 'node', entry: 'program.mjs' }, bridges: ['main'], provides: [], requires: [], permissions: { filesystem: 'instance-state', network: ['hub-loopback'], processes: 'none' } };
+  const file = (path, source) => { const bytes = Buffer.from(source); return { path, sha256: sha(bytes), base64: bytes.toString('base64') }; };
+  const artifact = { format: 'world-hub.source-artifact/v1', kind: 'module', id: manifest.id, version: manifest.version, files: [file('module.json', JSON.stringify(manifest)), file('program.mjs', 'throw new Error("Uploaded source must never execute");')], provenance: { redistributionAcknowledged: true } };
+  const preview = (await api('api/artifacts/preview', { artifact }, actor)).value.configuration;
+  assert.equal(preview.format, 'world-hub.workshop-configuration/v1'); assert.equal(preview.id, artifact.id);
+  assert.equal(preview.sha256, sha(Buffer.from(JSON.stringify(artifact) + '\n'))); assert.equal(preview.executionDefaults.source, 'system');
+  assert.equal((await api('api/catalog')).value.total, 0, 'preview must not publish');
   await api('api/logout', {}, actor); assert.equal((await api('api/me', undefined, actor)).value.user, null);
   const listener = service.url; await service.close(); await service.closed; service = null;
   await assert.rejects(access(join(dataRoot, 'workshop-owner.lock')), { code: 'ENOENT' });
   await assert.rejects(fetch(new URL('health', listener), { signal: AbortSignal.timeout(1000) }));
-  console.log(JSON.stringify({ passed: true, version: pkg.version, publicExport: 'world-hub/workshop', cliInitialized: true, stdinSecretLogged: false, bootstrapPid, bootstrapExit, exactUiAssets: 3, csrfRejected: true, stopped: true }));
+  console.log(JSON.stringify({ passed: true, version: pkg.version, publicExport: 'world-hub/workshop', cliInitialized: true, stdinSecretLogged: false, bootstrapPid, bootstrapExit, exactUiAssets: 4, configurationPreview: true, csrfRejected: true, stopped: true }));
 } finally {
   await service?.close();
   assert.equal(dirname(resolve(dataRoot)), temporaryParent); assert.ok(basename(dataRoot).startsWith('wh-npm-workshop-'));
@@ -283,7 +290,7 @@ try {
     const workshopCheck = JSON.parse(await execute('Installed public Workshop API serves exact UI and authenticated accounts initialized by the real CLI stdin, then releases its owner and listener', process.execPath,
       [workshopCheckPath], { cwd: workspace }));
     assert.equal(workshopCheck.passed, true); assert.equal(workshopCheck.version, pkg.version); assert.equal(workshopCheck.stopped, true);
-    assert.equal(workshopCheck.cliInitialized, true); assert.equal(workshopCheck.stdinSecretLogged, false); assert.equal(workshopCheck.exactUiAssets, 3);
+    assert.equal(workshopCheck.cliInitialized, true); assert.equal(workshopCheck.stdinSecretLogged, false); assert.equal(workshopCheck.exactUiAssets, 4); assert.equal(workshopCheck.configurationPreview, true);
     report.workshop = workshopCheck;
     const probe = join(localApp, 'sdk-probe.mjs');
     await writeFile(probe, `import assert from 'node:assert/strict';

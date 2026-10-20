@@ -1,5 +1,6 @@
 // Workshop is an optional distribution service. This page never executes code
 // or contacts local management APIs. Remote strings are rendered as text only.
+import { renderArtifactConfiguration } from './artifact-config-view.mjs';
 const base = new URL('./', import.meta.url);
 const $ = selector => document.querySelector(selector);
 const uploadMaximum = 8 * 1024 * 1024;
@@ -30,7 +31,12 @@ Object.assign(languages.en, {
   presentationTitle:'Work images (optional)', presentationHelp:'Add an icon, cover, and up to 6 preview images to make your work recognizable. Static PNG, JPEG, or WebP only. Icon: up to 512 KiB; other images: up to 1 MiB each; 5 MiB combined.',
   iconLabel:'Icon', coverLabel:'Cover', screenshotsLabel:'Preview images (up to 6)', imageAlt:'Image description', imageAltPlaceholder:'Briefly describe the image for people who cannot see it', imageRemove:'Remove', imageReadPending:'Reading images…', imageInvalid:'The image could not be read. Choose a PNG, JPEG, or WebP image within the limits.', imageTotalTooLarge:'Images exceed 5 MiB combined. Remove images or use smaller files.', imageCountTooMany:'Choose no more than 6 preview images.', imagePreviewTitle:'Work preview', imageOpen:'View full image: {name}', screenshotName:'Preview image {number}', editPresentation:'Edit work images', presentationSave:'Save images', presentationSaved:'Work images updated. The artifact version and digest are unchanged.', presentationEditHelp:'Images can be updated independently. Saving preserves the code artifact, version, and digest. Remove all images and save to return to a text-only presentation.', noPresentation:'No work images have been added.', imageReadError:'Images are not ready. Choose them again or remove them.'
 });
-const state = { language:initialLanguage(), user:null, csrfToken:null, detail:null, catalog:null, request:0, publicationPreview:null, proposalPreview:null, invitation:null, users:null, search:'', kind:'', contract:'', offset:0, limit:24, localHubURL:'' };
+Object.assign(languages.zh, { selectedArtifact:'已选择：{name}', validatingArtifact:'正在核对制品配置…', reviewFailed:'制品未通过核对。请更换文件或重试。', retryReview:'重新核对', draftMemory:'文件与草稿仅保留在当前页面内存。刷新或关闭页面后清除。', clearDraft:'清空草稿', publishStepFile:'选择制品', publishStepReview:'核对配置', publishStepSubmit:'确认发布', configuration:'运行与依赖', basicInformation:'基本信息', wiringInformation:'接线与参数', retainedFile:'已保留所选制品，可继续审阅或选择其他文件。', draftSaved:'已保留当前草稿。', returnToWork:'登录后会返回刚才的操作。', nothingFound:'暂时未能读取作品。', reviewReady:'配置已核对', deploymentTitle:'作者声明的名称', authorConfiguration:'作者默认配置' });
+Object.assign(languages.en, { selectedArtifact:'Selected: {name}', validatingArtifact:'Validating artifact configuration…', reviewFailed:'Artifact validation failed. Choose another file or retry.', retryReview:'Validate again', draftMemory:'Files and drafts stay in this page’s memory only. Refreshing or closing the page clears them.', clearDraft:'Clear draft', publishStepFile:'Choose an artifact', publishStepReview:'Review configuration', publishStepSubmit:'Confirm publication', configuration:'Runtime and dependencies', basicInformation:'Basic information', wiringInformation:'Wiring and settings', retainedFile:'The selected artifact is retained. Continue reviewing or choose another file.', draftSaved:'Your current draft is retained.', returnToWork:'After signing in, you will return to your previous action.', nothingFound:'This work could not be loaded.', reviewReady:'Configuration validated', deploymentTitle:'Author-declared name', authorConfiguration:'Author defaults' });
+Object.assign(languages.zh,{downloadDetails:'摘要与软件源',previewNote:'配置已由服务器从这份制品完整核对。这里的声明不代表代码安全认证，运行和授权仍由本机审阅。'});
+Object.assign(languages.en,{downloadDetails:'Digest and source',previewNote:'The server has validated this artifact and read its configuration. Declarations do not certify code safety; execution and permissions are reviewed locally.'});
+const newDraft = () => ({ preview:null, configuration:null, title:'', titleEdited:false, acknowledged:false, generation:0, reading:false, submitting:false, reviewError:null, evidence:{}, media:{}, refresh:null });
+const state = { language:initialLanguage(), user:null, csrfToken:null, detail:null, catalog:null, request:0, publicationPreview:null, proposalPreview:null, publicationDraft:newDraft(), proposalDrafts:new Map(), commentDrafts:new Map(), returnTo:null, authBusy:false, invitation:null, users:null, search:'', kind:'', contract:'', offset:0, limit:24, localHubURL:'' };
 const t = (key, variables = {}) => (languages[state.language][key] ?? key).replace(/\{(\w+)\}/g, (_, name) => String(variables[name] ?? ''));
 function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
@@ -86,21 +92,51 @@ function field(label, input, help) {
   return el('div',{class:'field'},[el('label',{},[el('span',{class:'field-label',text:label}),input]),help ? el('p',{id:helpId,class:'field-help',text:help}) : null]);
 }
 function heading(eyebrow, title, text) { return el('div',{class:'page-heading'},el('div',{},[el('div',{class:'eyebrow',text:eyebrow}),el('h1',{text:title}),el('p',{text})])); }
+function accountLink(cls = 'button small') {
+  const node = link(t('goAccount'),'#account',cls);
+  node.addEventListener('click',() => { state.returnTo = location.hash || '#catalog'; });
+  return node;
+}
+function selectedTitle(preview, configuration) {
+  const declared = configuration?.deployment?.title;
+  return typeof declared === 'string' ? declared : declared?.[state.language] || declared?.en || declared?.zh || preview?.manifest?.title || preview?.manifest?.id || '';
+}
+function renderConfiguration(configuration) { return configuration ? renderArtifactConfiguration(configuration,{language:state.language,document}) : null; }
+function draftCurrent(draft, generation) { return generation === draft.generation; }
+async function validateDraft(draft, generation = draft.generation) {
+  if (!draft.preview || !state.user || draft.submitting) return;
+  draft.reading = true; draft.reviewError = null; draft.refresh?.();
+  try {
+    const result = await api('api/artifacts/preview',{artifact:draft.preview.artifact});
+    if (!draftCurrent(draft,generation)) return;
+    const configuration = result.configuration, artifact = draft.preview.artifact;
+    if (configuration?.format !== 'world-hub.workshop-configuration/v1' || !/^[a-f0-9]{64}$/.test(configuration.sha256 ?? '') || ['kind','id','version'].some(key => configuration[key] !== artifact[key])) throw new Error(t('reviewFailed'));
+    draft.configuration = result.configuration;
+    if (!draft.titleEdited) draft.title = selectedTitle(draft.preview,draft.configuration);
+  } catch (error) { if (draftCurrent(draft,generation)) { draft.configuration = null; draft.reviewError = errorText(error); inform(draft.reviewError,true); } }
+  finally { if (draftCurrent(draft,generation)) { draft.reading = false; draft.refresh?.(); } }
+}
+async function selectDraftArtifact(draft, file, sameIdentity) {
+  const generation = ++draft.generation;
+  draft.preview = null; draft.configuration = null; draft.acknowledged = false; draft.reviewError = null; draft.reading = true; draft.refresh?.();
+  try {
+    const preview = await readArtifact(file);
+    if (!draftCurrent(draft,generation)) return;
+    if (preview && sameIdentity && (preview.artifact.kind !== sameIdentity.kind || preview.artifact.id !== sameIdentity.id)) throw new Error(t('proposalMismatch'));
+    draft.preview = preview;
+    if (!draft.titleEdited) draft.title = selectedTitle(preview,null);
+    if (preview && state.user) await validateDraft(draft,generation);
+  } catch (error) { if (draftCurrent(draft,generation)) { draft.reviewError = errorText(error); inform(draft.reviewError,true); } }
+  finally { if (draftCurrent(draft,generation)) { draft.reading = false; draft.refresh?.(); } }
+}
+function discardDraft(draft) {
+  ++draft.generation;
+  for (const slot of Object.values(draft.media.slots ?? {})) ++slot.generation;
+  ++draft.evidence.generation;
+  Object.assign(draft,{preview:null,configuration:null,title:'',titleEdited:false,acknowledged:false,reading:false,reviewError:null,evidence:{},media:{}});
+}
 function contractText(list) { return Array.isArray(list) && list.length ? list.map(c => `${c.id}@${c.version}`).join(', ') : t('notDeclared'); }
 function definitions(rows) { return el('dl',{class:'definition-list'},rows.flatMap(([name,value]) => [el('dt',{text:name}),el('dd',{text:value})])); }
-function groupContents(manifest) {
-  if (!manifest || !Array.isArray(manifest.modules)) return null;
-  const members = manifest.modules.slice(0,128).map(member => el('li',{class:'group-member'},[
-    el('strong',{text:`${member.id} · ${member.moduleId}@${member.version}`}),
-    el('code',{class:'group-source',text:String(member.path ?? '')}),
-    el('details',{},[el('summary',{text:t('memberConfiguration')}),el('pre',{class:'group-configuration',text:JSON.stringify(member.configuration ?? {},null,2)})])
-  ]));
-  return el('section',{class:'group-preview','data-testid':'group-preview'},[
-    el('h3',{text:t('groupMembers')}),el('p',{class:'field-help',text:t('groupBoundary')}),
-    el('p',{text:t('memberCount',{count:manifest.modules.length})}),el('ul',{class:'group-members'},members),
-    el('details',{},[el('summary',{text:t('startupPlan')}),el('pre',{class:'group-configuration',text:JSON.stringify(manifest.startupPlan ?? {},null,2)})])
-  ]);
-}
 function versionPicker(detail) {
   const versions = Array.isArray(detail.versions) && detail.versions.length ? detail.versions : [detail.publication];
   const select = el('select',{id:'publication-version'},versions.map(version => el('option',{value:version.entryId,text:`${version.version}${version.hidden ? ` · ${t('hidden')}` : ''}`})));
@@ -133,7 +169,7 @@ function presentationGallery(publication) {
   return el('section',{class:'panel presentation-gallery','aria-label':t('imagePreviewTitle')},[el('h2',{text:t('imagePreviewTitle')}),el('div',{class:'gallery-grid'},images.map(({asset,name,cover}) => el('a',{href:mediaURL(asset),target:'_blank',rel:'noopener noreferrer',class:`gallery-item${cover ? ' gallery-cover' : ''}`,'aria-label':t('imageOpen',{name:asset.alt || name})},[publicImage(asset,'gallery-image',name),el('span',{class:'gallery-caption',text:asset.alt || name})]))) ]);
 }
 function boundary() { return el('div',{class:'boundary-banner'},[el('span',{'aria-hidden':'true',text:'↗'}),el('p',{text:t('boundary')})]); }
-function loginNotice() { return el('div',{class:'notice inline'},[el('p',{text:t('loginRequired')}),link(t('goAccount'),'#account','button small')]); }
+function loginNotice() { return el('div',{class:'notice inline'},[el('p',{text:t('loginRequired')}),accountLink(),el('p',{class:'field-help',text:t('returnToWork')})]); }
 function sourceStrip() { return el('div',{class:'source-strip'},[el('div',{},[el('h3',{text:t('sourceTitle')}),el('p',{text:t('sourceText')})]),el('div',{class:'source-actions'},[button(t('copySource'),() => copy(sourceURL(),t('copiedURL'))),external(t('viewSource'),sourceURL(),'button quiet')])]); }
 function hero() {
   const node = (cls,icon,name) => el('div',{class:`art-node ${cls}`},[el('span',{class:'art-icon','aria-hidden':'true',text:icon}),el('span',{text:t(name)})]);
@@ -141,7 +177,7 @@ function hero() {
 }
 function card(item) {
   const contracts = [...(item.provides ?? []),...(item.requires ?? [])];
-  return el('a',{class:'publication-card',href:publicationHash(item.entryId),'data-entry-id':item.entryId},[
+  return el('a',{class:'publication-card',href:publicationHash(item.entryId),'data-entry-id':item.entryId,'data-kind':item.kind},[
     publicImage(item.presentation?.cover,'card-cover',''),
     el('div',{class:'card-top'},[publicationIcon(item),el('span',{class:'pill',text:t(item.kind)})]),
     el('div',{},[el('h3',{text:item.title ?? item.id}),el('div',{class:'card-id',text:`${item.id} · ${item.version}`}),el('span',{class:'card-versions',text:t(item.versionCount > 1 ? 'viewVersions' : 'versionCount',{count:item.versionCount ?? 1})})]),
@@ -179,20 +215,23 @@ async function readArtifact(file) {
     || (artifact.kind === 'module-group' && (!Array.isArray(manifest.modules) || !manifest.modules.length || manifest.modules.length > 128))) throw new Error(t('invalidManifest'));
   return { artifact, manifest, size:file.size, fileName:file.name, platforms:manifest.platforms };
 }
-function previewNode(preview) {
+function previewNode(preview, configuration = null) {
   if (!preview) return el('div',{class:'preview'},[el('h3',{text:t('previewTitle')}),el('p',{class:'form-help',text:t('previewNone')})]);
   const m = preview.manifest;
   return el('div',{class:'preview','data-testid':'artifact-preview'},[
     el('h3',{text:t('previewTitle')}),definitions([[t('kind'),t(preview.artifact.kind)],[t('id'),String(m.id)],[t('version'),String(m.version)],[t('license'),String(m.license ?? t('notDeclared'))],[t('platforms'),Array.isArray(preview.platforms) ? preview.platforms.join(', ') : t('notDeclared')],[t('files'),t('fileCount',{count:preview.artifact.files.length})],[t('byteSize'),`${(preview.size/1024).toFixed(1)} KiB`],[t('provides'),contractText(m.provides)],[t('requires'),contractText(m.requires)]]),
-    preview.artifact.kind === 'module-group' ? groupContents(m) : null,el('p',{class:'field-help',text:t('previewNote')})
+    configuration ? renderConfiguration(configuration) : null,configuration ? el('p',{class:'field-help',text:t('previewNote')}) : null
   ]);
 }
 function acknowledgment(text,id) { const check = el('input',{type:'checkbox',id,required:true}); return { check, label:el('label',{class:'check'},[check,el('span',{text})]) }; }
-function publicEvidenceInput(id, changed) {
+function publicEvidenceInput(id, changed, saved = {}) {
   const input = el('input', { id, type:'file', accept:'.json,application/json' });
-  let value, pending = false, invalid = false, generation = 0;
+  saved.generation ??= 0; saved.pending ??= false; saved.invalid ??= false;
+  const status = el('p',{class:'field-help',role:'status'});
+  const refresh = () => { status.textContent = saved.pending ? t('loading') : saved.name ? t('selectedArtifact',{name:saved.name}) : ''; changed(); };
+  saved.refresh = refresh;
   input.addEventListener('change', async () => {
-    const current = ++generation; value = undefined; pending = true; invalid = false; changed();
+    const current = ++saved.generation; saved.value = undefined; saved.pending = true; saved.invalid = false; saved.name = ''; saved.refresh();
     try {
       const file = input.files[0];
       if (file) {
@@ -203,13 +242,14 @@ function publicEvidenceInput(id, changed) {
           || Object.keys(parsed.payload).some(key => !['type','issuer','keyId','sequence','issuedAt','expiresAt','subject','details'].includes(key))
           || Object.keys(parsed.payload.details ?? {}).length
           || (parsed.publicKeys ?? []).some(key => Object.keys(key).some(name => !['keyId','publicKey'].includes(name)))) throw new Error(t('evidenceInvalid'));
-        if (current === generation) value = bytes;
+        if (current === saved.generation) { saved.value = bytes; saved.name = file.name; }
       }
-    } catch { if (current === generation) { invalid = true; inform(t('evidenceInvalid'), true); } }
-    finally { if (current === generation) { pending = false; changed(); } }
+    } catch { if (current === saved.generation) { saved.invalid = true; inform(t('evidenceInvalid'), true); } }
+    finally { if (current === saved.generation) { saved.pending = false; saved.refresh(); } }
   });
-  return { node:field(t('evidenceLabel'), input, t('evidenceHint')), ready:() => !pending && !invalid,
-    apply:body => { if (value !== undefined) body.publisherEvidence = value; } };
+  status.textContent = saved.pending ? t('loading') : saved.name ? t('selectedArtifact',{name:saved.name}) : '';
+  return { node:el('div',{},[field(t('evidenceLabel'), input, t('evidenceHint')),status]), ready:() => !saved.pending && !saved.invalid,
+    apply:body => { if (saved.value !== undefined) body.publisherEvidence = saved.value; } };
 }
 function publisherEvidenceLink(evidence) {
   if (!/^[a-f0-9]{64}$/.test(evidence?.sha256 ?? '')) return null;
@@ -226,8 +266,8 @@ async function readImage(file, maximum) {
   for (let offset = 0; offset < bytes.length; offset += 8192) binary += String.fromCharCode(...bytes.subarray(offset,offset+8192));
   return {mimeType:file.type,base64:btoa(binary),size:bytes.length,alt:''};
 }
-function presentationInput(id, changed, initial = {}) {
-  const slots = {
+function presentationInput(id, changed, initial = {}, saved = {}) {
+  const slots = saved.slots ??= {
     icon:{label:'iconLabel',maximum:512*1024,values:initial.icon && mediaURL(initial.icon) ? [{...initial.icon}] : []},
     cover:{label:'coverLabel',maximum:1024*1024,values:initial.cover && mediaURL(initial.cover) ? [{...initial.cover}] : []},
     screenshots:{label:'screenshotsLabel',maximum:1024*1024,values:(Array.isArray(initial.screenshots) ? initial.screenshots : []).filter(mediaURL).slice(0,6).map(asset => ({...asset})),multiple:true}
@@ -238,35 +278,38 @@ function presentationInput(id, changed, initial = {}) {
   const sections = Object.entries(slots).map(([key,slot]) => {
     const input = el('input',{id:`${id}-${key}`,type:'file',accept:'image/png,image/jpeg,image/webp',multiple:slot.multiple});
     const previews = el('div',{class:`media-selection ${key}`}), status = el('p',{class:'field-help',role:'status'});
-    slot.generation = 0; slot.pending = false; slot.invalid = false;
-    const clear = () => { ++slot.generation; slot.pending = false; slot.invalid = false; slot.values = []; input.value = ''; render(); notify(); };
+    slot.generation ??= 0; slot.pending ??= false; slot.invalid ??= false;
+    const clear = () => { ++slot.generation; slot.pending = false; slot.invalid = false; slot.values = []; input.value = ''; slot.render(); saved.notify(); };
     const render = () => {
       status.textContent = slot.pending ? t('imageReadPending') : slot.invalid ? t('imageReadError') : '';
       previews.replaceChildren(...slot.values.map((asset,index) => {
         const alt = el('input',{type:'text',maxlength:256,value:asset.alt ?? '',placeholder:t('imageAltPlaceholder'),'data-media-alt':`${key}-${index}`});
         alt.addEventListener('input',() => { asset.alt = alt.value; });
         const src = asset.base64 ? `data:${asset.mimeType};base64,${asset.base64}` : mediaURL(asset);
-        const remove = button(t('imageRemove'),() => { slot.values.splice(index,1); if (!slot.values.length) input.value = ''; render(); notify(); },'small');
+        const remove = button(t('imageRemove'),() => { slot.values.splice(index,1); if (!slot.values.length) input.value = ''; slot.render(); saved.notify(); },'small');
         remove.setAttribute('aria-label',`${t('imageRemove')} · ${t(slot.label)}${slot.multiple ? ` ${index+1}` : ''}`);
         return el('div',{class:'media-preview'},[el('img',{src,alt:asset.alt ?? '',class:'media-thumbnail'}),el('div',{class:'media-caption-editor'},[field(t('imageAlt'),alt),remove])]);
       }));
     };
+    slot.render = render;
     input.addEventListener('change',async () => {
       const generation = ++slot.generation, files = Array.from(input.files ?? []);
-      slot.values = []; slot.pending = true; slot.invalid = false; render(); notify();
+      slot.values = []; slot.pending = true; slot.invalid = false; slot.render(); saved.notify();
       try {
         if (files.length > (slot.multiple ? 6 : 1)) throw new Error(t('imageCountTooMany'));
         const assets = await Promise.all(files.map(file => readImage(file,slot.maximum)));
         if (generation !== slot.generation) return;
         slot.values = assets;
       } catch (error) { if (generation === slot.generation) { slot.invalid = true; inform(errorText(error),true); } }
-      finally { if (generation === slot.generation) { slot.pending = false; render(); notify(); } }
+      finally { if (generation === slot.generation) { slot.pending = false; slot.render(); saved.notify(); } }
     });
     render();
     const removeAll = button(t('imageRemove'),clear,'small quiet');
     removeAll.setAttribute('aria-label',`${t('imageRemove')} · ${t(slot.label)}`);
     return el('div',{class:'media-field'},[field(t(slot.label),input),previews,status,removeAll]);
   });
+  saved.notify = notify;
+  totalNotice.textContent = total() > 5*1024*1024 ? t('imageTotalTooLarge') : '';
   return { node:el('fieldset',{class:'presentation-editor',id},[el('legend',{text:t('presentationTitle')}),el('p',{class:'field-help',text:t('presentationHelp')}),...sections,totalNotice]),
     ready:() => Object.values(slots).every(slot => !slot.pending && !slot.invalid) && total() <= 5*1024*1024,
     value:() => Object.fromEntries(Object.entries(slots).filter(([,slot]) => slot.values.length).map(([key,slot]) => {
@@ -283,32 +326,54 @@ function presentationEditor(publication) {
   const form = el('form',{id:'presentation-form',class:'presentation-edit-form'},[el('p',{class:'field-help',text:t('presentationEditHelp')}),media.node,submit]);
   form.addEventListener('submit',event => {
     event.preventDefault(); if (submitting || !media.ready()) return;
-    submitting = true; available();
-    busy(submit,async () => { try { await api(`${publicationPath(publication.entryId)}/presentation`,{presentation:media.value()}); inform(t('presentationSaved')); await loadRoute(); } finally { submitting = false; } }).finally(available);
+    submitting = true; available(); const startedHash = location.hash;
+    busy(submit,async () => { try { await api(`${publicationPath(publication.entryId)}/presentation`,{presentation:media.value()}); inform(t('presentationSaved')); if (location.hash === startedHash) await loadRoute(); } finally { submitting = false; } }).finally(available);
   });
   return el('details',{class:'panel presentation-edit'},[el('summary',{text:t('editPresentation')}),form]);
 }
 function renderPublish() {
-  state.publicationPreview = null;
-  const upload = el('input',{id:'artifact-file',type:'file',accept:'.json,application/json',required:true});
-  const title = el('input',{name:'title',maxlength:256,placeholder:t('titlePlaceholder')});
-  const preview = el('div',{id:'publication-preview'},previewNode(null));
+  const draft = state.publicationDraft;
+  if (!draft.titleEdited && draft.preview) draft.title = selectedTitle(draft.preview,draft.configuration);
+  const upload = el('input',{id:'artifact-file',type:'file',accept:'.json,application/json',required:!draft.preview});
+  const title = el('input',{name:'title',maxlength:256,value:draft.title,placeholder:t('titlePlaceholder')});
+  const preview = el('div',{id:'publication-preview'}), fileStatus = el('p',{class:'selected-artifact field-help',role:'status'});
   const ack = acknowledgment(t('redistribute'),'redistribution-ack');
   const submit = el('button',{id:'publish-submit',type:'submit',class:'button primary',disabled:true,text:t('publishConfirm')});
-  const evidence = publicEvidenceInput('publisher-evidence-file', () => available());
-  const media = presentationInput('publication-images',() => available());
-  let readGeneration = 0;
-  let submitting = false;
-  const available = () => { submit.disabled = submitting || !state.user || !state.publicationPreview || !ack.check.checked || !evidence.ready() || !media.ready(); };
-  ack.check.addEventListener('change',available);
-  upload.addEventListener('change',async () => {
-    const generation = ++readGeneration; state.publicationPreview = null; ack.check.checked = false; available();
-    try { const result = await readArtifact(upload.files[0]); if (generation !== readGeneration) return; state.publicationPreview = result; preview.replaceChildren(previewNode(result)); available(); }
-    catch (error) { if (generation === readGeneration) { preview.replaceChildren(previewNode(null)); inform(errorText(error),true); } }
+  const evidence = publicEvidenceInput('publisher-evidence-file',() => available(),draft.evidence);
+  const media = presentationInput('publication-images',() => available(),{},draft.media);
+  const steps = el('ol',{class:'publish-steps'}), retry = button(t('retryReview'),() => validateDraft(draft),'small');
+  const available = () => { submit.disabled = draft.submitting || draft.reading || !state.user || !draft.configuration || !draft.preview || !draft.acknowledged || !evidence.ready() || !media.ready(); submit.textContent = t(draft.submitting ? 'publishing' : 'publishConfirm'); };
+  draft.refresh = () => {
+    state.publicationPreview = draft.preview;
+    upload.required = !draft.preview; upload.disabled = draft.submitting; ack.check.checked = draft.acknowledged; ack.check.disabled = draft.reading || draft.submitting || !draft.configuration;
+    if (!draft.titleEdited) title.value = draft.title;
+    fileStatus.textContent = draft.preview ? t('selectedArtifact',{name:draft.preview.fileName}) : '';
+    preview.replaceChildren(previewNode(draft.preview,draft.configuration),...(draft.reading ? [el('p',{class:'field-help',role:'status',text:t('validatingArtifact')})] : []),...(draft.reviewError ? [el('p',{class:'field-help media-error',role:'alert',text:draft.reviewError})] : []));
+    retry.hidden = !draft.preview || !!draft.configuration || draft.reading || !state.user; retry.disabled = draft.submitting;
+    available();
+    steps.replaceChildren(...['publishStepFile','publishStepReview','publishStepSubmit'].map((key,index) => { const complete = index === 0 ? !!draft.preview : index === 1 ? !!draft.configuration : draft.acknowledged && !submit.disabled; return el('li',{'data-complete':complete,class:complete ? 'is-complete' : '',text:t(key)}); }));
+  };
+  title.addEventListener('input',() => { draft.title = title.value; draft.titleEdited = true; });
+  ack.check.addEventListener('change',() => { draft.acknowledged = ack.check.checked; draft.refresh(); });
+  upload.addEventListener('change',() => selectDraftArtifact(draft,upload.files[0]));
+  const clear = button(t('clearDraft'),() => { if (draft.submitting) return; discardDraft(draft); renderPublish(); },'quiet small');
+  const form = el('form',{id:'publication-form',class:'panel publish-form'},[el('h2',{text:t('uploadTitle')}),el('div',{class:'upload-box'},[el('div',{class:'upload-icon','aria-hidden':'true',text:'⇧'}),field(t('artifactLabel'),upload),el('p',{text:t('uploadHint')}),fileStatus]),el('p',{class:'field-help',text:t('uploadHelp')}),el('p',{class:'field-help',text:t('draftMemory')}),field(t('titleLabel'),title),preview,retry,media.node,evidence.node,ack.label,el('div',{class:'form-actions'},[submit,clear])]);
+  form.addEventListener('submit',event => {
+    event.preventDefault(); available(); if (submit.disabled) return;
+    draft.submitting = true; draft.refresh(); const startedHash = location.hash;
+    const payload = {artifact:draft.preview.artifact,redistributionAcknowledged:true,presentation:media.value()}; evidence.apply(payload); if (draft.title.trim()) payload.title = draft.title.trim();
+    busy(submit,async () => {
+      try {
+        const result = await api('api/publications',payload); inform(t(result.duplicate ? 'duplicate' : 'published'));
+        discardDraft(draft); state.publicationPreview = null;
+        if (location.hash === startedHash && route().view === 'publish') location.hash = publicationHash(result.publication.entryId);
+      } finally { draft.submitting = false; draft.refresh?.(); }
+    }).finally(available);
   });
-  const form = el('form',{id:'publication-form',class:'panel'},[el('h2',{text:t('uploadTitle')}),el('div',{class:'upload-box'},[el('div',{class:'upload-icon','aria-hidden':'true',text:'⇧'}),field(t('artifactLabel'),upload),el('p',{text:t('uploadHint')})]),el('p',{class:'field-help',text:t('uploadHelp')}),el('div',{class:'form-actions'},field(t('titleLabel'),title)),media.node,evidence.node,preview,ack.label,el('div',{class:'form-actions'},submit)]);
-  form.addEventListener('submit',event => { event.preventDefault(); if (submitting || !state.publicationPreview || !ack.check.checked || !state.user || !evidence.ready() || !media.ready()) return; submitting = true; available(); busy(submit,async () => { try { const payload = {artifact:state.publicationPreview.artifact,redistributionAcknowledged:true,presentation:media.value()}; evidence.apply(payload); if (title.value.trim()) payload.title = title.value.trim(); const result = await api('api/publications',payload); inform(t(result.duplicate ? 'duplicate' : 'published')); state.publicationPreview = null; location.hash = publicationHash(result.publication.entryId); } finally { submitting = false; } }).finally(available); });
-  replaceView(heading(t('publishEyebrow'),t('publishTitle'),t('publishSubtitle')),!state.user ? loginNotice() : null,el('div',{class:'panels'},[form,el('div',{class:'stack'},[[t('immutable'),t('publishRules')],[t('initialQuota'),t('quotaText')],[t('safeFiles'),t('safeFilesText')]].map(([title,text]) => el('section',{class:'panel'},[el('h2',{text:title}),el('p',{class:'form-help',text})])))]),boundary());
+  const outline = el('aside',{class:'publish-outline stack'},[el('section',{class:'panel'},[el('h2',{text:t('previewTitle')}),steps]),...[[t('immutable'),t('publishRules')],[t('safeFiles'),t('safeFilesText')],[t('initialQuota'),t('quotaText')]].map(([name,text]) => el('section',{class:'panel'},[el('h2',{text:name}),el('p',{class:'form-help',text})]))]);
+  replaceView(heading(t('publishEyebrow'),t('publishTitle'),t('publishSubtitle')),!state.user ? loginNotice() : null,el('div',{class:'publish-workspace'},[form,outline]),boundary());
+  draft.refresh();
+  if (draft.preview && !draft.configuration && !draft.reading && !draft.reviewError && state.user) void validateDraft(draft);
 }
 function downloadLink(digest, publication) {
   if (typeof digest !== 'string' || !/^[a-f0-9]{64}$/.test(digest)) return el('p',{class:'muted',text:t('publicationMissing')});
@@ -326,11 +391,17 @@ function commentsPanel(detail) {
   const comments = Array.isArray(detail.comments) ? detail.comments : [];
   const list = el('ul',{class:'comment-list'},comments.map(comment => el('li',{class:'comment'},[el('div',{class:'comment-meta'},[el('strong',{text:owner(comment.author)}),el('span',{text:date(comment.createdAt)})]),el('p',{text:comment.text})])));
   const panel = el('section',{class:'panel'},[el('h2',{text:t('commentCount',{count:comments.length})}),comments.length ? list : el('p',{class:'form-help',text:t('noComments')})]);
-  if (!state.user) { panel.append(link(t('goAccount'),'#account','button small')); return panel; }
-  const text = el('textarea',{name:'text',id:'comment-text',maxlength:4000,required:true,placeholder:t('commentPlaceholder')});
+  if (!state.user) { panel.append(accountLink()); return panel; }
+  const key = detail.publication.entryId;
+  if (!state.commentDrafts.has(key)) state.commentDrafts.set(key,{text:'',submitting:false});
+  const draft = state.commentDrafts.get(key);
+  const text = el('textarea',{name:'text',id:'comment-text',maxlength:4000,required:true,placeholder:t('commentPlaceholder')}); text.value = draft.text;
   const submit = el('button',{type:'submit',class:'button primary',text:t('sendComment')});
   const form = el('form',{id:'comment-form',class:'comment-form'},[field(t('commentLabel'),text),submit]);
-  form.addEventListener('submit',event => { event.preventDefault(); if (!text.value.trim()) return; busy(submit,async () => { await api(`${publicationPath(detail.publication.entryId)}/comments`,{text:text.value.trim()}); inform(t('commentSent')); await loadRoute(); }); });
+  draft.refresh = () => { submit.disabled = draft.submitting; text.disabled = draft.submitting; };
+  text.addEventListener('input',() => { draft.text = text.value; });
+  form.addEventListener('submit',event => { event.preventDefault(); if (draft.submitting || !draft.text.trim()) return; draft.submitting = true; draft.refresh(); const startedHash = location.hash; busy(submit,async () => { try { await api(`${publicationPath(key)}/comments`,{text:draft.text.trim()}); draft.text = ''; inform(t('commentSent')); if (location.hash === startedHash) await loadRoute(); } finally { draft.submitting = false; draft.refresh?.(); } }); });
+  draft.refresh();
   panel.append(form); return panel;
 }
 function proposalsPanel(detail) {
@@ -341,30 +412,38 @@ function proposalsPanel(detail) {
     const download = button(t('downloadProposal'),event => busy(event.currentTarget,() => downloadProposal(detail.publication.entryId,proposal.id)),'small');
     return el('li',{class:'proposal-item'},[el('h3',{text:proposal.title ?? `${proposal.artifactId} · ${proposal.version}`}),el('div',{class:'proposal-meta'},[el('span',{text:owner(proposal.author)}),el('span',{text:date(proposal.createdAt)})]),el('div',{class:'small-heading',text:t('proposalBase')}),el('code',{class:'digest',text:proposal.baseSha256}),download,publisherEvidenceLink(proposal.publisherEvidence)]);
   })));
-  if (!state.user) { panel.append(link(t('goAccount'),'#account','button small')); return panel; }
-  state.proposalPreview = null;
+  if (!state.user) { panel.append(accountLink()); return panel; }
   const baseSha256 = detail.publication.sha256, entryId = detail.publication.entryId;
-  const upload = el('input',{id:'proposal-file',type:'file',accept:'.json,application/json',required:true});
-  const title = el('input',{name:'title',maxlength:256,placeholder:t('titlePlaceholder')});
+  const key = `${entryId}:${baseSha256}`;
+  if (!state.proposalDrafts.has(key)) state.proposalDrafts.set(key,newDraft());
+  const draft = state.proposalDrafts.get(key);
+  const upload = el('input',{id:'proposal-file',type:'file',accept:'.json,application/json',required:!draft.preview});
+  const title = el('input',{name:'title',maxlength:256,value:draft.title,placeholder:t('titlePlaceholder')});
   const ack = acknowledgment(t('proposalAck'),'proposal-ack');
   const preview = el('div',{id:'proposal-preview'});
+  const retry = button(t('retryReview'),() => validateDraft(draft),'small');
   const submit = el('button',{id:'proposal-submit',type:'submit',class:'button',disabled:true,text:t('submitProposal')});
-  const evidence = publicEvidenceInput('proposal-publisher-evidence-file', () => available());
-  let readGeneration = 0;
-  const available = () => { submit.disabled = !state.proposalPreview || !ack.check.checked || !evidence.ready(); };
-  ack.check.addEventListener('change',available);
-  upload.addEventListener('change',async () => { const generation = ++readGeneration; state.proposalPreview = null; ack.check.checked = false; preview.replaceChildren(); available(); try { const result = await readArtifact(upload.files[0]); if (generation !== readGeneration) return; if (result && (result.artifact.kind !== detail.publication.kind || result.artifact.id !== detail.publication.id)) throw new Error(t('proposalMismatch')); state.proposalPreview = result; preview.replaceChildren(previewNode(result)); available(); } catch (error) { if (generation === readGeneration) inform(errorText(error),true); } });
-  const form = el('form',{id:'proposal-form',class:'comment-form'},[field(t('proposalLabel'),upload,t('proposalHelp')),field(t('proposalTitle'),title),evidence.node,el('div',{class:'small-heading',text:t('proposalBase')}),el('code',{class:'digest',text:baseSha256}),preview,ack.label,submit]);
-  form.addEventListener('submit',event => { event.preventDefault(); if (!state.proposalPreview || !ack.check.checked || !evidence.ready()) return; busy(submit,async () => { const body = { artifact:state.proposalPreview.artifact,baseSha256,redistributionAcknowledged:true }; evidence.apply(body); if (title.value.trim()) body.title = title.value.trim(); await api(`${publicationPath(entryId)}/proposals`,body); inform(t('proposalSent')); await loadRoute(); }); });
+  const evidence = publicEvidenceInput('proposal-publisher-evidence-file',() => available(),draft.evidence);
+  const available = () => { submit.disabled = draft.submitting || draft.reading || !state.user || !draft.preview || !draft.configuration || !draft.acknowledged || !evidence.ready(); };
+  draft.refresh = () => { state.proposalPreview = draft.preview; upload.disabled = draft.submitting; upload.required = !draft.preview; ack.check.checked = draft.acknowledged; ack.check.disabled = draft.submitting || draft.reading || !draft.configuration; if (!draft.titleEdited) title.value = draft.title; preview.replaceChildren(...(draft.preview ? [el('p',{class:'field-help',text:t('selectedArtifact',{name:draft.preview.fileName})}),previewNode(draft.preview,draft.configuration)] : []),...(draft.reading ? [el('p',{class:'field-help',role:'status',text:t('validatingArtifact')})] : []),...(draft.reviewError ? [el('p',{class:'field-help media-error',role:'alert',text:draft.reviewError})] : [])); retry.hidden = !draft.preview || !!draft.configuration || draft.reading; retry.disabled = draft.submitting; available(); };
+  title.addEventListener('input',() => { draft.title = title.value; draft.titleEdited = true; });
+  ack.check.addEventListener('change',() => { draft.acknowledged = ack.check.checked; draft.refresh(); });
+  upload.addEventListener('change',() => selectDraftArtifact(draft,upload.files[0],detail.publication));
+  const form = el('form',{id:'proposal-form',class:'comment-form'},[field(t('proposalLabel'),upload,t('proposalHelp')),field(t('proposalTitle'),title),evidence.node,el('div',{class:'small-heading',text:t('proposalBase')}),el('code',{class:'digest',text:baseSha256}),preview,retry,ack.label,submit]);
+  form.addEventListener('submit',event => { event.preventDefault(); available(); if (submit.disabled) return; draft.submitting = true; draft.refresh(); const startedHash = location.hash; const body = {artifact:draft.preview.artifact,baseSha256,redistributionAcknowledged:true}; evidence.apply(body); if (draft.title.trim()) body.title = draft.title.trim(); busy(submit,async () => { try { await api(`${publicationPath(entryId)}/proposals`,body); discardDraft(draft); inform(t('proposalSent')); if (location.hash === startedHash) await loadRoute(); } finally { draft.submitting = false; draft.refresh?.(); } }).finally(available); });
+  draft.refresh();
+  if (draft.preview && !draft.configuration && !draft.reading && !draft.reviewError) void validateDraft(draft);
   panel.append(form); return panel;
 }
 function renderDetail() {
   const detail = state.detail, p = detail.publication, entry = detail.entry;
   const controls = [];
   if (state.user?.role === 'admin') controls.push(button(t(p.hidden ? 'showPublication' : 'hidePublication'),event => busy(event.currentTarget,async () => { await api(`${publicationPath(p.entryId)}/visibility`,{hidden:!p.hidden}); inform(t('visibilityChanged')); await loadRoute(); }),'small danger'));
-  const aside = el('aside',{class:'panel detail-aside'},[el('h2',{text:t('download')}),versionPicker(detail),definitions([[t('publishedAt'),date(p.createdAt)],[t('platforms'),entry.platforms.join(', ')]]),downloadLink(p.sha256,p),publisherEvidenceLink(p.publisherEvidence),el('p',{text:t('downloadNote')}),el('div',{class:'small-heading',text:t('exactDigest')}),el('code',{class:'digest',text:p.sha256}),button(t('copySource'),() => copy(sourceURL(),t('copiedURL')),'small'),el('p',{text:t('licenseNotice')}),...controls]);
-  const metadata = el('section',{class:'panel'},[el('h2',{text:aboutWork[state.language]}),definitions([[t('id'),p.id],[t('version'),p.version],[t('license'),entry.license],[t('platforms'),entry.platforms.join(', ')],[t('provides'),contractText(entry.provides)],[t('requires'),contractText(entry.requires)],[t('publisher'),owner(p.owner)],[t('publishedAt'),date(p.createdAt)]]),groupContents(detail.moduleGroup)]);
-  replaceView(link(`← ${t('backCatalog')}`,'#catalog','back-link'),el('div',{class:'detail-heading'},[publicationIcon(p),el('div',{},[el('h1',{text:p.title}),el('div',{class:'detail-id',text:`${p.id} · ${p.version}`})])]),el('div',{class:'detail-meta'},[el('span',{class:'pill green',text:t(p.kind)}),el('span',{class:'pill',text:entry.license}),p.hidden ? el('span',{class:'pill amber',text:t('hidden')}) : null]),el('div',{class:'detail-layout'},[el('div',{class:'stack'},[presentationGallery(p),metadata,presentationEditor(p),commentsPanel(detail),proposalsPanel(detail)]),aside]),boundary());
+  const aside = el('aside',{class:'panel detail-aside'},[el('h2',{text:t('download')}),versionPicker(detail),definitions([[t('publishedAt'),date(p.createdAt)],[t('platforms'),entry.platforms.join(', ')]]),downloadLink(p.sha256,p),publisherEvidenceLink(p.publisherEvidence),el('p',{text:t('downloadNote')}),el('details',{class:'download-technical'},[el('summary',{text:t('downloadDetails')}),el('div',{class:'small-heading',text:t('exactDigest')}),el('code',{class:'digest',text:p.sha256}),button(t('copySource'),() => copy(sourceURL(),t('copiedURL')),'small'),el('p',{text:t('licenseNotice')})]),...controls]);
+  const metadata = el('section',{class:'panel'},[el('h2',{text:aboutWork[state.language]}),definitions([[t('id'),p.id],[t('version'),p.version],[t('license'),entry.license],[t('platforms'),entry.platforms.join(', ')],[t('provides'),contractText(entry.provides)],[t('requires'),contractText(entry.requires)],[t('publisher'),owner(p.owner)],[t('publishedAt'),date(p.createdAt)]])]);
+  const configuration = detail.configuration?.sha256 === p.sha256 ? detail.configuration : null;
+  const configurationPanel = el('section',{class:'panel configuration-panel','data-testid':'publication-configuration'},configuration ? renderConfiguration(configuration) : renderArtifactConfiguration(null,{language:state.language,document}));
+  replaceView(link(`← ${t('backCatalog')}`,'#catalog','back-link'),el('div',{class:'detail-heading'},[publicationIcon(p),el('div',{},[el('h1',{text:p.title}),el('div',{class:'detail-id',text:`${p.id} · ${p.version}`})])]),el('div',{class:'detail-meta'},[el('span',{class:'pill green',text:t(p.kind)}),el('span',{class:'pill',text:entry.license}),p.hidden ? el('span',{class:'pill amber',text:t('hidden')}) : null]),el('div',{class:'detail-layout'},[el('div',{class:'stack'},[presentationGallery(p),metadata,configurationPanel,presentationEditor(p),commentsPanel(detail),proposalsPanel(detail)]),aside]),boundary());
 }
 function authForm(kind) {
   const username = el('input',{name:'username',id:`${kind}-username`,autocomplete:'username',required:true,minlength:3,maxlength:40,pattern:'[a-z0-9][a-z0-9._\\-]{2,39}',autocapitalize:'none',spellcheck:'false'});
@@ -372,7 +451,21 @@ function authForm(kind) {
   const invitation = kind === 'register' ? el('input',{name:'invitation',id:'register-invitation',required:true,autocomplete:'off',placeholder:t('invitationPlaceholder'),maxlength:256,spellcheck:'false'}) : null;
   const submit = el('button',{type:'submit',class:`button ${kind === 'login' ? 'primary' : ''}`,text:t(kind)});
   const form = el('form',{id:`${kind}-form`,class:'panel'},[el('h2',{text:t(kind)}),field(t('username'),username,t('usernameHelp')),field(t('password'),password,t('passwordHelp')),invitation ? field(t('invitation'),invitation) : null,submit]);
-  form.addEventListener('submit',event => { event.preventDefault(); const body = {username:username.value,password:password.value}; if (invitation) body.invitation = invitation.value.trim(); busy(submit,async () => { try { const session = await api(`api/${kind}`,body); state.user = session.user; state.csrfToken = session.csrfToken; state.invitation = null; applyLanguage(); inform(t(kind === 'login' ? 'loginSuccess' : 'registered')); await loadRoute(); } finally { password.value = ''; body.password = ''; } }); });
+  form.addEventListener('submit',event => {
+    event.preventDefault(); if (state.authBusy) return;
+    state.authBusy = true; const startedHash = location.hash;
+    const body = {username:username.value,password:password.value}; if (invitation) body.invitation = invitation.value.trim();
+    busy(submit,async () => {
+      try {
+        const session = await api(`api/${kind}`,body); state.user = session.user; state.csrfToken = session.csrfToken; state.invitation = null; applyLanguage(); inform(t(kind === 'login' ? 'loginSuccess' : 'registered'));
+        const destination = state.returnTo; state.returnTo = null;
+        if (location.hash === startedHash && route().view === 'account') {
+          if (destination && /^#(?:publish|catalog|publication\/[a-z0-9._-]+)$/.test(destination)) location.hash = destination;
+          else await loadRoute();
+        }
+      } finally { password.value = ''; body.password = ''; state.authBusy = false; }
+    });
+  });
   return form;
 }
 function localHubPanel() {

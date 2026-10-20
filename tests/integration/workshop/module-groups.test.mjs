@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { renderArtifactConfiguration } from '../../../tools/workshop/public/artifact-config-view.mjs';
+import { artifactConfiguration } from '../../../tools/workshop/artifact-configuration.mjs';
 import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import vm from 'node:vm';
@@ -100,7 +102,7 @@ class Node {
   constructor(tag = '#text', text = '') { this.tag = tag; this.children = []; this.attributes = {}; this.textContent = text; this.listeners = {}; this.classList = { toggle() {} }; }
   setAttribute(key, value) { this.attributes[key] = String(value); }
   addEventListener(name, action) { this.listeners[name] = action; }
-  append(node) { this.children.push(node); }
+  append(...nodes) { this.children.push(...nodes); }
   replaceChildren(...nodes) { this.children = nodes; }
 }
 const walk = node => [node, ...node.children.flatMap(walk)];
@@ -112,19 +114,24 @@ test('community upload preview, group configuration and version picker render bo
   const context = { Node, URL, URLSearchParams, TextDecoder, Uint8Array, atob, navigator: { language: 'zh-CN' }, localStorage: { getItem: () => 'zh' }, location: { hash: '' },
     document: { createElement: tag => new Node(tag), createTextNode: text => new Node('#text', text), querySelector: () => view },
     fetch: () => { throw new Error('Rendering must not call local or remote APIs'); } };
-  vm.runInNewContext(source.slice(0, source.indexOf("$('#language').addEventListener")).replace("const base = new URL('./', import.meta.url);", "const base = new URL('https://example.test/workshop/');") + '\nglobalThis.ui = { readArtifact, previewNode, renderDetail, state };', context);
+  context.renderArtifactConfiguration = renderArtifactConfiguration;
+  vm.runInNewContext(source.slice(0, source.indexOf("$('#language').addEventListener")).replace(/^import \{ renderArtifactConfiguration \} from [^\r\n]+\r?\n/m,'').replace("const base = new URL('./', import.meta.url);", "const base = new URL('https://example.test/workshop/');") + '\nglobalThis.ui = { readArtifact, previewNode, renderDetail, state };', context);
   const ui = context.ui, artifact = groupArtifact();
   const preview = await ui.readArtifact({ size: json(artifact).length, name: 'artifact.json', text: async () => json(artifact).toString() });
-  const node = ui.previewNode(preview);
-  assert.match(visibleText(node), /模块组成员/); assert.match(visibleText(node), /test\/group\/events/); assert.match(visibleText(node), /启动计划/);
+  const basic = ui.previewNode(preview);
+  assert.doesNotMatch(visibleText(basic), /服务器.*核对/, 'a local preview must not claim server validation');
+  const configuration = artifactConfiguration(json(artifact));
+  const node = ui.previewNode(preview, configuration);
+  assert.match(visibleText(node), /成员配置/); assert.match(visibleText(node), /test\/group\/events/); assert.match(visibleText(node), /启动计划/);
   await assert.rejects(ui.readArtifact({ size: 100, name: 'retired.json', text: async () => JSON.stringify({ ...artifact, kind: 'pack' }) }));
   const publication = { entryId: 'pub.one', kind: 'module-group', id: artifact.id, version: '1.0.0', title: '<img src=x onerror=alert(1)>', sha256: 'a'.repeat(64), owner: { username: 'author' }, createdAt: new Date().toISOString() };
-  ui.state.detail = { publication, entry: { license: 'MIT', platforms: ['win32-x64'], provides: [], requires: [] }, comments: [], proposals: [], versions: [publication, { ...publication, entryId: 'pub.two', version: '2.0.0' }], moduleGroup: preview.manifest };
+  publication.sha256 = configuration.sha256;
+  ui.state.detail = { publication, entry: { license: 'MIT', platforms: ['win32-x64'], provides: [], requires: [] }, comments: [], proposals: [], versions: [publication, { ...publication, entryId: 'pub.two', version: '2.0.0' }], moduleGroup: preview.manifest, configuration };
   ui.renderDetail();
   assert.match(visibleText(view), /选择版本/); assert.match(visibleText(view), /本机通讯管理界面/);
   assert.equal(walk(view).some(child => child.tag === 'img'), false, 'untrusted titles are rendered as plain text');
   const select = walk(view).find(child => child.attributes.id === 'publication-version');
   select.value = 'pub.two'; select.listeners.change(); assert.equal(context.location.hash, '#publication/pub.two');
   assert.equal(walk(view).find(child => child.attributes.id === 'artifact-download').attributes.href, 'https://example.test/workshop/artifacts/' + publication.sha256 + '.json');
-  ui.state.language = 'en'; ui.renderDetail(); assert.match(visibleText(view), /Module group members/); assert.match(visibleText(view), /Choose a version/); assert.match(visibleText(view), /communication interface/);
+  ui.state.language = 'en'; ui.renderDetail(); assert.match(visibleText(view), /Member configuration/); assert.match(visibleText(view), /Choose a version/); assert.match(visibleText(view), /communication interface/);
 });
