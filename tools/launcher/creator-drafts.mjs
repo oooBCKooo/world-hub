@@ -1,10 +1,11 @@
 // Private authoring records; restored content conveys no execution approval.
 import { join, isAbsolute, resolve } from 'node:path';
 import { ordinaryPath, privateJson, readBounded } from '../../scripts/runtime/paths.mjs';
+import { validatePackLineage } from '../../scripts/runtime/pack-lineage.mjs';
 
 const fault = (code, message, status = 409) => Object.assign(new Error(message), { code, status });
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
-const fields = ['format', 'directory', 'baseRevision', 'pack', 'replacements', 'formValues', 'selection', 'updatedAt'];
+const fields = ['format', 'directory', 'baseRevision', 'pack', 'replacements', 'formValues', 'selection', 'updatedAt', 'origin'];
 const same = (a, b) => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
 const path = value => {
   if (typeof value !== 'string' || !value.trim() || value.length > 4096 || value.includes('\0') || !isAbsolute(value)) throw fault('DRAFT_INVALID', 'Draft directory must be an absolute local path.', 400);
@@ -32,6 +33,27 @@ function validate(value) {
       throw fault('DRAFT_INVALID', 'Unsupported module replacement in draft.', 400);
     return { componentId: row.componentId, moduleDirectory: path(row.moduleDirectory), ...(row.candidateDigest ? { candidateDigest: row.candidateDigest } : {}) };
   });
+  if (value.origin !== undefined) {
+    const origin=value.origin, composition=origin?.composition;
+    if(origin?.kind==='pack-runtime'){
+      const target=origin.target;
+      if(Object.keys(origin).sort().join(',')!=='kind,stateRequirements,target'||!object(target)||Object.keys(target).some(key=>!['source','targetInstanceId','runId','revision','baselineDigest'].includes(key))
+          ||target.source!=='runtime-assembly'||!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(target.targetInstanceId??'')||!/^[a-f0-9-]{36}$/.test(target.runId??'')||!Number.isSafeInteger(target.revision)||target.revision<0
+          ||!/^[a-f0-9]{64}$/.test(target.baselineDigest??'')||!Array.isArray(origin.stateRequirements)||origin.stateRequirements.length>128
+          ||origin.stateRequirements.some(row=>!object(row)||Object.keys(row).sort().join(',')!=='componentId,hasState,inCandidate'||!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(row.componentId??'')||typeof row.hasState!=='boolean'||typeof row.inCandidate!=='boolean'))
+        throw fault('DRAFT_INVALID','Invalid runtime composition origin.',400);
+    }else if (!object(origin) || Object.keys(origin).some(key=>!['composition','kind','startupPlan','savedStartupPlan'].includes(key)) || origin.kind!=='global-hub'
+        || !object(composition) || Object.keys(composition).some(key=>!['id','version','revision','title','lineage'].includes(key))
+        || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(composition.id??'') || !/^\d+\.\d+\.\d+$/.test(composition.version??'')
+        || !/^[a-f0-9]{64}$/.test(composition.revision??'') || composition.title !== undefined && (typeof composition.title!=='string' || composition.title.length>256))
+      throw fault('DRAFT_INVALID','Invalid global Hub composition origin.',400);
+    else {
+      try { validatePackLineage(composition); } catch { throw fault('DRAFT_INVALID', 'Invalid global Hub composition lineage.', 400); }
+      for (const key of ['startupPlan', 'savedStartupPlan']) if (origin[key] !== undefined && (!object(origin[key]) || Object.keys(origin[key]).sort().join(',') !== 'onFailure'
+          || !['continue-independent','stop-plan'].includes(origin[key].onFailure)))
+        throw fault('DRAFT_INVALID', 'Invalid global Hub startup failure policy.', 400);
+    }
+  }
   return { ...structuredClone(value), directory, replacements };
 }
 export class CreatorDrafts {

@@ -1,0 +1,60 @@
+{
+  "format": "world-hub.module-group/v1",
+  "id": "demo.text-desk",
+  "version": "1.0.0",
+  "title": "Cross-language text desk / 跨语言文本台",
+  "license": "MIT",
+  "platforms": ["win32-x64", "linux-x64", "darwin-arm64"],
+  "provides": [],
+  "requires": [],
+  "modules": [
+    {
+      "id": "source",
+      "path": "modules/source",
+      "moduleId": "demo.source",
+      "version": "1.0.3",
+      "configuration": {
+        "topics": {"source": "sample/text/read"},
+        "bridges": {"main": {"publish": ["source"], "subscribe": ["source"]}},
+        "settings": {"text": "你好，世界 🌍\nHello World Hub\n"},
+        "bindings": []
+      }
+    },
+    {
+      "id": "stats",
+      "path": "modules/stats",
+      "moduleId": "demo.stats",
+      "version": "1.0.1",
+      "configuration": {
+        "topics": {"stats": "sample/text/statistics"},
+        "bridges": {"main": {"publish": ["stats"], "subscribe": ["stats"]}},
+        "settings": {},
+        "bindings": []
+      }
+    },
+    {
+      "id": "desk",
+      "path": "modules/desk",
+      "moduleId": "demo.desk",
+      "version": "1.0.1",
+      "configuration": {
+        "topics": {"source": "sample/text/read", "stats": "sample/text/statistics"},
+        "bridges": {"main": {"publish": ["source", "stats"], "subscribe": ["source", "stats"]}},
+        "settings": {},
+        "bindings": [
+          {"providerId": "source", "contract": {"id": "text.read", "version": "1.0.0"}},
+          {"providerId": "stats", "contract": {"id": "text.statistics", "version": "1.0.0"}}
+        ]
+      }
+    }
+  ],
+  "startupPlan": {
+    "members": [
+      {"programId": "source", "enabled": true, "after": []},
+      {"programId": "stats", "enabled": true, "after": []},
+      {"programId": "desk", "enabled": true, "after": ["source", "stats"]}
+    ],
+    "onFailure": "stop-plan",
+    "startupOrder": ["source", "stats", "desk"]
+  }
+}

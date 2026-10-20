@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { cp, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createLock } from '../../../scripts/runtime/index.mjs';
 import { hash } from '../../../scripts/runtime/paths.mjs';
 import { validateArtifactBytes } from '../../../scripts/runtime/sources.mjs';
 
@@ -44,7 +43,7 @@ export function launcherClient(server) {
   return { call, finish };
 }
 export async function prepareNodeScene(directory) {
-  const provider = join(directory, 'author-module'), pack = join(directory, 'original-pack');
+  const provider = join(directory, 'author-module'), modules = { source: join(directory,'source-module'),desk:join(directory,'desk-module') };
   await mkdir(provider, { recursive: true });
   await copyFile(join(repository, 'tests/integration/workshop/phase18-provider.mjs'), join(provider, 'program.mjs'));
   for (const file of ['bridge-kit.mjs', 'blob-client.mjs']) await copyFile(join(repository, 'sdk/javascript', file), join(provider, file));
@@ -54,13 +53,8 @@ export async function prepareNodeScene(directory) {
     platforms: [`${process.platform}-${process.arch}`], runtime: { kind: 'node', entry: 'program.mjs' }, bridges: ['main'],
     provides: [{ id: 'text.statistics', version: '1.0.0' }], requires: [],
     permissions: { filesystem: 'instance-state', network: ['hub-loopback'], processes: 'none' } });
-  for (const name of ['source', 'desk']) await cp(join(repository, 'examples/ecosystem-pack/modules', name), join(pack, 'modules', name), { recursive: true });
-  const initialProvider = join(pack, 'modules/stats'); await cp(provider, initialProvider, { recursive: true });
-  const initial = await readJson(join(initialProvider, 'module.json')); initial.id = 'baseline.statistics'; await saveJson(join(initialProvider, 'module.json'), initial);
-  const manifest = await readJson(join(repository, 'examples/ecosystem-pack/pack.json')); manifest.id = 'workshop.baseline'; manifest.version = '1.0.0';
-  manifest.components.find(value => value.id === 'stats').module = initial.id;
-  await saveJson(join(pack, 'pack.json'), manifest); await createLock(pack, { nodePath: process.execPath });
-  return { provider, pack };
+  for(const name of ['source','desk'])await cp(join(repository,'examples/ecosystem-pack/modules',name),modules[name],{recursive:true});
+  return {provider,modules};
 }
 
 // Test transport adapter only: real HTTP responses become a local static source.

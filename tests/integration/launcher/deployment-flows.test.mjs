@@ -25,7 +25,7 @@ test('a fresh composition needs no base pack, pins selected modules and refuses 
   const app=await workspace(t),source=await moduleFixture(app);
   const input={id:'test.blank',title:'From independent modules',modules:[{componentId:'one',directory:source}]};
   const preview=await previewComposition(input),created=await createComposition({root:app.root,input,preview,environment});
-  const plan=await inspectPackage(created.directory,environment);assert.equal(plan.pack.components.length,1);assert.equal(plan.pack.topics['one.input'],'acceptance/input');
+  const plan=await inspectPackage(created.directory,environment);assert.equal(plan.pack.components.length,1);assert.equal(plan.pack.topics[plan.pack.components[0].topicAliases.input],'acceptance/input');
   await writeFile(join(source,'program.mjs'),(await readFile(join(source,'program.mjs')))+'\n// changed\n');
   await assert.rejects(createComposition({root:app.root,input,preview,environment}),/changed after review/);
 });

@@ -1,115 +1,117 @@
-import { mkdir, readFile, lstat, readdir, rm, rename } from 'node:fs/promises';
-import { join, resolve, dirname } from 'node:path';
+import { mkdir, readFile, lstat } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { inspectPackage, importPackage, instancePath, safeId } from '../../scripts/runtime/package.mjs';
-import { startInstance, statusInstance, stopInstance, logsInstance, exportInstance } from '../../scripts/runtime/runtime.mjs';
 import { ordinaryPath, privateJson, readBounded } from '../../scripts/runtime/paths.mjs';
 import { ownProcess } from '../../scripts/runtime/process.mjs';
 import { detectEnvironment, discoverEnvironment } from './environment.mjs';
-import { planPythonEnvironment, preparePythonEnvironment, cleanupPreparedEnvironment } from './environment-prepare.mjs';
-import { backupInstance, inspectBackup, restoreInstance, storageInstance, detachInstance, reattachInstance, withStoppedInstance } from '../../scripts/runtime/maintenance.mjs';
-import { inspectAuthoring, previewReplacement, previewAddition, derivePackage, rebuildPackage, exportProposal, applyProposal, addComment, readComments, exportComments, importComments } from '../../scripts/runtime/authoring.mjs';
 import { readSourceIndex, fetchSourceArtifact, publishArtifact, validateArtifactBytes } from '../../scripts/runtime/sources.mjs';
-import { loopbackUrl, mapTopology, managementLink } from './topology.mjs';
+import { managementLink } from './topology.mjs';
 import { diagnose } from './diagnostics.mjs';
 import { SourceRegistry } from './source-registry.mjs';
-import { inspectTemplate, previewTemplate, instantiateTemplate, createTemplate } from '../../scripts/runtime/template.mjs';
-import { previewUpgrade, upgradeInstance, inspectUpgradeHistory, previewRollback, rollbackUpgrade, recoverUpgrade } from '../../scripts/runtime/upgrade.mjs';
-import { previewStagedUpgrade, createStagedUpgrade } from '../../scripts/runtime/staged-upgrade.mjs';
-import { probeIsolation, reviewIsolationPackage } from '../../scripts/runtime/isolation.mjs';
 import { verifyStoredPublisherEvidence } from '../../scripts/runtime/publisher-store.mjs';
 import { PathsService } from './paths-service.mjs';
-import { CreatorDrafts } from './creator-drafts.mjs';
 import { LocalPrograms } from './local-programs.mjs';
+import { ModuleGroups } from './module-groups.mjs';
 import { importLocalArtifact } from './local-artifacts.mjs';
-import { previewComposition, createComposition } from './composition.mjs';
 import { inspectDeployment } from '../../scripts/runtime/deployment.mjs';
 import { prepareDependencies } from '../../scripts/runtime/dependency-prepare.mjs';
+import { observeGlobalHubPrograms } from './global-topology.mjs';
+import { GlobalExternalPrograms } from './global-external-programs.mjs';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
 export function launcherError(code, message, status = 409) { return Object.assign(new Error(message), { code, status }); }
-const errorOf = error => ({ code: error.code ?? 'LAUNCHER_ERROR', message: String(error.message).slice(0, 2048),
-  diagnostic: diagnose(error),
-  ...(error.incompleteDestination ? { incompleteDestination: error.incompleteDestination } : {}),
-  ...(error.returnToOldInstance ? { returnToOldInstance: error.returnToOldInstance, oldInstancePreserved: error.oldInstancePreserved,
-    candidateMayNeedRecovery: error.candidateMayNeedRecovery, candidateStateDir: error.candidateStateDir, backup: error.backup, rollbackBoundary: error.rollbackBoundary } : {}),
-  ...(error.cleanupIncomplete ? { cleanupIncomplete: true, retainedDirectory: error.retainedDirectory } : {}) });
+const errorOf = error => ({ code: error.code ?? 'LAUNCHER_ERROR', message: String(error.message).slice(0, 2048), diagnostic: diagnose(error),
+  ...(error.cleanupIncomplete ? { cleanupIncomplete: true, retainedDirectory: error.retainedDirectory } : {}),
+  ...(error.partialResult ? { partialResult: error.partialResult } : {}) });
 const json = async path => JSON.parse((await readBounded(path)).toString('utf8'));
-const optionsFor = row => ({ root: row.root, instanceId: row.instanceId, ...row.environment });
-async function hasRunArtifacts(directory) {
-  for (const file of ['control.json', 'owner.lock']) try { await ordinaryPath(join(directory, file)); return true; } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  try { await ordinaryPath(join(directory, 'runs')); return (await readdir(join(directory, 'runs'))).length > 0; } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  return false;
-}
 
 export class LauncherManager {
   constructor(options) {
     this.root = resolve(options.root); this.defaults = { nodePath: options.nodePath ?? process.execPath,
       pythonPath: options.pythonPath ?? (process.platform === 'win32' ? 'python.exe' : 'python3') };
-    this.records = new Map(); this.reviews = new Map(); this.operations = new Map(); this.sessions = new Map();
-    this.sourceRegistry = new SourceRegistry(this.root); this.sourceReviews = new Map(); this.completionReviews = new Map(); this.publisherReviews = new Map();
-    this.paths = new PathsService(this.root); this.creatorDrafts = new CreatorDrafts(this.root);
-    this.compositionReviews = new Map(); this.credentialQueue = Promise.resolve(); this.defaultHubStopping = false;
+    this.operations = new Map();
+    this.sourceRegistry = new SourceRegistry(this.root); this.sourceReviews = new Map(); this.publisherReviews = new Map();
+    this.paths = new PathsService(this.root);
+    this.credentialQueue = Promise.resolve(); this.defaultHubStopping = false;
     this.localPrograms = new LocalPrograms({root:this.root,environment:this.defaults,inspectDeployment,prepareDependencies,
       getHub:async ({ensure,signal}={}) => {
-        if(signal?.aborted)throw launcherError('START_STOPPED','Local program startup was cancelled.');
-        if(this.defaultHubStopping)throw launcherError('LOCAL_HUB_STOPPING','The local Hub is stopping.');
-        if(ensure&&(!this.hub||this.hub.exit)){const result=this.defaultHub('start');await this.operations.get(result.operationId).promise;}
-        if(!this.hub||this.hub.exit)throw launcherError('LOCAL_HUB_REQUIRED','Start the local Hub first.');
-        return {url:this.hub.url,endpoint:this.hub.url.replace('http:','ws:')+'/bridge'};
+        const hub=await this.readyHub({ensure,signal});
+        return {url:hub.url,endpoint:hub.url.replace('http:','ws:')+'/bridge'};
       },updateCredentials:(change,options)=>this.updateLocalCredentials(change,options)});
-    this.busy = new Map(); this.registryQueue = Promise.resolve(); this.saveQueue = Promise.resolve(); this.environmentPlans = new Map(); this.preparationOwners = new Map(); this.url = ''; this.hub = null; this.hubFailure = null; this.closing = false;
+    this.moduleGroups = new ModuleGroups({localPrograms:this.localPrograms});
+    this.busy = new Map(); this.url = ''; this.hub = null; this.hubFailure = null; this.closing = false;
+    this.globalExternalPrograms = new GlobalExternalPrograms({ getHub: () => this.hub, isStopping: () => this.defaultHubStopping || this.closing,
+      updateCredentials: (change, options) => this.updateLocalCredentials(change, options),
+      managedPrincipals: () => new Set([...this.localPrograms.identities.values()].map(identity => identity.principal)) });
   }
   async initialize() {
-    await ordinaryPath(this.root, { allowMissing: true }); await mkdir(this.root, { recursive: true, mode: 0o700 });
-    await this.sourceRegistry.initialize();
-    await this.paths.initialize(); await this.creatorDrafts.initialize();
-    await this.localPrograms.initialize();
-    try {
-      const data = await json(join(this.root, 'launcher-instances.json'));
-      if (!Array.isArray(data.instances) || data.instances.length > 128) throw new Error('Invalid Launcher instance registry');
-      for (const row of data.instances) {
-        safeId(row.instanceId); if (!row.environment || typeof row.environment.nodePath !== 'string') throw new Error('Invalid instance environment');
-        this.records.set(row.instanceId, { ...row, root: this.root });
-      }
-    } catch (error) { if (error.code !== 'ENOENT') throw error; }
-    const sample = join(repository, 'examples/ecosystem-pack');
-    try { await lstat(join(sample, 'pack.json')); this.defaults.packDirectory = sample; } catch {}
-    const templates = join(repository, 'examples/templates');
-    try { if ((await lstat(await ordinaryPath(templates))).isDirectory()) this.defaults.templateDirectory = templates; } catch {}
-  }
-  async save() {
-    const action = this.saveQueue.then(() => privateJson(join(this.root, 'launcher-instances.json'), { format: 'world-hub.launcher-instances/v1', instances: [...this.records.values()] }));
-    this.saveQueue = action.catch(() => {}); return action;
+    await ordinaryPath(this.root, {allowMissing:true}); await mkdir(this.root,{recursive:true,mode:0o700});
+    await this.sourceRegistry.initialize(); await this.paths.initialize(); await this.localPrograms.initialize();
+    const sample = join(repository,'examples/soft-ui-modules');
+    try { if ((await lstat(await ordinaryPath(sample))).isDirectory()) this.defaults.moduleDirectory = sample; } catch {}
   }
   environment(input = {}) { return { nodePath: input.nodePath ?? this.defaults.nodePath, pythonPath: input.pythonPath ?? this.defaults.pythonPath }; }
+  async readyHub({ensure=false,signal}={}) {
+    const check=()=>{if(this.closing)throw launcherError('LAUNCHER_STOPPING','Launcher is stopping.');if(signal?.aborted)throw launcherError('START_STOPPED','Hub access was cancelled.');if(this.defaultHubStopping)throw launcherError('LOCAL_HUB_STOPPING','The local Hub is stopping.');};
+    const wait=async operation=>{await operation.promise;if(operation.state==='failed')throw Object.assign(new Error(operation.error?.message??'Hub startup failed.'),operation.error);};
+    check();
+    const pending=this.busy.get('$default');
+    if(pending?.kind==='start'&&pending.state==='running')await wait(pending);
+    check();
+    if(ensure&&(!this.hub||this.hub.exit||!this.hub.url)){const result=this.defaultHub('start');await wait(this.operations.get(result.operationId));}
+    check();
+    if(!this.hub||this.hub.exit||!this.hub.url)throw launcherError('LOCAL_HUB_REQUIRED','Start the local Hub first.');
+    return this.hub;
+  }
   async importArtifact(input) {
     const result=await importLocalArtifact({root:this.root,...input});
     await this.paths.remember({path:result.object.path,purpose:result.object.kind,library:true});return result;
   }
-  async compositionPreview(input) {
-    const preview=await previewComposition(input),reviewId=randomUUID();
-    this.compositionReviews.set(reviewId,{preview,input,createdAt:Date.now()});
-    while(this.compositionReviews.size>32)this.compositionReviews.delete(this.compositionReviews.keys().next().value);
-    return {reviewId,preview};
+  programStartupPlan() { return this.localPrograms.startupPlanOverview(); }
+  programStartupPlanSave(input) { return this.localPrograms.saveStartupPlan(input); }
+  programStartupPlanReview() { return this.localPrograms.reviewStartupPlan(); }
+  programStartupPlanStart(input) {
+    if (input.accepted !== true) throw launcherError('TRUST_REQUIRED', 'Accept the displayed startup plan, source, permissions and wiring.');
+    this.localPrograms.reviewed(input.reviewId, 'startup-plan');
+    let launched;
+    launched = this.launch('local-startup-plan', '$local-startup-plan', (_, signal) => this.localPrograms.startStartupPlan({ ...input, signal,
+      progress: value => { const operation = this.operations.get(launched.operationId); if (operation) operation.progress = value; } }).catch(issue => {
+        if (issue.partialResult) this.operations.get(launched.operationId).result = issue.partialResult;
+        throw issue;
+      }));
+    return launched;
   }
-  compositionCreate(input) {
-    const saved=this.compositionReviews.get(input.reviewId);
-    if(!saved||Date.now()-saved.createdAt>10*60000||input.accepted!==true)throw launcherError('REVIEW_REQUIRED','Review selected modules and communication wiring first.');
-    return this.launch('create-composition','$composition-'+saved.input.id,async(_,signal)=>{
-      const result=await createComposition({root:this.root,input:saved.input,preview:saved.preview,environment:this.environment(),signal});
-      await this.paths.remember({path:result.directory,purpose:'pack'});this.compositionReviews.delete(input.reviewId);return result;
-    });
+  programTopology() {
+    return observeGlobalHubPrograms({ hub: this.hub, localPrograms: this.localPrograms, launcherUrl: this.url });
   }
-  updateLocalCredentials(change,{signal}={}) {
+  programExternalOverview() { return this.globalExternalPrograms.inventory(); }
+  programExternalPreview(input) { return this.globalExternalPrograms.preview(input); }
+  programExternalApply(input) { return this.globalExternalPrograms.apply(input); }
+  updateLocalCredentials(change,{signal,transient=false,expectedHub}={}) {
     const action=this.credentialQueue.then(async()=>{
+      if (this.closing) throw launcherError('LAUNCHER_STOPPING', 'Launcher is stopping.');
       if(signal?.aborted)throw launcherError('START_STOPPED','Credential configuration cancelled.');
       if(this.defaultHubStopping)throw launcherError('LOCAL_HUB_STOPPING','The local Hub is stopping.');
-      if(!this.hub||this.hub.exit){const operation=this.defaultHub('start');await this.operations.get(operation.operationId).promise;}
+      if (transient && (!expectedHub || this.hub !== expectedHub || expectedHub.exit)) throw launcherError('GLOBAL_EXTERNAL_STALE_RUN', 'The owned Hub run changed before communication authorization.');
+      if (!transient && (!this.hub || this.hub.exit) && Object.keys(change.credentials).length === 0 && this.busy.get('$default')?.state !== 'running') {
+        // Offline edits revoke saved grants without bringing any process online.
+        const path=join(this.root,'default-hub','hub.json');
+        let config;try{config=await json(path);}catch(error){if(error.code==='ENOENT')return {confirmed:true,persisted:false};throw error;}
+        const credentials={...config.acl.credentials};for(const id of change.remove)delete credentials[id];
+        await privateJson(path,{...config,acl:{...config.acl,credentials}});return {confirmed:true,persisted:true};
+      }
+      await this.readyHub({ensure:true,signal});
       if(signal?.aborted)throw launcherError('START_STOPPED','Credential configuration cancelled.');
       if(this.defaultHubStopping)throw launcherError('LOCAL_HUB_STOPPING','The local Hub is stopping.');
       if(!this.hub||this.hub.exit)throw launcherError('LOCAL_HUB_REQUIRED','The local Hub did not start.');
+      if (transient) {
+        if ([...Object.keys(change.credentials), ...change.remove].some(id => !/^external\.[a-z0-9][a-z0-9._-]{0,47}$/.test(id))) throw launcherError('GLOBAL_EXTERNAL_INVALID', 'Run-scoped external grants use their independent communication namespace.');
+        const requestId = randomUUID(); expectedHub.send({ command: 'credentials-update', id: requestId, change });
+        const result = await expectedHub.waitFor(event => event.event === 'credentials-updated' && event.id === requestId, 5000);
+        if (!result.ok || this.hub !== expectedHub || expectedHub.exit || this.defaultHubStopping) throw launcherError('GLOBAL_EXTERNAL_APPLY_FAILED', 'The owned Hub did not confirm this run-scoped external communication change.');
+        return { confirmed: true, persisted: false };
+      }
       const path=join(this.root,'default-hub','hub.json'),config=await json(path);
       const credentials={...config.acl.credentials,...change.credentials};for(const id of change.remove)delete credentials[id];
       const requestId=randomUUID();this.hub.send({command:'credentials-update',id:requestId,change});
@@ -122,214 +124,13 @@ export class LauncherManager {
   }
   async detect(input) { const chosen = this.environment(input); const [environment, candidates] = await Promise.all([detectEnvironment(chosen), discoverEnvironment(chosen)]);
     return { environment, candidates, guidance: ['Select an installed interpreter and check again. Prepare the supported dependency in a reviewed private venv, or install other dependencies manually in your own private environment.'] }; }
-  async isolationProbe(input) { return { probe: await probeIsolation(input) }; }
-  async environmentPlan(input) {
-    const plan = await planPythonEnvironment({ root: this.root, ...input, ...this.environment(input) }), planId = randomUUID();
-    this.environmentPlans.set(planId, { plan, createdAt: Date.now() });
-    while (this.environmentPlans.size > 32) this.environmentPlans.delete(this.environmentPlans.keys().next().value);
-    return { planId, plan };
-  }
-  prepareEnvironment(planId, accepted) {
-    if (this.preparationOwners.size) throw launcherError('CLEANUP_INCOMPLETE', 'Previous environment-tool exits remain unconfirmed. Retry cancellation before preparing another environment.');
-    if (accepted !== true) throw launcherError('TRUST_REQUIRED', 'Accept the displayed source, exact wheel digest and private-environment operations.');
-    const record = this.environmentPlans.get(planId);
-    if (!record || Date.now() - record.createdAt > 10 * 60000) throw launcherError('ENVIRONMENT_PLAN_REQUIRED', 'Inspect a current environment preparation plan first.');
-    const operation = this.launch('prepare-environment', '$environment', async (_, signal) => {
-      try { return await preparePythonEnvironment({ root: this.root, plan: record.plan, signal }); }
-      catch (error) { if (error.cleanupHandle) this.preparationOwners.set(operation.operationId, { handle: error.cleanupHandle, directory: record.plan.destination }); throw error; }
-    });
-    this.environmentPlans.delete(planId); return operation;
-  }
-  async clearPreparationOwner(id) {
-    const owner = this.preparationOwners.get(id); if (!owner) return;
-    if (!await owner.handle.stop()) throw launcherError('CLEANUP_INCOMPLETE', 'Environment-tool exit is still unconfirmed. Retain the private environment and retry cancellation.');
-    await cleanupPreparedEnvironment(this.root, owner.directory); this.preparationOwners.delete(id);
-    const operation = this.operations.get(id); if (operation?.error) { operation.error.cleanupIncomplete = false; delete operation.error.retainedDirectory; }
-  }
-  async cancelOperation(id) {
-    const operation = this.operations.get(id); if (!operation) throw launcherError('OPERATION_NOT_FOUND', 'Unknown operation', 404);
-    if (['stop', 'detach', 'reattach', 'delete'].includes(operation.kind)) throw launcherError('CANCEL_UNAVAILABLE', 'Wait for this short consistency operation to finish.');
-    if (operation.state === 'running' || operation.error?.cleanupIncomplete) operation.cancelRequestedAt ??= new Date().toISOString();
-    operation.controller.abort(); await this.clearPreparationOwner(id); return this.publicOperation(operation);
-  }
-  async review(directory, environment, instanceId = null) {
-    const chosen = this.environment(environment), plan = await inspectPackage(directory, chosen);
-    const isolation = environment?.isolation ? await reviewIsolationPackage(plan, environment.isolation) : null;
-    const old = instanceId ? this.records.get(instanceId)?.permissions ?? [] : [];
-    const names = new Set([...old, ...plan.permissions].map(p => p.module));
-    const permissionDiff = [...names].map(module => ({ module, before: old.find(p => p.module === module)?.declared ?? null,
-      after: plan.permissions.find(p => p.module === module)?.declared ?? null })).filter(p => JSON.stringify(p.before) !== JSON.stringify(p.after));
-    const row = instanceId ? this.records.get(instanceId) : null;
-    const sourceReceipt = row?.sourceDigest === plan.digest && row.sourceReceipt
-      ? await this.sourceRegistry.recognize(plan.directory, row.sourceReceipt) : await this.sourceRegistry.recognize(plan.directory);
-    const reviewId = randomUUID(), created = Date.now();
-    this.reviews.set(reviewId, { reviewId, plan, environment: chosen, isolation, instanceId, createdAt: created, sourceReceipt });
-    while (this.reviews.size > 64) this.reviews.delete(this.reviews.keys().next().value);
-    return { reviewId, review: plan, isolation, executionProfile: isolation?.profile ?? 'trusted-local', permissionDiff, sourceReceipt, createdAt: new Date(created).toISOString(), expiresAt: new Date(created + 10 * 60000).toISOString() };
-  }
-  reviewed(reviewId, instanceId) {
-    const review = this.reviews.get(reviewId);
-    if (!review || review.instanceId !== instanceId || Date.now() - review.createdAt > 10 * 60000)
-      throw launcherError('REVIEW_REQUIRED', 'Inspect the current package and its environment before this action.');
-    return review;
-  }
-  async verifyReview(review) {
-    const actual = await inspectPackage(review.plan.directory, review.environment);
-    if (actual.digest !== review.plan.digest) throw launcherError('REVIEW_CHANGED', 'Package, permissions or interpreter changed after review. Inspect again.');
-    if (review.isolation && (await reviewIsolationPackage(actual, review.isolation.policy)).digest !== review.isolation.digest) throw launcherError('REVIEW_CHANGED', 'Isolation provider or image changed after review. Inspect again.');
-    if (review.sourceReceipt) {
-      const current = await this.sourceRegistry.refreshPublisherReceipt(review.sourceReceipt);
-      const evidence = receipt => { const p = receipt?.publisherEvidence ?? {}; return JSON.stringify([receipt?.publisherIdentityVerified, p.signatureStatus, p.signatureVerified, p.publisherIdentity, p.keyStatus, p.advisoryStatus, p.error?.code, p.notices, p.identityBasis]); };
-      if (evidence(current) !== evidence(review.sourceReceipt)) throw launcherError('PUBLISHER_REVIEW_CHANGED', 'Publisher identity, revocation or risk evidence changed after review. Inspect the current package again.');
-    }
-    return actual;
-  }
-  row(id) { safeId(id); const row = this.records.get(id); if (!row) throw launcherError('INSTANCE_NOT_FOUND', 'Unknown Launcher instance', 404); return row; }
-  async softwareState(row) {
-    const directory = instancePath(this.root, row.instanceId);
-    const found = async name => { try { const path = await ordinaryPath(join(directory, name)); return (await lstat(path)).isDirectory(); } catch (error) { if (error.code === 'ENOENT') return false; throw error; } };
-    const [active, quarantined] = await Promise.all([found('package'), found('detached-package')]);
-    let marker = null;
-    try { marker = await json(join(directory, 'detached.json')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-    const validMarker = marker?.format === 'world-hub.detached-instance/v1' && marker.instanceId === row.instanceId;
-    if (active && !quarantined && marker === null) { row.detached = false; delete row.maintenanceUnknown; }
-    else if (!active && quarantined && validMarker) { row.detached = true; delete row.maintenanceUnknown; }
-    else row.maintenanceUnknown = true;
-    return row;
-  }
-  async maintainedRow(id) {
-    const recorded = this.row(id);
-    if (recorded.deletion) throw launcherError('DELETION_INCOMPLETE', 'Instance deletion is pending. Inspect its retained directory and explicitly retry deletion before any other instance action.');
-    const row = await this.softwareState(recorded);
-    if (row.maintenanceUnknown) throw launcherError('MAINTENANCE_UNKNOWN', 'Software layout is incomplete or ambiguous. Retain data and inspect package/detached-package and detached metadata before changing lifecycle state.');
-    return row;
-  }
-  async import(reviewId, instanceId) {
-    if (this.closing) throw launcherError('LAUNCHER_STOPPING', 'Launcher is stopping.');
-    const action = this.registryQueue.then(() => this.importNow(reviewId, instanceId));
-    this.registryQueue = action.catch(() => {}); return action;
-  }
-  async importNow(reviewId, instanceId) {
-    safeId(instanceId); if (this.records.size >= 128) throw launcherError('INSTANCE_LIMIT', 'Launcher supports at most 128 tracked instances.');
-    if (this.busy.has(instanceId)) throw launcherError('INSTANCE_BUSY', 'Wait for the reserved instance operation.');
-    if (this.records.has(instanceId)) throw launcherError('INSTANCE_EXISTS', 'Choose a new instance ID; existing data is retained.');
-    const reviewed = this.reviewed(reviewId, null); await this.verifyReview(reviewed);
-    const imported = await importPackage(reviewed.plan.directory, { root: this.root, instanceId, ...reviewed.environment });
-    if (imported.digest !== reviewed.plan.digest) throw launcherError('REVIEW_CHANGED', 'Source changed during import; incomplete instance is retained for inspection. Choose a new instance ID after review.');
-    this.records.set(instanceId, { root: this.root, instanceId, pack: { id: imported.plan.pack.id, version: imported.plan.pack.version, title: imported.plan.pack.title },
-      importedAt: new Date().toISOString(), environment: reviewed.environment, permissions: imported.plan.permissions,
-      sourceReceipt: reviewed.sourceReceipt ?? null, sourceDigest: imported.digest, sourceDirectory: reviewed.plan.directory });
-    await this.save(); return this.instance(instanceId);
-  }
-  async deleteInstance(id, accepted) {
-    if (accepted !== true) throw launcherError('TRUST_REQUIRED', 'Confirm permanent deletion of this instance, its local software and all of its private data.');
-    this.row(id);
-    // Reserve before any asynchronous filesystem observation, including the
-    // registry queue. Backup/start/stop must not enter while deletion waits.
-    const { operationId } = this.launch('delete', id, (_, signal) => {
-      const action = this.registryQueue.then(() => this.deleteInstanceNow(id, signal));
-      this.registryQueue = action.catch(() => {}); return action;
-    });
-    const operation = this.operations.get(operationId); await operation.promise;
-    if (operation.error) throw launcherError(operation.error.code, operation.error.message);
-    return operation.result;
-  }
-  async deleteInstanceNow(id, signal) {
-    safeId(id);
-    const row = this.row(id);
-    if (this.sessions.has(id)) throw launcherError('INSTANCE_RUNNING', 'Stop the instance and confirm every owned process has exited before deleting it.');
-    const original = instancePath(this.root, id);
-    const exists = async path => { try { await ordinaryPath(path); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; } };
-    if (row.deletion) {
-      const retained = this.deletionDirectory(row), [sourceExists, retainedExists] = await Promise.all([exists(original), exists(retained)]);
-      if (sourceExists && retainedExists) throw launcherError('DELETION_INCOMPLETE', 'Both original and deletion directories exist. Retain them for manual inspection.');
-      if (!sourceExists) return this.finishDeletion(row, retained, retainedExists);
-    } else await this.maintainedRow(id);
-    return withStoppedInstance({ ...optionsFor(row), signal }, async directory => {
-      const deletion = row.deletion ?? { transactionId: randomUUID(), preparedAt: new Date().toISOString() };
-      row.deletion = deletion;
-      const retained = this.deletionDirectory(row);
-      // Journal intent before moving. A restart can distinguish a pending move
-      // from a moved directory, including a cleanup that partially completed.
-      await this.save();
-      if (await exists(retained)) throw launcherError('DELETION_INCOMPLETE', 'Deletion directory already exists. Retain it for inspection.');
-      // Move the still-locked directory atomically. No recursive removal may
-      // release the old owner.lock while Runtime can still enter that path.
-      await rename(directory, retained);
-      return this.finishDeletion(row, retained, true);
-    });
-  }
-  deletionDirectory(row) {
-    if (!/^[a-f0-9-]{36}$/.test(row.deletion?.transactionId ?? '')) throw launcherError('DELETION_INCOMPLETE', 'Invalid deletion journal. Retain the instance for inspection.');
-    safeId(row.instanceId);
-    const parent = resolve(this.root, 'instances'), target = resolve(parent, `.delete-${row.instanceId}-${row.deletion.transactionId}`);
-    if (dirname(target) !== parent || target === instancePath(this.root, row.instanceId)) throw launcherError('DELETION_INCOMPLETE', 'Invalid deletion directory.');
-    return target;
-  }
-  async removeDeletionDirectory(directory) {
-    // Compare real paths on both sides: Windows roots may use different case
-    // or an 8.3 spelling without naming a different instance collection.
-    const [canonical, parent] = await Promise.all([ordinaryPath(directory), ordinaryPath(resolve(this.root, 'instances'))]);
-    const actualParent = dirname(canonical);
-    const withinCollection = process.platform === 'win32' ? actualParent.toLowerCase() === parent.toLowerCase() : actualParent === parent;
-    if (!withinCollection || !/^\.delete-/.test(canonical.slice(actualParent.length + 1))) throw launcherError('DELETION_INCOMPLETE', 'Deletion directory escaped its instance collection.');
-    await rm(canonical, { recursive: true, force: false });
-  }
-  async finishDeletion(row, directory, exists) {
-    try {
-      if (exists) await this.removeDeletionDirectory(directory);
-      this.records.delete(row.instanceId);
-      try { await this.save(); } catch (error) { this.records.set(row.instanceId, row); throw error; }
-      for (const [key, review] of this.reviews) if (review.instanceId === row.instanceId) this.reviews.delete(key);
-      return { deleted: true, instanceId: row.instanceId };
-    } catch (cause) {
-      const error = launcherError('DELETION_INCOMPLETE', 'Instance deletion did not fully finish. Its journal and any remaining private files are retained; explicitly retry deletion.');
-      error.cleanupIncomplete = true; error.retainedDirectory = directory; error.cause = cause; throw error;
-    }
-  }
-  async instance(id) {
-    const recorded = this.row(id), stateDir = instancePath(this.root, id);
-    if (recorded.deletion) return { ...recorded, id, instanceId: id, directory: stateDir, retainedDirectory: this.deletionDirectory(recorded), deletionPending: true,
-      moduleCount: null, status: { state: 'deletion-incomplete', instanceId: id, components: [], cleanupIncomplete: true }, links: {},
-      operation: this.busy.get(id) ? this.publicOperation(this.busy.get(id)) : null };
-    const row = await this.softwareState(recorded);
-    let status;
-    try { status = await statusInstance(optionsFor(row)); }
-    catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-      const history = await hasRunArtifacts(stateDir);
-      status = { state: this.busy.get(id)?.kind === 'start' ? 'starting' : history ? 'unknown' : 'imported', instanceId: id, components: [], sandbox: false,
-        ...(history ? { observation: 'stale', supervisorUnavailable: true } : {}) };
-    }
-    if (row.maintenanceUnknown) status = { ...status, state: 'maintenance-unknown', maintenanceUnknown: true };
-    else if (row.detached) status = { ...status, state: 'detached', detached: true };
-    const hub = !row.detached && !status.stoppedAt && status.observation !== 'stale' ? loopbackUrl(status.hub?.url) : null;
-    const links = { entryUrl: status.state === 'running' ? loopbackUrl(status.entryUrl)?.href ?? null : null,
-      managementUrl: hub ? managementLink({ hubUrl: hub.href, launcherUrl: this.url, instanceId: id, runId: status.runId }) : null,
-      workbenchUrl: hub ? managementLink({ hubUrl: hub.href, launcherUrl: this.url, instanceId: id, runId: status.runId, workbench: true }) : null };
-    const packageDirectory = join(stateDir, row.detached ? 'detached-package' : 'package');
-    let moduleCount = null;
-    try {
-      const declaration = JSON.parse((await readBounded(join(packageDirectory, 'pack.json'), 65536)).toString('utf8'));
-      if (declaration.format === 'world-hub.pack/v1' && Array.isArray(declaration.components) && declaration.components.length > 0 && declaration.components.length <= 32
-        && declaration.components.every(component => component && typeof component.id === 'string' && typeof component.module === 'string')) moduleCount = declaration.components.length;
-    } catch { /* An unavailable declaration is unknown; it is never zero. */ }
-    return { id, instanceId: id, directory: stateDir, packageDirectory, ...row, moduleCount, status, links,
-      operation: this.busy.get(id) ? this.publicOperation(this.busy.get(id)) : null };
-  }
-  async instances() { return Promise.all([...this.records.keys()].map(id => this.instance(id))); }
-  async reviewInstance(id, environment = {}) {
-    const row = await this.maintainedRow(id);
-    return this.review(join(instancePath(this.root, id), row.detached ? 'detached-package' : 'package'), { ...row.environment, ...environment }, id);
-  }
   publicOperation(operation) { const { promise, controller, ...value } = operation; return value; }
-  operation(id) { const operation = this.operations.get(id); if (!operation) throw launcherError('OPERATION_NOT_FOUND', 'Unknown operation', 404); return this.publicOperation(operation); }
   operationList() { return { operations: [...this.operations.values()].slice(-128).reverse().map(operation => this.publicOperation(operation)) }; }
   discoverPaths(input) { return this.launch('discover-paths', '$path-discovery', (_, signal) => this.paths.discover(input, signal)); }
   launch(kind, instanceId, work) {
     if (this.closing) throw launcherError('LAUNCHER_STOPPING', 'Launcher is stopping.');
     if (kind === 'local-start' && this.defaultHubStopping) throw launcherError('LOCAL_HUB_STOPPING', 'The local Hub is stopping. Wait before starting an independent program.');
-    if (this.busy.has(instanceId) && (kind !== 'stop' || this.busy.get(instanceId).kind === 'delete')) throw launcherError('INSTANCE_BUSY', 'Wait for this instance operation to complete.');
+    if (this.busy.has(instanceId) && (kind !== 'stop' || this.busy.get(instanceId).kind === 'delete')) throw launcherError('RESOURCE_BUSY', 'Wait for this operation to complete.');
     const previous = this.busy.get(instanceId), operation = { id: randomUUID(), kind, instanceId, state: 'running', startedAt: new Date().toISOString(), controller: new AbortController() };
     this.operations.set(operation.id, operation); this.busy.set(instanceId, operation);
     operation.promise = Promise.resolve().then(() => work(previous, operation.controller.signal)).then(result => { operation.result = result; operation.state = 'succeeded'; }, error => { operation.error = errorOf(error); operation.state = 'failed'; }).finally(() => {
@@ -338,117 +139,12 @@ export class LauncherManager {
     });
     return { operationId: operation.id };
   }
-  async start(id, reviewId, accepted, restart = false) {
-    if (accepted !== true) throw launcherError('TRUST_REQUIRED', 'Explicitly accept the displayed current local code and permissions.');
-    const row = await this.maintainedRow(id); if (row.detached) throw launcherError('INSTANCE_DETACHED', 'Restore the quarantined software after review before starting.');
-    const reviewed = this.reviewed(reviewId, id); await this.verifyReview(reviewed);
-    return this.launch(restart ? 'restart' : 'start', id, async (_, signal) => {
-      if (restart) await this.stopNow(id);
-      try {
-        const session = await startInstance({ ...optionsFor(row), ...reviewed.environment, trust: reviewed.plan.digest,
-          ...(reviewed.isolation ? { isolation: reviewed.isolation.policy, isolationTrust: reviewed.isolation.digest } : {}), signal });
-        this.sessions.set(id, session);
-        void session.closed.then(state => { if (state.stoppedAt && !state.cleanupIncomplete && this.sessions.get(id) === session) this.sessions.delete(id); });
-        return await this.instance(id);
-      } catch (error) {
-        if (error.runtimeSession) {
-          const state = await error.runtimeSession.status();
-          if (!state.stoppedAt || state.cleanupIncomplete) this.sessions.set(id, error.runtimeSession);
-        }
-        throw error;
-      }
-    });
-  }
-  async stopNow(id) {
-    const session = this.sessions.get(id);
-    if (session) {
-      const state = await session.close(); if (!state.stoppedAt || state.cleanupIncomplete) throw launcherError('CLEANUP_INCOMPLETE', 'Owned process exits remain unconfirmed; retry stop.');
-      this.sessions.delete(id); return state;
-    }
-    const row = this.row(id);
-    try {
-      const state = await stopInstance(optionsFor(row));
-      if (!state.stoppedAt || state.cleanupIncomplete) throw launcherError('CLEANUP_INCOMPLETE', 'Owned process exits remain unconfirmed; retry stop.');
-      return state;
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-      const directory = instancePath(this.root, id);
-      let state = null;
-      try { state = await json(join(directory, 'status.json')); } catch (readError) { if (readError.code !== 'ENOENT') throw readError; }
-      if (state?.runId || await hasRunArtifacts(directory)) throw launcherError('STOP_UNCONFIRMED', 'A run or owner exists but its control record is unavailable. Owned process exits remain unconfirmed.');
-      return { state: 'imported', components: [] };
-    }
-  }
-  stop(id) {
-    this.row(id);
-    if (this.busy.get(id)?.kind === 'delete') throw launcherError('INSTANCE_BUSY', 'Wait for this instance deletion to complete.');
-    this.busy.get(id)?.controller.abort();
-    return this.launch('stop', id, async previous => { if (previous) await previous.promise; return this.stopNow(id); });
-  }
-  export(id, destination) { const row = this.row(id); return this.launch('export', id, () => exportInstance({ ...optionsFor(row), destination })); }
-  storage(id) { return storageInstance(optionsFor(this.row(id))); }
-  inspectBackup(backup) { return inspectBackup(backup); }
-  backup(id, destination, accepted) {
-    if (accepted !== true) throw launcherError('TRUST_REQUIRED', 'A private backup can contain application data and secrets. Accept the displayed backup destination.');
-    const row = this.row(id); return this.launch('backup', id, (_, signal) => backupInstance({ ...optionsFor(row), destination, signal }));
-  }
-  async restore(input) {
-    if (input.accepted !== true || !/^[a-f0-9]{64}$/.test(input.sha256 ?? '')) throw launcherError('BACKUP_REVIEW_REQUIRED', 'Inspect the private backup and explicitly confirm its current digest before restoring.');
-    const env = this.environment(input); safeId(input.instanceId);
-    const inspection = await inspectBackup(input.backup);
-    if (inspection.sha256 !== input.sha256) throw launcherError('BACKUP_CHANGED', 'Backup changed after inspection. Inspect it again.');
-    if (!inspection.compatible) throw launcherError('BACKUP_INCOMPATIBLE', 'Backup requires a compatible Hub version, OS and architecture: ' + inspection.incompatibilities.join('; '));
-    return this.launch('restore', input.instanceId, (_, signal) => {
-      const action = this.registryQueue.then(async () => {
-        if (this.records.has(input.instanceId) || this.records.size >= 128) throw launcherError('INSTANCE_EXISTS', 'Choose a new instance ID. Existing instances are retained.');
-        const restored = await restoreInstance({ root: this.root, instanceId: input.instanceId, backup: input.backup, expectedSha256: input.sha256, ...env, signal });
-        this.records.set(input.instanceId, { root: this.root, instanceId: input.instanceId, pack: { id: restored.plan.pack.id, version: restored.plan.pack.version, title: restored.plan.pack.title },
-          importedAt: new Date().toISOString(), restoredFrom: restored.restoredFrom, environment: env, permissions: restored.plan.permissions });
-        await this.save(); return { instance: await this.instance(input.instanceId) };
-      }); this.registryQueue = action.catch(() => {}); return action;
-    });
-  }
-  detach(id, accepted) {
-    if (accepted !== true) throw launcherError('TRUST_REQUIRED', 'Confirm that software will be detached while its private data is retained.');
-    const row = this.row(id); return this.launch('detach', id, async () => { const result = await detachInstance(optionsFor(row)); row.detached = true; await this.save(); return result; });
-  }
-  async reattach(id, reviewId, accepted) {
-    if (accepted !== true) throw launcherError('TRUST_REQUIRED', 'Accept the current software and environment review before reattaching.');
-    const row = await this.maintainedRow(id), review = this.reviewed(reviewId, id); await this.verifyReview(review);
-    if (!row.detached) throw launcherError('INSTANCE_ATTACHED', 'This instance software is already attached.');
-    return this.launch('reattach', id, async () => { const result = await reattachInstance({ ...optionsFor(row), ...review.environment, trust: review.plan.digest });
-      row.detached = false; row.environment = review.environment; row.permissions = result.plan.permissions; await this.save(); return result; });
-  }
-  async authoring(input) {
-    const env = this.environment(input);
-    try {
-      return await inspectAuthoring(input.directory, env);
-    } catch (err) {
-      if (err.code === 'ENOENT' || err.message?.includes('pack.json')) {
-        for (const sub of ['package', 'detached-package']) {
-          try {
-            return await inspectAuthoring(join(input.directory, sub), env);
-          } catch { /* try next */ }
-        }
-      }
-      throw err;
-    }
-  }
-  previewReplacement(input) { return previewReplacement(input.directory, { ...input, ...this.environment(input) }); }
-  previewAddition(input) { return previewAddition(input.directory, { ...input, ...this.environment(input) }); }
-  builtinTemplates() { return this.paths.builtinTemplates(this); }
-  async commentDirectory(directory) {
-    const source = await ordinaryPath(directory), key = createHash('sha256').update(process.platform === 'win32' ? source.toLowerCase() : source).digest('hex');
-    const journal = join(this.root, 'creator-comments', key); await ordinaryPath(journal, { allowMissing: true }); await mkdir(journal, { recursive: true, mode: 0o700 });
-    return journal;
-  }
-  async comments(input) { return readComments(await this.commentDirectory(input.directory)); }
   sources() { return this.sourceRegistry.list(); }
   publisherTrustState() { return this.sourceRegistry.publisherTrustState(); }
   publisherTrustPreview(change) { return this.sourceRegistry.previewPublisherTrust(change); }
   async publisherTrustApply(input) {
     if (input.accepted !== true) throw launcherError('TRUST_REQUIRED', 'Explicitly review the public key fingerprint and identity basis before changing publisher trust.');
-    const result = await this.sourceRegistry.applyPublisherTrust(input); this.reviews.clear(); return result;
+    const result = await this.sourceRegistry.applyPublisherTrust(input); this.localPrograms.reviews.clear(); return result;
   }
   async publisherEvidencePreview(input) {
     const selection = { ...input, observe: false }, result = await this.sourceRegistry.publisherEvidence(selection);
@@ -470,129 +166,52 @@ export class LauncherManager {
     const report = await verifyStoredPublisherEvidence({ root: this.root, artifact, evidenceBytes: Buffer.from(JSON.stringify(current.evidence)), observe: true, sourceStatus: 'offline', expectedRevision: preview.revision });
     const result = { ...current, report };
     if (report.accepted !== true) throw launcherError(report.error?.code ?? 'PUBLISHER_EVIDENCE_REJECTED', 'Publisher evidence was rejected during observation.');
-    this.publisherReviews.delete(input.previewId); this.reviews.clear(); return result;
+    this.publisherReviews.delete(input.previewId); this.localPrograms.reviews.clear(); return result;
   }
   saveSource(input) { return this.sourceRegistry.save(input); }
   deleteSource(id) { return this.sourceRegistry.delete(id); }
   async source(input) {
     const chosen = await this.sourceRegistry.resolve(input);
+    const remember=result=>{
+      const receiptId=randomUUID(),created=Date.now();this.sourceReviews.set(receiptId,{chosen,result,created});
+      while(this.sourceReviews.size>64)this.sourceReviews.delete(this.sourceReviews.keys().next().value);
+      return {...result,receiptId,sourceId:chosen.sourceId??null,createdAt:new Date(created).toISOString(),expiresAt:new Date(created+10*60000).toISOString()};
+    };
     try {
       const result = await readSourceIndex(chosen.source, { expectedSha256: chosen.expectedSha256, allowPrivateNetwork: chosen.allowPrivateNetwork });
       await this.sourceRegistry.assertCurrent(chosen); await this.sourceRegistry.observed(chosen, result);
-      const receiptId = randomUUID(), created = Date.now(); this.sourceReviews.set(receiptId, { chosen, result, created });
-      while (this.sourceReviews.size > 64) this.sourceReviews.delete(this.sourceReviews.keys().next().value);
-      return { ...result, receiptId, sourceId: chosen.sourceId ?? null, createdAt: new Date(created).toISOString(), expiresAt: new Date(created + 10 * 60000).toISOString() };
-    } catch (error) { await this.sourceRegistry.unavailable(chosen); throw error; }
-  }
-  creator(kind, input) {
-    const key = '$creator-' + createHash('sha256').update(resolve(input.directory ?? this.root)).digest('hex');
-    return this.launch(kind, key, async (_, signal) => {
-      const options = { ...input, ...this.environment(input), signal };
-      if (kind === 'derive') return derivePackage(input.directory, options);
-      if (kind === 'rebuild') return rebuildPackage(input.directory, options);
-      if (kind === 'proposal') return exportProposal(input.directory, options);
-      if (kind === 'apply-proposal') return applyProposal(input.directory, input.proposalDirectory, options);
-      if (kind === 'comment') return addComment(await this.commentDirectory(input.directory), options);
-      if (kind === 'export-comments') return exportComments(await this.commentDirectory(input.directory), options);
-      if (kind === 'import-comments') return importComments(await this.commentDirectory(input.directory), input.source, options);
-      if (kind === 'publish') return publishArtifact(input.directory, options);
-      throw launcherError('NOT_FOUND', 'Unknown creator operation', 404);
-    });
-  }
-  rememberCompletion(kind, input, preview, instanceId = null) {
-    const previewId = randomUUID(), createdAt = Date.now();
-    this.completionReviews.set(previewId, { kind, input: structuredClone(input), preview, instanceId, createdAt });
-    while (this.completionReviews.size > 64) this.completionReviews.delete(this.completionReviews.keys().next().value);
-    return { previewId, preview, createdAt: new Date(createdAt).toISOString(), expiresAt: new Date(createdAt + 10 * 60000).toISOString() };
-  }
-  completionReview(previewId, kind, instanceId = null) {
-    const review = this.completionReviews.get(previewId);
-    if (!review || review.kind !== kind || review.instanceId !== instanceId || Date.now() - review.createdAt > 10 * 60000)
-      throw launcherError('REVIEW_REQUIRED', 'Inspect a current preview for this exact operation first.');
-    return review;
-  }
-  async templateInspect(input) { return { inspection: await inspectTemplate(input.directory) }; }
-  async templatePreview(input) {
-    const preview = await previewTemplate(input.directory, { values: input.values, identity: input.identity });
-    return this.rememberCompletion('template', input, preview);
-  }
-  templateInstantiate(input) {
-    if (input.redistributionAcknowledged !== true) throw launcherError('LICENSE_ACKNOWLEDGEMENT_REQUIRED', 'Review redistribution and template licenses first.');
-    const review = this.completionReview(input.previewId, 'template');
-    const result = this.launch('instantiate-template', '$creator-' + resolve(input.destination), async (_, signal) => instantiateTemplate(review.input.directory, {
-      values: review.input.values, identity: review.input.identity, destination: input.destination,
-      expectedRevision: review.preview.templateRevision, expectedPreviewDigest: review.preview.previewDigest,
-      expectedParameterDigest: review.preview.parameterDigest, redistributionAcknowledged: true, signal }));
-    this.completionReviews.delete(input.previewId); return result;
-  }
-  templateCreate(input) {
-    if (input.redistributionAcknowledged !== true) throw launcherError('LICENSE_ACKNOWLEDGEMENT_REQUIRED', 'Review redistribution and template licenses first.');
-    return this.launch('create-template', '$creator-' + resolve(input.destination), async (_, signal) => createTemplate(input.directory, { ...input, signal }));
-  }
-  async upgradePreview(id, input) {
-    const row = await this.maintainedRow(id); if (row.detached) throw launcherError('INSTANCE_DETACHED', 'Reattach software before upgrading.');
-    if (this.busy.has(id)) throw launcherError('INSTANCE_BUSY', 'Wait for the current instance operation.');
-    const options = { ...optionsFor(row), candidate: input.candidate, statePolicies: input.statePolicies };
-    return this.rememberCompletion('upgrade', options, await previewUpgrade(options), id);
-  }
-  async stagedUpgradePreview(id, input) {
-    const row = await this.maintainedRow(id);
-    if (row.detached) throw launcherError('INSTANCE_DETACHED', 'Reattach software before preparing an upgrade.');
-    if (this.busy.has(id) || this.busy.has(input.newInstanceId)) throw launcherError('INSTANCE_BUSY', 'Wait for the current instance operation.');
-    safeId(input.newInstanceId);
-    if (this.records.has(input.newInstanceId)) throw launcherError('INSTANCE_EXISTS', 'Choose a new instance ID.');
-    const options = { ...optionsFor(row), candidate: input.candidate, newInstanceId: input.newInstanceId,
-      backupDestination: input.backupDestination, statePolicy: input.statePolicy, ...(input.statePolicies ? { statePolicies: input.statePolicies } : {}) };
-    return this.rememberCompletion('staged-upgrade', options, await previewStagedUpgrade(options), id);
-  }
-  async stagedUpgradeExecute(id, input) {
-    if (input.accepted !== true) throw launcherError('TRUST_REQUIRED', 'Accept the candidate, data policy and private backup.');
-    const review = this.completionReview(input.previewId, 'staged-upgrade', id), newId = review.input.newInstanceId;
-    if (this.busy.has(newId) || this.records.has(newId) || this.records.size >= 128) throw launcherError('INSTANCE_EXISTS', 'Choose an available new instance ID within the instance limit.');
-    const operation = this.launch('staged-upgrade', id, async (_, signal) => {
-      const result = await createStagedUpgrade({ ...review.input, trust: review.preview.trustDigest, signal });
-      this.records.set(newId, { root: this.root, instanceId: newId, pack: { id: result.plan.pack.id, version: result.plan.pack.version, title: result.plan.pack.title },
-        importedAt: new Date().toISOString(), environment: this.row(id).environment, permissions: result.plan.permissions,
-        sourceReceipt: null, sourceDigest: null, stagedFrom: id, backup: { destination: result.backup.destination, sha256: result.backup.sha256 } });
-      await this.save(); return { ...result, instance: await this.instance(newId) };
-    });
-    const pending = this.operations.get(operation.operationId); this.busy.set(newId, pending);
-    pending.promise.finally(() => { if (this.busy.get(newId) === pending) this.busy.delete(newId); });
-    this.completionReviews.delete(input.previewId); return operation;
-  }
-  async rollbackPreview(id, input) {
-    const row = this.row(id); if (this.busy.has(id)) throw launcherError('INSTANCE_BUSY', 'Wait for the current instance operation.');
-    const options = { ...optionsFor(row), transactionId: input.transactionId };
-    return this.rememberCompletion('rollback', options, await previewRollback(options), id);
-  }
-  async upgradeHistory(id) { return { history: await inspectUpgradeHistory(optionsFor(this.row(id))) }; }
-  async completionExecute(id, kind, input) {
-    if (input.accepted !== true) throw launcherError('TRUST_REQUIRED', 'Explicitly accept the displayed code, data policy and snapshot.');
-    const review = this.completionReview(input.previewId, kind === 'upgrade' ? 'upgrade' : 'rollback', id);
-    if (kind === 'recover-upgrade' && review.preview.recoveryRequired !== true) throw launcherError('RECOVERY_NOT_REQUIRED', 'This transaction is not interrupted; use reviewed rollback.');
-    const operation = this.launch(kind, id, async (_, signal) => {
-      const options = { ...review.input, trust: review.preview.trustDigest, signal };
-      const result = await (kind === 'upgrade' ? upgradeInstance(options) : kind === 'recover-upgrade' ? recoverUpgrade(options) : rollbackUpgrade(options));
-      const row = this.row(id), plan = await inspectPackage(join(instancePath(this.root, id), 'package'), row.environment);
-      row.pack = { id: plan.pack.id, version: plan.pack.version, title: plan.pack.title }; row.permissions = plan.permissions;
-      row.sourceReceipt = null; row.sourceDigest = null; row.updatedAt = new Date().toISOString(); await this.save();
-      for (const [key, value] of this.reviews) if (value.instanceId === id) this.reviews.delete(key);
-      return { ...result, instance: await this.instance(id), requiresNewExecutionReview: true };
-    });
-    this.completionReviews.delete(input.previewId); return operation;
+      return remember(result);
+    } catch (error) {
+      await this.sourceRegistry.unavailable(chosen);
+      if(!chosen.sourceId||!['ENOENT','SOURCE_UNAVAILABLE'].includes(error.code))throw error;
+      const prior=await this.sourceRegistry.observation(chosen);
+      if(!prior||chosen.expectedSha256!==undefined&&chosen.expectedSha256!==prior.digest)throw error;
+      await this.sourceRegistry.assertCurrent(chosen);
+      const entries=await Promise.all(prior.index.entries.map(async entry=>{
+        let cached=false;try{cached=(await lstat(await ordinaryPath(join(this.root,'source-cache',entry.sha256+'.artifact.json')))).isFile();}catch(issue){if(issue.code!=='ENOENT')throw issue;}
+        return {...entry,cached,cachedVerified:false};
+      }));
+      return remember({source:chosen.source,digest:prior.digest,index:{...prior.index,entries},observedAt:prior.observedAt,
+        networkPolicy:prior.networkPolicy,offline:true,cacheOnly:true,startsModules:false,requiresExecutionReview:true});
+    }
   }
   fetchSource(input) {
     const key = '$source-cache';
     return this.launch('fetch-source', key, async (_, signal) => {
-      const chosen = await this.sourceRegistry.resolve(input); let indexDigest = input.indexDigest;
+      const chosen = await this.sourceRegistry.resolve(input); let indexDigest = input.indexDigest, inspected;
       if (input.receiptId !== undefined) {
         const receipt = this.sourceReviews.get(input.receiptId);
         if (!receipt || Date.now() - receipt.created > 10 * 60000 || receipt.chosen.source !== chosen.source || receipt.chosen.revision !== chosen.revision
           || receipt.chosen.sourceId !== chosen.sourceId || receipt.chosen.allowPrivateNetwork !== chosen.allowPrivateNetwork
           || receipt.chosen.expectedSha256 !== chosen.expectedSha256) throw launcherError('SOURCE_REVIEW_REQUIRED', 'Inspect this current source configuration again.');
-        indexDigest = receipt.result.digest;
+        indexDigest = receipt.result.digest; inspected = receipt.result;
       } else if (input.sourceId) throw launcherError('SOURCE_REVIEW_REQUIRED', 'Inspect the registered source and supply its current receiptId.');
-      const result = await fetchSourceArtifact(chosen.source, indexDigest, input.entryId, { cacheRoot: join(this.root, 'source-cache'), publisherTrustRoot: this.root, allowPrivateNetwork: chosen.allowPrivateNetwork, signal });
+      inspected ??= await readSourceIndex(chosen.source, {expectedSha256:chosen.expectedSha256,allowPrivateNetwork:chosen.allowPrivateNetwork,signal});
+      if (indexDigest !== inspected.digest) throw launcherError('SOURCE_CHANGED','Inspect the current source again before downloading.');
+      const entry = inspected.index.entries.find(row => row.entryId === input.entryId);
+      if (!entry || entry.kind !== 'module') throw launcherError('MODULE_REQUIRED','Select a module artifact.');
+      const result = await fetchSourceArtifact(chosen.source, indexDigest, input.entryId, { cacheRoot: join(this.root, 'source-cache'), publisherTrustRoot: this.root, allowPrivateNetwork: chosen.allowPrivateNetwork,
+        expectedSha256:chosen.expectedSha256,cacheOnly:inspected.cacheOnly===true,signal });
       await this.sourceRegistry.assertCurrent(chosen);
       const bytes = await readBounded(join(this.root, 'source-cache', `${result.entry.sha256}.artifact.json`), 96 * 1024 * 1024);
       const validated = validateArtifactBytes(bytes);
@@ -605,29 +224,6 @@ export class LauncherManager {
         ...(result.kind === 'module' ? { runtime: validated.manifest.runtime, provides: validated.manifest.provides, requires: validated.manifest.requires } : {}),
         libraryRegistered: true, sourceReceipt };
     });
-  }
-  async logs(id) {
-    const row = this.row(id);
-    try { return await logsInstance(optionsFor(row)); } catch (error) { if (error.code === 'ENOENT') return { format: 'world-hub.runtime-logs/v1', instanceId: id, logs: {} }; throw error; }
-  }
-  async topology(id, runId) {
-    const instance = await this.instance(id), status = instance.status;
-    if (runId !== undefined && runId !== status.runId) throw launcherError('STALE_RUN', 'This link belongs to a different or ended instance run.');
-    const hub = !status.stoppedAt && status.observation !== 'stale' ? loopbackUrl(status.hub?.url, { rootOnly: true }) : null;
-    let snapshot = null;
-    if (hub) {
-      const response = await fetch(new URL('/status', hub), { signal: AbortSignal.timeout(2000), redirect: 'error' });
-      if (!response.ok) throw launcherError('HUB_UNAVAILABLE', 'The instance Hub is unavailable.'); snapshot = await response.json();
-    }
-    return mapTopology({ instanceId: id, status, snapshot, launcherUrl: this.url });
-  }
-  async hubs() {
-    const rows = [{ id: 'default', managedBy: 'launcher', state: this.hub && !this.hub.exit ? 'running' : this.hubFailure ? 'failed' : 'stopped',
-      url: this.hub?.url ?? null, managementUrl: this.hub && !this.hub.exit ? managementLink({ hubUrl: this.hub.url, launcherUrl: this.url }) : null,
-      workbenchUrl: this.hub && !this.hub.exit ? managementLink({ hubUrl: this.hub.url, launcherUrl: this.url, workbench: true }) : null, ownership: 'external', error: this.hubFailure }];
-    for (const instance of await this.instances()) rows.push({ id: instance.instanceId, managedBy: 'runtime', state: instance.status.state,
-      url: instance.status.hub?.url ?? null, ...instance.links });
-    return rows;
   }
   defaultHub(kind) {
     if (this.defaultHubStopping) {
@@ -673,7 +269,7 @@ export class LauncherManager {
       try {
         const ready = await this.hub.waitFor(event => event.event === 'ready', 10000);
         if (!Number.isInteger(ready.port) || ready.port < 1 || ready.port > 65535) throw new Error('Invalid Hub port');
-        this.hub.url = `http://127.0.0.1:${ready.port}`; return { url: this.hub.url };
+        this.hub.url = `http://127.0.0.1:${ready.port}`; this.hub.launcherRunId = randomUUID(); return { url: this.hub.url };
       } catch (error) { await this.hub.stop(1000); throw error; }
     }); } catch (error) {
       if (kind === 'stop') { this.defaultHubStopping = false; this.localPrograms.resumeStarts(); }
@@ -685,19 +281,33 @@ export class LauncherManager {
     }
     return result;
   }
+  programOverview() { return this.localPrograms.enqueue(async()=>({programs:await this.localPrograms.programs()})); }
+  operation(id) { const operation=this.operations.get(id); if(!operation)throw launcherError('OPERATION_NOT_FOUND','Unknown operation',404); return this.publicOperation(operation); }
+  async cancelOperation(id) {
+    const operation=this.operations.get(id); if(!operation)throw launcherError('OPERATION_NOT_FOUND','Unknown operation',404);
+    if(['stop','local-stop','group-stop'].includes(operation.kind))throw launcherError('CANCEL_UNAVAILABLE','Wait for this consistency operation to finish.');
+    if(operation.state==='running')operation.cancelRequestedAt??=new Date().toISOString(); operation.controller.abort(); return this.publicOperation(operation);
+  }
+  groupStart(input) {
+    if(input.accepted!==true)throw launcherError('TRUST_REQUIRED','Accept the reviewed group plan and module permissions.');
+    this.localPrograms.reviewed(input.reviewId,'startup-plan'); let launched;
+    launched=this.launch('group-start','$group-start',(_,signal)=>this.moduleGroups.applyStart({...input,signal,progress:value=>{this.operations.get(launched.operationId).progress=value;}})); return launched;
+  }
+  publishModule(input) {
+    if(input.kind!=='module')throw launcherError('MODULE_REQUIRED','Publish a module artifact.');
+    return this.launch('publish-module','$publish',(_,signal)=>publishArtifact(input.directory,{...input,...this.environment(input),signal}));
+  }
+  async hubs() { const live=this.hub&&!this.hub.exit; return [{id:'default',managedBy:'launcher',ownership:'managed',state:live?'running':this.hubFailure?'failed':'stopped',
+    url:live?this.hub.url:null,runId:live?this.hub.launcherRunId:null,
+    managementUrl:live?managementLink({hubUrl:this.hub.url,launcherUrl:this.url}):null,
+    workbenchUrl:live?managementLink({hubUrl:this.hub.url,launcherUrl:this.url,workbench:true}):null,error:this.hubFailure}]; }
   async close() {
-    this.closing = true;
-    for (const op of this.operations.values()) if (op.state === 'running') op.controller.abort();
-    await this.registryQueue;
-    await Promise.all([...this.operations.values()].filter(op => op.state === 'running').map(op => op.promise));
-    await this.saveQueue;
-    await this.paths.queue; await this.creatorDrafts.queue;
-    const errors = [];
-    try { await this.paths.close(); } catch (error) { errors.push(error); }
-    try { await this.localPrograms.close(); } catch (error) { errors.push(error); }
-    for (const [id] of this.preparationOwners) try { await this.clearPreparationOwner(id); } catch (error) { errors.push(error); }
-    for (const [id] of this.sessions) try { await this.stopNow(id); } catch (error) { errors.push(error); }
-    if (this.hub) try { await this.hub.stop(5000); if (!this.hub.exit) throw new Error('Default Hub exit unconfirmed'); } catch (error) { errors.push(error); }
-    if (errors.length) { this.closing = false; throw launcherError('CLEANUP_INCOMPLETE', errors.map(e => e.message).join('; ')); }
+    this.closing=true; this.localPrograms.pauseStarts();
+    for(const op of this.operations.values())if(op.state==='running')op.controller.abort();
+    await Promise.all([...this.operations.values()].filter(op=>op.state==='running').map(op=>op.promise));
+    await this.paths.queue; await this.globalExternalPrograms.queue; await this.credentialQueue;
+    const errors=[];
+    for(const cleanup of [()=>this.paths.close(),()=>this.localPrograms.close(),async()=>{if(this.hub){await this.hub.stop(5000);if(!this.hub.exit)throw Error('Hub exit unconfirmed');}}])try{await cleanup();}catch(error){errors.push(error);}
+    if(errors.length){this.closing=false;throw launcherError('CLEANUP_INCOMPLETE',errors.map(e=>e.message).join('; '));}
   }
 }

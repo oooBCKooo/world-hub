@@ -1,1652 +1,1089 @@
-import { initialLanguage, translate, applyLanguage } from './i18n.mjs';
-import { createAdvancedUi } from './advanced.mjs';
+import { initialLanguage, localizeErrorMessage } from './i18n.mjs';
 import { createPathUi } from './path-ui.mjs';
-import { createTaskUi } from './task-ui.mjs';
-import { createIcon, renderSquareArt } from './icons.mjs';
+import { createIcon, createModuleAvatar } from './icons.mjs';
 import { groupAssets, createAssetVersionSelection, renderAssetVersionSelector } from './asset-versions.mjs';
+import { createGlobalDynamicModulesUi } from './global-dynamic-modules-tab.mjs';
+import { createModuleWorkbench } from './module-workbench.mjs';
 
-const $ = selector => document.querySelector(selector);
+export const navigation = [
+  ['modules', '模块中心', 'Module Center', 'modules', [
+    ['programs', '已接入模块', 'Connected Modules', 'hubs'],
+    ['sources', '在线获取', 'Get Modules', 'download']
+  ]],
+  ['communication', '系统与环境', 'Environment & System', 'environment', [
+    ['environment', '环境与解释器探针', 'Environment & Diagnostics', 'environment']
+  ]]
+];
+export function localEntryUrl(value) {
+  try { const url = new URL(value); return url.protocol === 'http:' && url.hostname === '127.0.0.1' && !url.username && !url.password ? url.href : null; } catch { return null; }
+}
+export function sameSourceArtifact(left, right) { return left?.entryId === right?.entryId && left?.sha256 === right?.sha256 && left?.kind === 'module' && right?.kind === 'module'; }
+export function sourceFetchInput(observation, entry) {
+  if (!observation?.receiptId || !observation?.sourceId || !entry?.entryId || entry.kind !== 'module') throw new Error('Inspect the module source before downloading.');
+  return { sourceId: observation.sourceId, receiptId: observation.receiptId, entryId: entry.entryId };
+}
+export function canAcquireSourceModule(observation, entry) { return entry?.kind === 'module' && (!observation?.offline || entry.cached === true); }
+export function moduleLibraryRows(known) { return (known?.objects ?? []).filter(row => row.kind === 'module'); }
+
 const sessionKey = 'world-hub.launcher.session';
-const state = {
-  language: initialLanguage(), view: 'packs', tab: 'status', instances: [], hubs: [],
-  selected: null, session: null, auth: null, online: false, loading: false,
-  reviews: new Map(), operations: new Map(), topology: null, logs: null,
-  importReview: null, trustReview: null, trustKind: 'start', trustInstanceId: null, environment: null,
-  environmentSelection: {}, isolationSelection: null, lastRefresh: null, renderStamp: '', detailStamp: '', headingStamp: '', topologyStamp: '', topologyLoading: false,
-  logSelection: 'all', importRequest: 0, trustRequest: 0, logsRequest: 0, returnNotice: '',
-  hubsObservedAt: null, hubsUnavailable: false, topologyUnavailable: false,
-};
-const t = (key, variables) => translate(state.language, key, variables);
-const idOf = instance => instance?.instanceId ?? instance?.id;
-const declaredModuleCount = instance => instance.moduleCount ?? state.reviews.get(idOf(instance))?.review?.pack?.components?.length ?? null;
-function componentRuntimeKind(instance, component) {
-  const review = state.reviews.get(idOf(instance))?.review;
-  const componentDeclaration = review?.pack?.components?.find(row => row.id === component.id);
-  const moduleId = componentDeclaration?.module ?? component.module;
-  const module = review?.modules?.find(row => (row.manifest?.id ?? row.id) === moduleId);
-  const kind = module?.manifest?.runtime?.kind ?? module?.runtime?.kind ?? component.runtime?.kind ?? component.runtimeKind;
-  return ['node', 'python'].includes(kind) ? kind : null;
-}
-const current = () => state.instances.find(instance => idOf(instance) === state.selected);
-const endpoint = (id, action = '') => `/api/instances/${encodeURIComponent(id)}${action ? `/${action}` : ''}`;
-const running = instance => ['running', 'starting', 'stopping'].includes(instance?.status?.state) && !instance?.status?.stoppedAt;
-const exitUnconfirmed = instance => Boolean(instance?.status?.runId) && (!instance?.status?.stoppedAt || instance?.status?.cleanupIncomplete === true);
-const observationMaxAgeMs = 10000;
-const freshObservation = value => Boolean(value) && Number.isFinite(Date.parse(value)) && Date.now() - Date.parse(value) <= observationMaxAgeMs;
-const observationLive = () => state.online && freshObservation(state.lastRefresh);
-const isStale = status => status?.observation === 'stale' || status?.supervisorUnavailable === true || !observationLive();
-const operationFor = instance => state.operations.get(idOf(instance)) ?? (instance?.operation?.state === 'running' ? instance.operation : null);
-const stopBlocked = instance => { const operation = operationFor(instance); return operation && !['start', 'restart'].includes(operation.kind); };
-const preparing = instance => ['start', 'restart'].includes(operationFor(instance)?.kind);
-const deletionBlocked = instance => Boolean(operationFor(instance) || running(instance) || exitUnconfirmed(instance)
-  || instance?.status?.cleanupIncomplete && !instance?.deletionPending || instance?.maintenanceUnknown || isStale(instance?.status)
-  || !['imported', 'stopped', 'detached', 'failed', 'deletion-incomplete'].includes(instance?.status?.state));
-let advanced, paths, tasks, restoringHistory = false, historyReady = false;
+const $ = selector => document.querySelector(selector);
+const state = { language: initialLanguage(), view: 'modules', auth: null, session: null, online: false, hubsUnavailable: true, hubsObservedAt: null,
+  programs: [], groups: [], hubs: [], objects: [], sources: [], sourceIndex: null, sourceError: null, sourceId: null, operations: [], environment: null, topology: null };
 const say = (zh, en) => state.language === 'zh' ? zh : en;
-const packVersionSelection = createAssetVersionSelection({storageKey:'world-hub.pack-version-selection/v1'});
-function updateConnectionState(online = state.online) {
-  state.online = Boolean(online);
-  const stateLabel = $('#connection-state');
-  if (stateLabel) stateLabel.textContent = t(state.online ? 'online' : 'offline');
-  const dot = $('.local-indicator .status-dot');
-  if (dot) dot.classList.toggle('offline', !state.online);
-  const indicator = $('.local-indicator');
-  if (indicator) indicator.classList.toggle('offline', !state.online);
-}
+const title = row => typeof row?.title === 'string' ? row.title : row?.title?.[state.language] ?? row?.title?.en ?? row?.title?.zh ?? row?.module?.id ?? row?.programId ?? row?.id ?? '—';
+const date = value => value ? new Date(value).toLocaleString(state.language === 'zh' ? 'zh-CN' : 'en-US') : '—';
+const isLive = () => state.online && Date.now() - Date.parse(state.hubsObservedAt) < 12000;
+const moduleSelection = createAssetVersionSelection({ storageKey: 'world-hub.module-version-selection/v2' });
+const sourceSelection = createAssetVersionSelection({ storageKey: 'world-hub.module-source-selection/v2' });
+let paths, communication, workbench, refreshing = false, toastTimer, environmentForm, activeTasks, navigationStamp = '', hubStamp = '', moduleSubtab = 'local', communicationSubtab = 'dynamic';
 
-// Every remote string is inserted through textContent/text nodes. Pack content never becomes markup.
 function el(tag, attributes = {}, children = []) {
-  const element = document.createElement(tag);
+  const node = document.createElement(tag);
   for (const [key, value] of Object.entries(attributes)) {
     if (value === undefined || value === null || value === false) continue;
-    if (key === 'class') element.className = value;
-    else if (key === 'text') element.textContent = String(value);
-    else if (key.startsWith('on') && typeof value === 'function') element.addEventListener(key.slice(2), value);
-    else if (key === 'disabled' || key === 'hidden' || key === 'checked') element[key] = Boolean(value);
-    else element.setAttribute(key, String(value));
+    if (key === 'class') node.className = value;
+    else if (key.startsWith('on') && typeof value === 'function') node.addEventListener(key.slice(2), value);
+    else if (['disabled', 'hidden', 'checked', 'selected', 'multiple'].includes(key)) node[key] = Boolean(value);
+    else node.setAttribute(key, String(value));
   }
-  for (const child of Array.isArray(children) ? children : [children]) {
-    if (child === null || child === undefined) continue;
-    element.append(child instanceof Node ? child : document.createTextNode(String(child)));
+  for (const child of Array.isArray(children) ? children : [children]) if (child !== null && child !== undefined) node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+  return node;
+}
+const button = (label, callback, className = 'button', disabled = false) => el('button', { type: 'button', class: className, disabled, onclick: event => { const result = callback(event); if (result?.catch) result.catch(error); } }, label);
+const pill = (text, tone = '') => el('span', { class: `pill${tone ? ` pill-${tone}` : ''}` }, text);
+const field = (label, input) => el('label', {}, [el('span', {}, label), input]);
+const input = (name, value = '', attributes = {}) => { const node = el('input', { name, autocomplete: 'off', spellcheck: 'false', ...attributes }); node.value = value; return node; };
+const json = (name, value) => { const node = el('textarea', { name, rows: '5', class: 'sh-json-editor', spellcheck: 'false', 'aria-label': name }); node.value = JSON.stringify(value, null, 2); return node; };
+const details = (label, data) => el('details', {}, [el('summary', {}, label), el('pre', { class: 'review-digest' }, JSON.stringify(data, null, 2))]);
+const info = text => el('p', { class: 'field-help' }, text);
+const actions = children => el('div', { class: 'result-actions' }, children);
+function empty(text, label, callback) { return el('section', { class: 'panel sh-empty' }, [createIcon('modules'), el('p', {}, text), label ? button(label, callback, 'button button-primary') : null]); }
+function toast(message) { clearTimeout(toastTimer); $('#toast').textContent = localizeErrorMessage(message, state.language); $('#toast').hidden = false; toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 6000); }
+function dialog(titleText, children) {
+  const node = el('dialog', { class: 'dialog sh-dialog', 'aria-label': titleText });
+  const close = button('×', () => node.close(), 'icon-button'); close.setAttribute('aria-label', say('关闭', 'Close'));
+  node.append(el('div', { class: 'dialog-heading' }, [el('h2', {}, titleText), close]), ...children); document.body.append(node);
+  node.addEventListener('close', () => node.remove(), { once: true }); node.showModal(); paths?.enhance(node); return node;
+}
+function error(issue) {
+  dialog(say('操作未完成', 'Operation did not complete'), [el('p', { class: 'notice notice-error', role: 'alert' }, localizeErrorMessage(issue.message ?? String(issue), state.language)),
+    issue.code ? info(issue.code) : null, issue.guidance ? details(say('操作建议', 'Guidance'), issue.guidance) : null,
+    issue.issues ? details(say('检查结果', 'Inspection issues'), issue.issues) : null].filter(Boolean));
+}
+async function run(action) { try { return await action(); } catch (issue) { error(issue); } }
+function confirm({ title: label, message, action, danger = false }) {
+  const node = dialog(label, [el('p', {}, message)]), accept = button(say('确认', 'Confirm'), () => run(async () => { accept.disabled = true; try { await action(); node.close(); } finally { accept.disabled = false; } }), danger ? 'button button-danger' : 'button button-primary');
+  node.append(actions([button(say('取消', 'Cancel'), () => node.close(), 'button button-quiet'), accept]));
+}
+function reviewFacts(data) {
+  const facts = [], add = (label, value) => { if (value !== undefined && value !== null && value !== '') facts.push(el('div', {}, [el('dt', {}, label), el('dd', {}, typeof value === 'string' ? value : JSON.stringify(value))])); };
+  add(say('实例标识', 'Instance ID'), data?.programId); add(say('模块', 'Module'), data?.module ? `${data.module.id}@${data.module.version}` : data?.entryId);
+  add(say('来源目录 / 地址', 'Source directory / URL'), data?.directory ?? data?.source); add('SHA-256', data?.sha256); add(say('许可证', 'License'), data?.license);
+  if (data?.executionProfile === 'trusted-local' || data?.sandbox === false) add(say('执行环境', 'Execution environment'), say('可信本机执行 · 无操作系统沙箱', 'Trusted local execution · no OS sandbox'));
+  if (data?.affected) { add(say('引用此实例的组', 'Groups referencing this instance'), data.affected.sharedWithGroups?.map(title).join(', ') || '—'); add(say('依赖消费者', 'Dependent consumers'), data.affected.consumers?.map(row => `${row.programId} (${row.state})`).join(', ') || '—'); }
+  if (data?.order) add(say('本次启动顺序', 'Startup order'), data.order.join(' → ') || say('未选择自动启动成员', 'No automatic members selected'));
+  if (data?.bridges) for (const [slot, rules] of Object.entries(data.bridges)) {
+    add(`${slot} · ${say('发送', 'Publish')}`, (rules.publish ?? []).map(alias => data.topics?.[alias] ?? alias).join(', ') || '—');
+    add(`${slot} · ${say('抽取', 'Subscribe')}`, (rules.subscribe ?? []).map(alias => data.topics?.[alias] ?? alias).join(', ') || '—');
   }
-  return element;
+  if (data?.settings) for (const [key, value] of Object.entries(data.settings)) add(key, value);
+  return el('dl', { class: 'definition-grid sh-review-facts' }, facts);
 }
-const button = (label, callback, className = 'button', disabled = false) => el('button', { type: 'button', class: className, onclick: callback, disabled }, label);
-const pill = (label, tone = '') => el('span', { class: `pill${tone ? ` pill-${tone}` : ''}` }, label);
-function localLink(label, value, className = 'button button-quiet', newTab = false) {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.username || url.password) return null;
-    return el('a', { href: url.href, ...(newTab ? { target: '_blank', rel: 'noopener noreferrer' } : { rel: 'noreferrer' }), class: className }, label);
-  } catch { return null; }
-}
-function display(value) {
-  if (value instanceof Node) return value;
-  return typeof value === 'string' ? value : value === undefined || value === null ? '—' : JSON.stringify(value);
-}
-function date(value) {
-  if (!value) return '—';
-  const instant = new Date(value);
-  return Number.isNaN(instant.getTime()) ? String(value) : instant.toLocaleString(state.language === 'zh' ? 'zh-CN' : 'en-US');
-}
-function definition(entries, className = 'definition-grid') {
-  return el('dl', { class: className }, entries.map(([key, value]) => el('div', {}, [el('dt', {}, key), el('dd', {}, value instanceof Node ? value : display(value))])));
-}
-function showNotice(target, message, tone = 'error') {
-  const node = typeof target === 'string' ? $(target) : target;
-  node.className = `notice${tone ? ` notice-${tone}` : ''}`;
-  node.textContent = message;
-  node.hidden = !message;
-}
-let toastTimer;
-function toast(message) { clearTimeout(toastTimer); $('#toast').textContent = message; $('#toast').hidden = false; toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 6500); }
-
-class ApiError extends Error {
-  constructor(data, status) { super(data?.error?.message ?? `HTTP ${status}`); this.code = data?.error?.code; this.status = status; this.guidance = data?.guidance; this.requirements = data?.requirements; this.compatibility = data?.error?.compatibility; this.diagnostic = data?.diagnostic ?? data?.error?.diagnostic; this.incompleteDestination = data?.incompleteDestination ?? data?.error?.incompleteDestination; }
+function review({ title: label, data, message, apply, extra }) {
+  const accepted = input('accepted', '', { type: 'checkbox' }), node = dialog(label, [el('p', {}, message), reviewFacts(data), details(say('本次精确审阅与源码摘要', 'Exact review and source hashes'), data), ...(extra ? [extra] : [])]);
+  const applyButton = button(say('应用本次审阅', 'Apply this review'), () => run(async () => {
+    if (!accepted.checked) return; applyButton.disabled = true;
+    try { await apply(); node.close(); await refresh(); } finally { applyButton.disabled = !accepted.checked; }
+  }), 'button button-primary', true);
+  accepted.addEventListener('change', () => { applyButton.disabled = !accepted.checked; });
+  node.append(el('label', { class: 'sh-check sh-consent' }, [accepted, el('span', {}, say('我已核对源码、权限、接线与上述影响，同意本次操作。', 'I reviewed the source, permissions, wiring and effects above and approve this operation.'))]), actions([button(say('取消', 'Cancel'), () => node.close(), 'button button-quiet'), applyButton]));
 }
 async function api(path, body) {
-  if (!state.auth?.token && path !== '/api/session') throw new Error(t('sessionRequired'));
-  const headers = { Accept: 'application/json' };
-  if (state.auth?.token) headers.Authorization = `Bearer ${state.auth.token}`;
+  if (!state.auth?.token && path !== '/api/session') throw new Error(say('请从启动器重新打开此页面以建立本机会话。', 'Reopen this page from Launcher to create a local session.'));
+  const headers = { Accept: 'application/json' }; if (state.auth?.token) headers.Authorization = `Bearer ${state.auth.token}`;
   if (body !== undefined) { headers['Content-Type'] = 'application/json'; if (state.auth?.csrfToken) headers['X-CSRF-Token'] = state.auth.csrfToken; }
-  const timeoutMs = path.includes('native-pick') ? 300000 : 35000;
-  let response;
-  try { response = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }), credentials: 'same-origin', redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) }); }
-  catch (error) { throw new Error(`${t('connectionFailed')} ${error.message}`); }
+  const response = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }), credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(path.includes('native-pick') ? 300000 : 90000) });
   const data = await response.json();
   if (!response.ok || data.ok === false) {
-    if (response.status === 401 && path !== '/api/session') { state.online = false; state.auth = null; try { sessionStorage.removeItem(sessionKey); localStorage.removeItem(sessionKey); } catch {} showNotice('#connection-notice', t('sessionExpired')); updateConnectionState(false); }
-    throw new ApiError(data, response.status);
+    if (response.status === 401) { state.online = false; state.auth = null; try { sessionStorage.removeItem(sessionKey); } catch {} }
+    throw Object.assign(new Error(data.error?.message ?? `HTTP ${response.status}`), data.error ?? {}, { guidance: data.guidance, issues: data.issues });
   }
   return data;
 }
-
-function errorContents(error) {
-  const nodes = [error.diagnostic?.[state.language] ? el('p', {}, error.diagnostic[state.language]) : null, el('p', {}, error.message)].filter(Boolean);
-  if (error.incompleteDestination) nodes.push(el('p', {}, `${t('destination')}: ${error.incompleteDestination}`));
-  if (error.requirements) nodes.push(el('pre', { class: 'review-digest' }, JSON.stringify(error.requirements, null, 2)));
-  if (error.compatibility) nodes.push(el('pre', { class: 'review-digest' }, JSON.stringify(error.compatibility, null, 2)));
-  if (error.guidance?.length) nodes.push(guidance(error.guidance));
-  if (error.diagnostic?.action?.view === 'sources' || ['PACK_LOCK_OBSOLETE', 'PACK_HUB_CONTRACT_UNSUPPORTED'].includes(error.code)) {
-    const action = button(say('打开软件源，获取当前资源', 'Open Software Sources for current resources'), () => { action.closest('dialog')?.close(); navigate('sources'); }, 'button button-primary');
-    action.setAttribute('data-repair-action', 'open-sources'); nodes.push(action);
+async function operation(result) {
+  if (!result?.operationId) return result;
+  const id = result.operationId;
+  for (;;) {
+    const { operation: row } = await api(`/api/operations/${encodeURIComponent(id)}`);
+    state.operations = [row, ...state.operations.filter(other => other.id !== row.id)]; renderTaskTrigger();
+    if (row.state === 'succeeded') { await refresh(); return row.result; }
+    if (['failed', 'cancelled'].includes(row.state)) throw Object.assign(new Error(row.error?.message ?? say('操作已取消。', 'Operation cancelled.')), row.error ?? {});
+    await new Promise(done => setTimeout(done, 500));
   }
-  return nodes;
 }
-function renderError(target, error) { const node = $(target); node.className = 'notice notice-error'; node.replaceChildren(...errorContents(error)); node.hidden = false; }
-function operationError(error) {
-  let dialog = $('#operation-error-dialog');
-  if (!dialog) { dialog = el('dialog', { id: 'operation-error-dialog', class: 'dialog' }); document.body.append(dialog); }
-  dialog.setAttribute('aria-labelledby', 'operation-error-title');
-  const close = button('×', () => dialog.close(), 'icon-button'); close.setAttribute('aria-label', t('close'));
-  dialog.replaceChildren(el('div', { class: 'dialog-heading' }, [el('h2', { id: 'operation-error-title' }, t('operationFailed')), close]), ...errorContents(error));
-  if (!dialog.open) dialog.showModal();
+function safeLink(label, value) { const url = localEntryUrl(value); return url ? el('a', { href: url, target: '_blank', rel: 'noopener noreferrer', class: 'button button-quiet' }, label) : null; }
+function hub() { return state.hubs.find(row => row.id === 'default' || row.hubId === 'default') ?? state.hubs[0] ?? { state: 'stopped' }; }
+function programState(row) { return say(({ running: '运行中', stopped: '已停止', failed: '失败', starting: '启动中', stopping: '停止中', unknown: '归属未知' })[row.state] ?? row.state, row.state); }
+function renderHub() {
+  const row = hub(), live = isLive(), running = live && row.state === 'running';
+  const stamp = JSON.stringify([row, live, state.language, state.programs.filter(program => program.state === 'running').length]); if (stamp === hubStamp) return; hubStamp = stamp;
+  $('#hub-bar').replaceChildren(el('div', { class: 'sh-hub-heading' }, [
+    createIcon('hubs'),
+    el('div', {}, [
+      el('strong', {}, say('世界枢纽', 'World Hub')),
+      el('small', { class: 'mono' }, running ? row.url ?? 'launcher.default' : say('所有模块共享的世界通信枢纽', 'One communication hub for every module'))
+    ]),
+    pill(live ? running ? say('运行中', 'Running') : say('已停止', 'Stopped') : say('状态待刷新', 'Refresh required'), running ? 'teal' : 'amber')
+  ]),
+  actions([
+    button(running ? say('停止世界枢纽…', 'Stop Hub…') : say('启动世界枢纽', 'Start Hub'), () => {
+      const execute = () => run(async () => { await operation(await api(`/api/hubs/default/${running ? 'stop' : 'start'}`, {})); await refresh(); });
+      if (running) confirm({ title: say('停止世界枢纽', 'Stop World Hub'), message: say(`这会停止世界枢纽及其 ${state.programs.filter(program => program.state === 'running').length} 个正在运行的受管模块。外部程序的进程不由 Launcher 终止。`, `This stops the Hub and its ${state.programs.filter(program => program.state === 'running').length} running managed modules. Launcher does not terminate external processes.`), action: execute, danger: true }); else execute();
+    }, running ? 'button button-quiet' : 'button button-primary', !live),
+    button(say('启动计划', 'Startup plan'), () => startPlan(), 'button button-quiet', !live || !state.programs.length),
+    button(say('编排计划', 'Edit plan'), () => openWorkbench('global-plan'), 'button button-quiet'),
+    ...(running ? [safeLink(say('内核看板 ↗', 'Communication workbench'), row.workbenchUrl), safeLink(say('流向拓扑 ↗', 'Information flow'), row.managementUrl)] : [])
+  ]));
 }
+function renderStats() {
+  const container = $('#topbar-stats');
+  if (!container) return;
+  const runningCount = state.programs.filter(row => row.state === 'running').length;
+  const totalConnected = state.programs.length + (state.externalInventory?.programs?.length ?? 0);
+  const metrics = [
+    { label: say('已接入', 'Connected'), value: totalConnected, action: () => { moduleSubtab = 'programs'; moduleCategory = 'all'; navigate('modules'); } },
+    { label: say('运行中', 'Running'), value: runningCount, isRunning: true, action: () => { moduleSubtab = 'programs'; navigate('modules'); } },
+    { label: say('模块组', 'Groups'), value: state.groups.length, action: () => { moduleSubtab = 'programs'; moduleViewMode = 'folders'; navigate('modules'); } },
+    { label: say('在线来源', 'Sources'), value: state.sources.length, action: () => { moduleSubtab = 'sources'; navigate('modules'); } }
+  ];
+  container.replaceChildren(...metrics.map(m => {
+    const card = el('article', {
+      class: `stat-card${m.isRunning && m.value > 0 ? ' is-running' : ''}`,
+      role: 'button',
+      tabindex: '0',
+      'aria-label': `${m.label}: ${m.value}`,
+      onclick: m.action
+    }, [
+      el('span', { class: 'stat-label' }, [
+        m.isRunning && m.value > 0 ? el('span', { class: 'stat-live-dot' }) : null,
+        m.label
+      ].filter(Boolean)),
+      el('strong', { class: 'stat-value' }, String(m.value))
+    ]);
+    card.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        m.action();
+      }
+    });
+    return card;
+  }));
+}
+function pageHeader(label, description, buttons = []) {
+  const textChildren = [];
+  if (label || description) {
+    textChildren.push(el('div', { class: 'eyebrow' }, 'WORLD HUB · LOCAL WORKSPACE'));
+    if (label) textChildren.push(el('h1', {}, label));
+    if (description) textChildren.push(el('p', {}, description));
+  }
+  return el('div', { class: `sh-page-heading${textChildren.length ? '' : ' sh-actions-heading'}` }, [
+    textChildren.length ? el('div', {}, textChildren) : null,
+    actions(buttons)
+  ].filter(Boolean));
+}
+async function importAndConnectModule() {
+  const path = input('artifactPath', '', { 'data-path-purpose': 'source' }), kind = el('select', { 'aria-label': say('导入来源类型', 'Import source type') }, [el('option', { value: 'source' }, say('模块 ZIP 文件', 'Module ZIP file')), el('option', { value: 'module' }, say('模块目录', 'Module directory'))]), status = el('p', { role: 'status' });
+  const known = state.objects.filter(obj => obj.kind === 'module');
+  let presetSelect = null;
+  if (known.length) {
+    presetSelect = el('select', { 'aria-label': say('从已有本地制品中选择', 'From existing local artifacts') }, [
+      el('option', { value: '' }, say('— 选择已有本地制品（可选） —', '— Choose existing local artifact (optional) —')),
+      ...known.map(obj => el('option', { value: obj.path }, `${obj.id ?? obj.path}@${obj.version ?? '1.0'} (${obj.path})`))
+    ]);
+    presetSelect.addEventListener('change', () => {
+      if (presetSelect.value) { path.value = presetSelect.value; kind.value = 'module'; path.dataset.pathPurpose = 'module'; }
+    });
+  }
+  const node = dialog(say('接入本地模块', 'Connect local module'), [
+    info(say('选择模块 ZIP、含 module.json 的目录，或直接选择已有本地制品。导入核验后直接引导接入世界枢纽。', 'Select a module ZIP, a directory containing module.json, or choose an existing local artifact. After import, it directly guides registration to World Hub.')),
+    presetSelect ? field(say('从已有本地制品中选择', 'From existing local artifacts'), presetSelect) : null,
+    field(say('导入来源类型', 'Import source type'), kind),
+    field(say('模块 ZIP 或目录', 'Module ZIP or directory'), path),
+    status
+  ].filter(Boolean));
+  kind.addEventListener('change', () => { path.dataset.pathPurpose = kind.value; path.value = ''; });
+  const apply = button(say('检查并接入', 'Check & connect'), () => run(async () => {
+    apply.disabled = true;
+    try {
+      const targetPath = path.value.trim();
+      if (!targetPath) return;
+      const result = await api('/api/artifacts/import', { path: targetPath, kind: 'module' });
+      status.textContent = result.object?.path ?? '';
+      await refresh();
+      node.close();
+      const moduleDirectory = result.object?.path ?? targetPath;
+      await registerModule(moduleDirectory);
+    } finally { apply.disabled = false; }
+  }), 'button button-primary');
+  node.append(actions([apply]));
+}
+const importModule = importAndConnectModule;
+async function registerModule(directory) {
+  const inspected = await api('/api/deployment/inspect', { directory }), manifest = inspected.manifest, declaration = inspected.deploymentReview?.deployment ?? inspected.deployment;
+  const id = input('programId', manifest.id.replace(/[^a-z0-9._-]/g, '-').slice(0, 48) + '-' + (state.programs.length + 1), { pattern: '[a-z0-9][a-z0-9._-]{0,63}', maxlength: '64' });
+  const settings = declaration ? Object.fromEntries((declaration.settings ?? []).map(row => [row.key, row.default])) : {};
+  const topics = declaration?.topics ?? {}, bridges = declaration?.bridges ?? Object.fromEntries((manifest.bridges ?? []).map(slot => [slot, { publish: [], subscribe: [] }]));
+  const settingNodes = (declaration?.settings ?? []).map(row => {
+    const node = input(row.key, row.type === 'boolean' ? '' : String(row.default), { type: row.type === 'boolean' ? 'checkbox' : row.type === 'number' ? 'number' : 'text', ...(row.min !== undefined ? { min: row.min } : {}), ...(row.max !== undefined ? { max: row.max } : {}) });
+    if (row.type === 'boolean') node.checked = row.default;
+    return { row, node, field: field(title({ title: row.label }) || row.key, node) };
+  });
+  const topicNodes = Object.entries(topics).map(([alias, value]) => ({ alias, node: input(alias, value) })), bindings = (manifest.requires ?? []).map(contract => {
+    const candidates = state.programs.filter(program => program.provides.some(value => value.id === contract.id && value.version === contract.version));
+    const select = el('select', { 'aria-label': `${contract.id}@${contract.version}` }, [el('option', { value: '' }, say('选择能力提供者', 'Choose a provider')), ...candidates.map(program => el('option', { value: program.programId }, `${title(program)} · ${program.programId}`))]);
+    return { contract, select };
+  });
+  const jsonSettings = declaration ? null : json('settings', settings), jsonTopics = declaration ? null : json('topics', topics), bridgeEditor = json('bridges', bridges);
+  const node = dialog(say('登记独立模块实例', 'Register an independent module instance'), [el('p', {}, `${manifest.id}@${manifest.version}`), info(directory), field(say('实例标识（与其他实例不同）', 'Instance ID (unique)'), id),
+    ...settingNodes.map(row => row.field), ...topicNodes.map(row => field(row.alias, row.node)), ...(declaration ? [] : [info(say('此模块没有默认接入声明，请填写公开参数、具体通道和模块桥权限。', 'This module has no default deployment declaration. Enter public settings, concrete topics and bridge permissions.')), field(say('公开参数 (JSON)', 'Public settings (JSON)'), jsonSettings), field(say('通道地址 (JSON)', 'Topic addresses (JSON)'), jsonTopics)]),
+    ...bindings.map(row => field(`${row.contract.id}@${row.contract.version}`, row.select)), el('details', { open: !declaration }, [el('summary', {}, say('模块桥权限 (JSON)', 'Module bridge permissions (JSON)')), bridgeEditor])]);
+  const submit = button(say('审阅登记', 'Review registration'), () => run(async () => {
+    const body = { programId: id.value.trim(), directory, settings: declaration ? Object.fromEntries(settingNodes.map(({ row, node }) => [row.key, row.type === 'boolean' ? node.checked : row.type === 'number' ? Number(node.value) : node.value])) : JSON.parse(jsonSettings.value),
+      topics: declaration ? Object.fromEntries(topicNodes.map(row => [row.alias, row.node.value.trim()])) : JSON.parse(jsonTopics.value), bridges: JSON.parse(bridgeEditor.value), bindings: bindings.map(row => ({ providerId: row.select.value, contract: row.contract })) };
+    const result = await api('/api/programs/preview', body);
+    review({ title: say('审阅模块登记', 'Review module registration'), data: result.review, message: say('登记会复制已审阅的模块源码并创建独立身份和状态目录。不会启动程序；启动前另行审阅执行。', 'Registration copies reviewed source and creates an independent identity and state directory. It does not execute the program. Execution requires a separate start review.'), apply: async () => {
+      await api('/api/programs/register', { reviewId: result.reviewId, accepted: true });
+      recordApproved(id.value.trim(), result.review?.digest);
+      node.close(); await refresh(); navigate('programs');
+    } });
+  }), 'button button-primary'); node.append(actions([submit]));
+}
+const approvedKey = id => `world-hub.approved-start.${id}`;
+function getApproved(id) { try { return JSON.parse(localStorage.getItem(approvedKey(id)) || 'null'); } catch { return null; } }
+export function recordApproved(id, digest) { if (!digest) return; try { localStorage.setItem(approvedKey(id), JSON.stringify({ digest, time: Date.now() })); } catch {} }
 
-function confirmDialog({ title, message, danger = false, confirmText, onConfirm }) {
-  const dialog = el('dialog', { class: 'dialog dialog-small confirm-dialog', 'aria-label': title });
-  const close = button('×', () => dialog.close(), 'icon-button close-dialog');
-  close.setAttribute('aria-label', t('close'));
-  const cancelBtn = button(t('cancel'), () => dialog.close(), 'button button-quiet');
-  const actionBtn = button(confirmText || t('confirmDelete'), async () => {
-    dialog.close();
-    await onConfirm();
-  }, danger ? 'button button-danger' : 'button button-primary');
-  dialog.replaceChildren(
-    el('div', { class: 'dialog-heading' }, [el('h3', {}, title), close]),
-    el('p', { class: 'dialog-description' }, message),
-    el('div', { class: 'dialog-footer' }, [cancelBtn, actionBtn])
-  );
-  document.body.append(dialog);
-  dialog.addEventListener('close', () => dialog.remove(), { once: true });
-  dialog.showModal();
-  return dialog;
-}
-
-function confirmDeleteInstance(instance) {
-  const id = idOf(instance);
-  const status = instance.status ?? {};
-  if (deletionBlocked(instance)) {
-    toast(say('请先确认实例进程已退出且没有正在进行的操作，再删除实例。', 'Confirm process exit and completion of instance operations before deletion.'));
+async function startProgram(program, forceReview = false) {
+  const result = await api(`/api/programs/${encodeURIComponent(program.programId)}/review`, {});
+  const approved = getApproved(program.programId);
+  const isIdentical = approved && approved.digest === result.review.digest;
+  if (isIdentical && !forceReview) {
+    toast(say(`正在启动模块 ${title(program)}…`, `Starting ${title(program)}…`));
+    await operation(await api(`/api/programs/${encodeURIComponent(program.programId)}/start`, { reviewId: result.reviewId, accepted: true }));
+    await refresh();
     return;
   }
-  const title = instance.pack?.title ?? instance.pack?.id ?? id;
-  confirmDialog({
-    title: t('deletePack'),
-    message: (instance.deletionPending ? say(`上次删除尚未完成，剩余文件保留在 ${instance.retainedDirectory}。`, `Previous deletion is incomplete. Remaining files are retained at ${instance.retainedDirectory}.`) + '\n' : '')
-      + say(`确认彻底删除整合包「${title}」(${id})？这将移除该实例的全部本地文件与运行时数据。此操作不可逆。`, `Permanently delete pack instance "${title}" (${id})? This will remove all local files and runtime data for this instance. This action cannot be undone.`),
-    danger: true,
-    confirmText: t('delete'),
-    onConfirm: async () => {
-      try {
-        await api(endpoint(id, 'delete'), { accepted: true });
-        toast(say(`已删除整合包「${id}」`, `Deleted pack "${id}"`));
-        if (state.selected === id) {
-          state.selected = null;
-          navigate('packs');
-        }
-        await refresh({ explicit: true });
-      } catch (err) {
-        await refresh({ explicit: true });
-        toast(err.message);
-      }
+  const isFirst = !approved;
+  const reviewMessage = isFirst
+    ? say('首次启动此模块，连接世界枢纽。请核对源码、解释器与通信权限。后续未发生变动时将直接启动。', 'First start for this module, connecting to World Hub. Check source, runtime and communication permissions. Future starts without changes will launch directly.')
+    : say('⚠️ 检测到模块配置、源码或环境发生更新（与上次运行不同）。请审阅变更后启动：', '⚠️ Changes detected in module configuration or source since last run. Review changes to start:');
+  review({
+    title: isFirst ? say('首次启动审阅', 'Review and start module') : say('检测到变更 · 审阅启动', 'Review and start module'),
+    data: result.review,
+    message: reviewMessage,
+    apply: async () => {
+      recordApproved(program.programId, result.review.digest);
+      await operation(await api(`/api/programs/${encodeURIComponent(program.programId)}/start`, { reviewId: result.reviewId, accepted: true }));
     }
   });
 }
-function guidance(items) {
-  const section = el('div', { class: 'review-section' }, el('h3', {}, t('repairSteps')));
-  for (const item of items ?? []) {
-    const content = typeof item === 'string' ? item : item[state.language] ?? ([item.message, item.command, item.detail].filter(Boolean).join('\n') || JSON.stringify(item));
-    const pre = el('pre', { class: 'review-digest' }, content);
-    const copy = button(t('copy'), async () => {
-      try { await navigator.clipboard.writeText(content); toast(t('copied')); } catch { toast(t('copyUnavailable')); }
-    }, 'button button-small button-quiet');
-    section.append(el('div', { class: 'log-panel' }, [pre, copy]));
-  }
-  return section;
+async function stopProgram(program) {
+  const sharing = state.groups.filter(group => group.memberProgramIds.includes(program.programId)), consumers = state.programs.filter(row => row.bindings.some(binding => binding.providerId === program.programId));
+  confirm({ title: say('停止模块实例', 'Stop module instance'), message: `${program.programId}\n${say('引用此实例的组', 'Groups referencing this instance')}: ${sharing.map(group => title(group)).join(', ') || '—'}\n${say('依赖此实例的消费者', 'Consumers depending on this instance')}: ${consumers.map(row => row.programId).join(', ') || '—'}`, action: async () => { await operation(await api(`/api/programs/${encodeURIComponent(program.programId)}/stop`, {})); await refresh(); if (state.view === 'workbench') renderView(); }, danger: true });
 }
+async function logs(program) { const result = await api(`/api/programs/${encodeURIComponent(program.programId)}/logs`); dialog(`${title(program)} · ${say('日志', 'Logs')}`, [el('pre', { class: 'sh-log' }, `stdout\n${result.logs.stdout ?? ''}\n\nstderr\n${result.logs.stderr ?? ''}`), result.logs.truncated ? info(say('仅显示有界日志尾部。', 'Only the bounded log tail is shown.')) : null].filter(Boolean)); }
+const expandedPrograms = new Set();
 
-function statusLabel(instance) {
-  const status = instance?.status ?? {};
-  if (status.cleanupIncomplete && !status.stoppedAt) return [t('cleanupIncomplete'), 'amber'];
-  if (isStale(status)) return [t('stale'), 'amber'];
-  const key = status.state ?? 'imported';
-  return [t(key), key === 'running' ? 'teal' : key === 'failed' ? 'red' : ['starting', 'stopping'].includes(key) ? 'amber' : ''];
-}
-function processBadge(value) { return pill(t(value === 'running' ? 'processRunning' : value === 'exited' ? 'processExited' : ['starting', 'failed'].includes(value) ? value : 'unknown'), value === 'running' ? 'teal' : value === 'failed' ? 'red' : ''); }
-function commBadge(value) { return pill(t(value === 'connected' ? 'connected' : value === 'disconnected' ? 'disconnected' : 'unknown'), value === 'connected' ? 'teal' : ''); }
-function healthBadge(value) { const fresh = freshObservation(value?.lastCheckedAt); return pill(t(!value?.lastCheckedAt ? 'noHealthCheck' : !fresh ? 'healthUnknown' : value.ready === true ? 'healthPassed' : 'healthFailed'), !fresh ? '' : value.ready === true ? 'teal' : 'red'); }
-function readinessBadge(value) { return pill(t(value === 'ready' ? 'ready' : value === 'not-ready' ? 'notReady' : 'unknown'), value === 'ready' ? 'teal' : ''); }
+function programCard(row) {
+  const groups = state.groups.filter(group => group.memberProgramIds.includes(row.programId));
+  const isRunning = row.state === 'running' && isLive();
+  const bridgeEntries = Object.entries(row.bridges ?? {});
+  const topicCount = Object.keys(row.topics ?? {}).length;
+  const providesCount = (row.provides ?? []).length;
+  const requiresCount = (row.requires ?? row.manifest?.requires ?? []).length;
 
-function stats() {
-  const declared = state.instances.map(i => i.moduleCount ?? state.reviews.get(idOf(i))?.review?.pack?.components?.length ?? null);
-  const counts = [state.instances.length, state.instances.filter(i => i.status?.state === 'running' && !isStale(i.status)).length, declared.some(n => n === null) ? t('unknown') : declared.reduce((a, b) => a + b, 0), state.instances.filter(i => i.status?.state === 'failed' || isStale(i.status) || i.status?.cleanupIncomplete).length];
-  return [['totalInstances', 'independentlyManaged', 'packs'], ['runningInstances', 'observedProcesses', 'play'], ['moduleCount', 'declaredModules', 'creator'], ['attention', 'failuresAndUnknown', 'alert']].map(([label, note, iconName], index) => el('div', { class: 'stat' }, [el('div', { class: 'stat-top' }, [t(label), el('span', { class: 'stat-icon', 'aria-hidden': 'true' }, createIcon(iconName))]), el('strong', { class: 'stat-value' }, counts[index]), el('p', { class: 'stat-note' }, t(note))]));
-}
-function renderStats() { $('#pack-stats')?.replaceChildren(...stats()); $('#overview-stats')?.replaceChildren(...stats()); }
-function packCard(instance) {
-  const id = idOf(instance), status = instance.status ?? {}, busy = Boolean(operationFor(instance));
-  const modules = status.components ?? [];
-  const reviewCount = instance.moduleCount ?? state.reviews.get(id)?.review?.pack?.components?.length;
-  const [label, tone] = statusLabel(instance);
-  const facts = definition([[t('modules'), reviewCount ?? t('unknown')], [t('communication'), isStale(status) ? t('unknown') : modules.length ? `${modules.filter(c => c.communication === 'connected').length} / ${modules.length}` : t('unknown')]], 'pack-facts');
-  const detached = instance.detached === true || status.state === 'detached';
-  const isRunning = running(instance) || exitUnconfirmed(instance) || preparing(instance);
-  const primary = detached ? button(advanced.label('storage'), () => selectInstance(id, 'storage'), 'button button-small button-quiet') : isRunning ? button(t('stop'), () => stopInstance(id), 'button button-small button-quiet', stopBlocked(instance) || status.state === 'stopping') : button(t('start'), () => reviewInstance(id, 'start'), 'button button-small button-primary', busy || isStale(status));
-  const statusPill = pill(label, tone);
-  if (isRunning && !isStale(status)) statusPill.prepend(el('span', { class: 'status-dot' }));
+  const isExpanded = expandedPrograms.has(row.programId);
 
-  const coverArt = renderSquareArt({
-    icon: instance.pack?.icon ?? instance.icon,
-    fallbackIcon: 'packs',
-    tone: 'cyan',
-    alt: instance.pack?.title ?? instance.pack?.id ?? id
-  });
+  const chips = [];
+  if (topicCount > 0) chips.push(el('span', { class: 'sh-spec-chip' }, `${topicCount} ${say('通道', 'topics')}`));
+  if (bridgeEntries.length > 0) chips.push(el('span', { class: 'sh-spec-chip' }, `${bridgeEntries.length} ${say('桥槽', 'bridge slots')}`));
+  if (providesCount > 0) chips.push(el('span', { class: 'sh-spec-chip' }, `${say('提供能力', 'provides')}: ${providesCount}`));
+  if (requiresCount > 0) chips.push(el('span', { class: 'sh-spec-chip' }, `${say('依赖能力', 'requires')}: ${requiresCount}`));
 
-  return el('article', { class: `pack-card${isRunning ? ' is-running' : ''}` }, [
-    el('div', { class: 'pack-card-main' }, [
-      el('div', { class: 'pack-card-media' }, [coverArt]),
-      el('div', { class: 'pack-card-content' }, [
-        el('div', { class: 'pack-card-header-row' }, [
-          el('h3', { class: 'pack-card-title' }, instance.pack?.title ?? instance.pack?.id ?? id),
-          el('div', { class: 'pack-card-badges' }, [statusPill])
-        ]),
-        el('div', { class: 'pack-card-sub mono' }, [
-          el('span', { class: 'pack-version' }, `v${instance.pack?.version ?? '—'}`),
-          el('span', { class: 'subtle-dot' }, '·'),
-          el('span', { class: 'pack-id' }, id)
-        ]),
-        facts
-      ])
-    ]),
-    el('div', { class: 'pack-card-footer' }, [
-      button(`${t('viewDetails')} →`, () => selectInstance(id), 'text-link'),
-      el('div', { class: 'pack-card-actions' }, [
-        button(t('delete'), () => confirmDeleteInstance(instance), 'button button-small button-danger-quiet pack-delete-btn', deletionBlocked(instance)),
-        primary
-      ])
-    ])
-  ]);
-}
-function packProjectCard(group) {
-  const option = packVersionSelection.get(group), instance = option?.row;
-  const card = instance ? packCard(instance) : el('article', { class: 'pack-card asset-unavailable' }, [
-    el('div', { class: 'pack-card-content' }, [el('h3', { class: 'pack-card-title' }, group.title ?? group.id ?? t('unknown'))]),
-    el('div', { class: 'pack-card-footer' }, [button(t('viewDetails'), () => {}, 'button button-small', true), button(t('start'), () => {}, 'button button-small button-primary', true)])
-  ]);
-  card.setAttribute('data-pack-project', group.id ?? group.key);
-  const content = card.querySelector('.pack-card-content');
-  content.append(renderAssetVersionSelector({ el, say }, group, packVersionSelection, { onChange: () => renderPacks() }));
-  // Project grouping never merges lifecycle state: the selected instance still
-  // owns every action, while other live instances remain visible in the summary.
-  const live = group.options.filter(item => running(item.row) || exitUnconfirmed(item.row)).length;
-  content.append(el('p', { class: 'field-help asset-instance-summary' }, say(`${group.options.length} 个独立实例 · ${live} 个运行中或待确认退出`, `${group.options.length} independent instances · ${live} running or awaiting confirmed exit`)));
-  return card;
-}
-function defaultHubCard(hub) {
-  const isRunning = hub.state === 'running';
-  const busy = state.operations.has('hub:default');
-  const observed = state.online && !state.hubsUnavailable && freshObservation(state.hubsObservedAt);
-  const statusPill = pill(t(observed ? hub.state ?? 'unknown' : 'unknown'), observed && isRunning ? 'teal' : 'amber');
-  if (isRunning && observed) statusPill.prepend(el('span', { class: 'status-dot' }));
+  const chevron = el('span', { class: 'sh-program-chevron' }, isExpanded ? '▾' : '▸');
+  const avatar = createModuleAvatar(row, 28);
+  const titleText = el('h3', { class: 'sh-program-title' }, title(row));
+  const idBadge = el('span', { class: 'mono sh-program-id' }, row.programId);
+  const versionBadge = el('span', { class: 'sh-meta-tag mono sh-program-ver' }, `${row.module.id}@${row.module.version}`);
+  const groupBadge = groups.length
+    ? el('span', { class: 'sh-meta-tag sh-tag-accent sh-program-group-tag' }, `${say('组', 'Group')}: ${groups.map(title).join(', ')}`)
+    : el('span', { class: 'sh-meta-tag subtle sh-program-group-tag' }, say('未分组', 'Ungrouped'));
+  const statePill = pill(isLive() ? programState(row) : say('状态过期', 'Stale state'), isRunning ? 'teal' : '');
 
-  const primary = isRunning
-    ? button(t('stopHub'), () => hubOperation('stop'), 'button button-small button-quiet', busy)
-    : button(t('startHub'), () => hubOperation('start'), 'button button-small button-primary', busy);
-
-  const actions = [];
-  if (isRunning && observed && hub.workbenchUrl) {
-    actions.push(localLink(`${t('openWorkbenchTarget')} →`, hub.workbenchUrl, 'text-link', true));
-  } else {
-    actions.push(el('span', { class: 'subtle small' }, t('defaultHubDescription')));
-  }
-
-  const facts = definition([
-    [t('communication'), hub.url ? 'WebSocket' : t('hubWaiting')],
-    [say('类别', 'Category'), say('系统开发枢纽', 'Dev Hub Socket')]
-  ], 'pack-facts');
-
-  const coverArt = renderSquareArt({
-    fallbackIcon: 'hubs',
-    tone: 'indigo',
-    alt: t('defaultHub')
-  });
-
-  return el('article', { class: `pack-card pack-card-system${isRunning ? ' is-running' : ''}` }, [
-    el('div', { class: 'pack-card-main' }, [
-      el('div', { class: 'pack-card-media' }, [coverArt]),
-      el('div', { class: 'pack-card-content' }, [
-        el('div', { class: 'pack-card-header-row' }, [
-          el('h3', { class: 'pack-card-title' }, t('defaultHub')),
-          el('div', { class: 'pack-card-badges' }, [statusPill])
-        ]),
-        el('div', { class: 'pack-card-sub mono' }, [
-          el('span', { class: 'pack-version' }, 'Dev Socket'),
-          el('span', { class: 'subtle-dot' }, '·'),
-          el('span', { class: 'pack-id' }, 'launcher.default')
-        ]),
-        facts
-      ])
-    ]),
-    el('div', { class: 'pack-card-footer' }, [
-      actions[0],
-      primary
-    ])
-  ]);
-}
-function empty(title, description, action) { return el('div', { class: 'empty-state' }, [el('div', { class: 'empty-icon', 'aria-hidden': 'true' }, createIcon('packs', 'icon-lg')), el('h3', {}, title), description ? el('p', {}, description) : null, action]); }
-function renderPacks() {
-  const search = $('#search').value.trim().toLocaleLowerCase();
-  const projects = groupAssets(state.instances, { mode: 'instance' });
-  const matches = projects.filter(group => group.options.some(({ row: i }) => `${idOf(i)} ${i.pack?.id ?? ''} ${i.pack?.title ?? ''} ${i.pack?.version ?? ''}`.toLocaleLowerCase().includes(search)));
-  const defaultHub = resolveDefaultHub();
-  const matchDefaultHub = !search || 'launcher.default 默认hub 本机开发 调试 socket dev'.toLocaleLowerCase().includes(search);
-  $('#nav-count').textContent = String(projects.length);
-  $('#collection-count').textContent = say(`${projects.length} 个项目 · ${state.instances.length} 个独立实例`, `${projects.length} projects · ${state.instances.length} independent instances`);
-  advanced?.renderAssetTabs?.(state.view);
-
-  const cards = matches.map(packProjectCard);
-  if (matchDefaultHub) {const card=defaultHubCard(defaultHub);card.append(button(say('管理本机独立程序','Manage local independent programs'),()=>advanced.managePrograms(),'button button-quiet'));cards.push(card);}
-
-  if (!cards.length) {
-    $('#packs-list').replaceChildren(empty(t(search ? 'noSearchResults' : 'emptyTitle'), search ? null : t('emptyDescription'), search ? null : el('div', { class: 'result-actions' }, [button(t('importPack'), openImport, 'button button-primary'), button(say('查找本机整合包', 'Find local packs'), () => { openImport(); void paths.open($('#import-form').elements.directory, 'pack'); }, 'button'), button(say('从软件源获取', 'Fetch from sources'), () => navigate('sources'), 'button button-quiet')])));
-  } else {
-    $('#packs-list').replaceChildren(...cards);
-  }
-}
-function renderOverview() {
-  const target = $('#overview-content');
-  if (!target) return;
-  target.replaceChildren(el('div', { class: 'panel' }, [el('div', { class: 'panel-heading' }, [el('h2', {}, t('instances')), el('span', { class: 'subtle' }, date(state.lastRefresh))]), ...(state.instances.length ? state.instances.map(i => el('div', { class: 'runtime-row' }, [el('div', {}, [el('h3', {}, i.pack?.title ?? idOf(i)), el('p', {}, idOf(i))]), el('div', {}, [pill(...statusLabel(i)), button(t('viewDetails'), () => selectInstance(idOf(i)), 'button button-small button-quiet')])])) : [el('p', {}, t('emptyDescription'))]), el('p', { class: 'observation-note' }, t('statusMeaning'))]));
-}
-function currentTitle(id) {
-  const instance = state.instances.find(i => idOf(i) === id);
-  return instance?.pack?.title ? `${instance.pack.title} · ${id}` : id;
-}
-
-function resolveInstanceHubs() {
-  const map = new Map();
-  for (const instance of state.instances) {
-    const id = idOf(instance);
-    map.set(id, {
-      id,
-      managedBy: 'runtime',
-      state: instance.status?.state ?? 'stopped',
-      url: instance.status?.hub?.url ?? null,
-      managementUrl: instance.links?.managementUrl ?? null,
-      workbenchUrl: instance.links?.workbenchUrl ?? null,
-    });
-  }
-  for (const hub of state.hubs) {
-    if (hub.id === 'default') continue;
-    const existing = map.get(hub.id);
-    map.set(hub.id, { ...existing, ...hub });
-  }
-  return [...map.values()];
-}
-
-function resolveDefaultHub() {
-  const found = state.hubs.find(h => h.id === 'default');
-  return found ?? { id: 'default', managedBy: 'launcher', state: 'stopped', url: null, managementUrl: null, workbenchUrl: null };
-}
-
-function renderCommunicationWorkbench() {
-  const target = $('#workbench-list');
-  if (!target) return;
-  const observed = state.online && !state.hubsUnavailable && freshObservation(state.hubsObservedAt);
-  const instanceHubs = resolveInstanceHubs();
-  const defaultHub = resolveDefaultHub();
-
-  // Section 1: 实例独立通信枢纽 (Instance Communication Hubs)
-  const instanceSectionHeader = el('div', { class: 'hub-section-header' }, [
-    el('div', { class: 'hub-section-title' }, [
-      el('div', { class: 'hub-section-icon', 'aria-hidden': 'true' }, createIcon('packs')),
-      el('div', {}, [
-        el('h2', {}, t('instanceHubsTitle')),
-        el('p', { class: 'field-help' }, t('instanceHubsSubtitle'))
-      ])
-    ]),
-    instanceHubs.length ? pill(t('items', { count: instanceHubs.length })) : null
+  const residentPill = pill(say('常驻受管', 'Managed'), 'neutral');
+  const rowMain = el('div', { class: 'sh-program-row-main' }, [
+    chevron,
+    avatar,
+    titleText,
+    idBadge,
+    versionBadge,
+    groupBadge,
+    residentPill,
+    statePill
   ]);
 
-  let instanceSectionContent;
-  if (!instanceHubs.length) {
-    instanceSectionContent = el('div', { class: 'empty-state-card' }, [
-      el('h3', {}, t('noInstancesFound')),
-      el('p', { class: 'field-help' }, t('noInstancesHubHint')),
-      el('div', { class: 'result-actions' }, [
-        button(t('importPack'), openImport, 'button button-primary')
-      ])
-    ]);
-  } else {
-    instanceSectionContent = instanceHubs.map(hub => {
-      const instance = state.instances.find(i => idOf(i) === hub.id);
-      const isRunning = hub.state === 'running';
-      const busy = Boolean(instance && operationFor(instance));
-      const actions = [];
-      if (isRunning && observed) {
-        if (hub.workbenchUrl) actions.push(localLink(t('openWorkbenchTarget'), hub.workbenchUrl, 'button button-primary', true));
-        if (hub.managementUrl) actions.push(localLink(t('openTopologyTarget'), hub.managementUrl, 'button button-quiet', true));
-        actions.push(button(t('viewInstance'), () => selectInstance(hub.id), 'button button-quiet'));
-      } else {
-        actions.push(button(t('startInstanceToConnect'), () => reviewInstance(hub.id, 'start'), 'button button-primary', busy));
-        actions.push(button(t('viewInstance'), () => selectInstance(hub.id), 'button button-quiet'));
-      }
-
-      return el('article', { class: `link-card${isRunning ? ' is-running' : ''}` }, [
-        el('div', { class: 'link-card-body' }, [
-          el('div', { class: 'link-card-heading' }, [
-            el('div', { class: 'link-card-symbol', 'aria-hidden': 'true' }, createIcon('hubs')),
-            el('div', {}, [
-              el('h3', {}, currentTitle(hub.id)),
-              el('div', { class: 'link-card-id' }, `${hub.id} · WebSocket Bridge`)
-            ]),
-            pill(t(observed ? hub.state ?? 'unknown' : 'unknown'), observed && isRunning ? 'teal' : 'amber')
-          ]),
-          el('p', { class: 'link-card-desc' }, t(isRunning ? 'workbenchInstanceActive' : 'workbenchInstanceInactive')),
-          el('div', { class: 'link-card-tags' }, [
-            el('span', { class: 'link-metadata' }, hub.url ? `${hub.url}` : t('hubWaiting')),
-            el('span', { class: 'observation-note' }, `${t('observedAt')}: ${date(state.hubsObservedAt)}`)
-          ])
-        ]),
-        el('div', { class: 'link-card-actions' }, actions.filter(Boolean))
-      ]);
-    });
-  }
-
-  const instanceSection = el('section', { class: 'hub-section' }, [
-    instanceSectionHeader,
-    ...(Array.isArray(instanceSectionContent) ? instanceSectionContent : [instanceSectionContent])
-  ]);
-
-  // Section 2: 本机独立开发枢纽 (Local Development Hub)
-  const defaultIsRunning = defaultHub.state === 'running';
-  const defaultBusy = state.operations.has('hub:default');
-  const defaultActions = [];
-  if (defaultIsRunning && observed) {
-    if (defaultHub.workbenchUrl) defaultActions.push(localLink(t('openWorkbenchTarget'), defaultHub.workbenchUrl, 'button button-primary', true));
-    if (defaultHub.managementUrl) defaultActions.push(localLink(t('openTopologyTarget'), defaultHub.managementUrl, 'button button-quiet', true));
-    defaultActions.push(button(t('stopHub'), () => hubOperation('stop'), 'button button-quiet', defaultBusy));
-  } else {
-    defaultActions.push(button(t('startHub'), () => hubOperation('start'), 'button button-primary', defaultBusy));
-  }
-
-  const defaultCard = el('article', { class: `link-card${defaultIsRunning ? ' is-running' : ''}` }, [
-    el('div', { class: 'link-card-body' }, [
-      el('div', { class: 'link-card-heading' }, [
-        el('div', { class: 'link-card-symbol', 'aria-hidden': 'true' }, createIcon('creator')),
-        el('div', {}, [
-          el('h3', {}, t('defaultHub')),
-          el('div', { class: 'link-card-id' }, 'launcher.default · Dev Socket')
-        ]),
-        pill(t(observed ? defaultHub.state ?? 'unknown' : 'unknown'), observed && defaultIsRunning ? 'teal' : 'amber')
-      ]),
-      el('p', { class: 'link-card-desc' }, t('defaultHubDescription')),
-      el('div', { class: 'link-card-tags' }, [
-        el('span', { class: 'link-metadata' }, defaultHub.url ? `${defaultHub.url}` : t('hubWaiting')),
-        el('span', { class: 'observation-note' }, `${t('observedAt')}: ${date(state.hubsObservedAt)}`)
-      ])
-    ]),
-    el('div', { class: 'link-card-actions' }, defaultActions.filter(Boolean))
-  ]);
-
-  const defaultSectionHeader = el('div', { class: 'hub-section-header' }, [
-    el('div', { class: 'hub-section-title' }, [
-      el('div', { class: 'hub-section-icon', 'aria-hidden': 'true' }, createIcon('creator')),
-      el('div', {}, [
-        el('h2', {}, t('devHubTitle')),
-        el('p', { class: 'field-help' }, t('devHubSubtitle'))
-      ])
-    ])
-  ]);
-
-  const defaultSection = el('section', { class: 'hub-section' }, [
-    defaultSectionHeader,
-    defaultCard
-  ]);
-
-  target.replaceChildren(instanceSection, defaultSection);
-}
-
-function renderHubs() {
-  renderCommunicationWorkbench();
-}
-
-function runtimeEnvironment(environment) {
-  const nodes = [];
-  for (const kind of ['node', 'python']) {
-    const runtime = environment?.[kind];
-    if (!runtime) continue;
-    const available = runtime.available !== false && Boolean(runtime.version);
-    const isNode = kind === 'node';
-    const pkgEntries = runtime.packages && Object.keys(runtime.packages).length ? Object.entries(runtime.packages) : [];
-    const pkgList = pkgEntries.length
-      ? el('div', { class: 'runtime-pkg-grid' }, pkgEntries.map(([name, ver]) => el('span', { class: 'runtime-pkg-tag' }, `${name} ${display(ver)}`)))
-      : null;
-    nodes.push(el('div', { class: 'runtime-row' }, [
-      el('div', { class: 'runtime-row-main' }, [
-        el('div', { class: 'runtime-row-header' }, [
-          el('span', { class: `runtime-kind-chip ${isNode ? 'badge-node' : 'badge-python'}` }, isNode ? 'Node.js' : 'Python'),
-          el('h3', {}, `${isNode ? 'Node.js' : 'Python'} ${runtime.version ?? ''}`),
-          pill(t(available ? 'available' : 'unavailable'), available ? 'teal' : 'red')
-        ]),
-        el('p', { class: 'runtime-path-text' }, runtime.executable ?? runtime.error ?? '—'),
-        pkgList,
-        runtime.error ? el('p', { class: 'runtime-error-text' }, runtime.error) : null
-      ].filter(Boolean)),
-      pill(t(available ? 'available' : 'unavailable'), available ? 'teal' : 'red')
-    ]));
-  }
-  return nodes;
-}
-function updateEnvHero() {
-  const activeProfile = state.isolationSelection?.profile ?? 'trusted-local';
-  const profilePill = $('#env-active-profile-pill');
-  if (profilePill) {
-    const profileNames = {
-      'trusted-local': t('trustedLocalProfile'),
-      'docker-runtime/v1': t('dockerRuntimeProfile'),
-      'docker-node-headless/v1': t('dockerHeadlessProfile'),
-      'linux-existing-user/v1': t('linuxUserProfile')
-    };
-    profilePill.textContent = profileNames[activeProfile] ?? activeProfile;
-  }
-}
-function setEnvironmentTab(tab = state.envTab ?? 'interpreters') {
-  state.envTab = tab;
-  for (const item of document.querySelectorAll('[data-env-tab]')) {
-    const active = item.dataset.envTab === tab;
-    item.classList.toggle('is-active', active);
-    item.setAttribute('aria-selected', String(active));
-    item.setAttribute('tabindex', active ? '0' : '-1');
-  }
-  for (const name of ['interpreters', 'isolation', 'dependencies']) {
-    const panel = $(`#env-panel-${name}`);
-    if (panel) { panel.hidden = tab !== name; panel.classList.toggle('is-hidden', tab !== name); }
-  }
-}
-function renderEnvironment() {
-  const target = $('#environment-results');
-  target.replaceChildren(...(state.environment ? runtimeEnvironment(state.environment.environment) : [el('p', { class: 'field-help' }, t('detectFirst'))]));
-  if (state.environment?.guidance?.length) target.append(guidance(state.environment.guidance));
-  $('#diagnostic-info').replaceChildren(...definition([[t('instancesRoot'), state.session?.root], [t('launcherVersion'), state.session?.softwareVersion ?? state.session?.version], [t('platform'), state.environment?.environment?.platform ?? (state.session?.platform ?? '—')], [t('architecture'), state.environment?.environment?.arch ?? (state.session?.arch ?? '—')]]).children);
-  updateEnvHero();
-  setEnvironmentTab(state.envTab ?? 'interpreters');
-}
-
-function permissions(declared) {
-  if (!declared || !Object.keys(declared).length) return [pill(t('noPermissions'))];
-  const labels = { filesystem: 'fileAccess', network: 'networkAccess', processes: 'subprocesses' };
-  return Object.entries(declared).map(([key, value]) => {
-    const isFilesystem = key === 'filesystem';
-    const isNetwork = key === 'network';
-    const iconName = isFilesystem ? 'folder' : isNetwork ? 'link' : 'task';
-    const valStr = Array.isArray(value) ? value.join(', ') : display(value);
-    return el('div', { class: 'perm-chip-card' }, [
-      el('div', { class: 'perm-chip-header' }, [
-        el('span', { class: 'perm-chip-icon', 'aria-hidden': 'true' }, createIcon(iconName)),
-        el('span', { class: 'perm-chip-label' }, t(labels[key] ?? key))
-      ]),
-      el('span', { class: 'perm-chip-value mono' }, valStr)
-    ]);
-  });
-}
-function moduleView(module, review, full = true) {
-  const manifest = module.manifest ?? module, source = module.source ?? '—';
-  const sourceLocation = `${review.directory ?? ''}${review.directory ? ' / ' : ''}${source}`;
-  if (!full) {
-    return el('div', { class: 'review-module' }, [
-      el('h4', {}, `${manifest.id ?? '—'} · ${manifest.version ?? '—'}`),
-      el('p', {}, `${t('source')}: ${sourceLocation}`),
-      el('div', { class: 'module-permissions' }, permissions(manifest.permissions)),
-      el('p', { class: 'field-help' }, `${t('sourceFiles', { count: Object.keys(module.files ?? {}).length })} · ${t('declaredNotEnforced')}`)
-    ]);
-  }
-
-  const runtimeKind = manifest.runtime?.kind ?? 'node';
-  const isPython = runtimeKind === 'python';
-  const fileCount = Object.keys(module.files ?? {}).length;
-
-  const header = el('div', { class: 'module-card-header' }, [
-    el('div', { class: 'module-card-title-group' }, [
-      el('span', { class: `runtime-kind-chip ${isPython ? 'badge-python' : 'badge-node'}` }, isPython ? 'Python' : 'Node.js'),
-      el('h3', {}, `${manifest.id ?? '—'} · v${manifest.version ?? '—'}`)
-    ]),
-    pill(`${runtimeKind} · ${manifest.runtime?.entry ?? '—'}`)
-  ]);
-
-  const sourceMeta = el('div', { class: 'module-card-meta' }, [
-    el('div', { class: 'meta-item' }, [
-      el('span', { class: 'subtle' }, `${t('source')}: `),
-      el('span', { class: 'mono subtle' }, sourceLocation)
-    ]),
-    el('div', { class: 'meta-item' }, [
-      el('span', { class: 'pill pill-subtle' }, `${t('sourceFiles', { count: fileCount })}`)
-    ])
-  ]);
-
-  const permsGrid = el('div', { class: 'module-permissions-grid' }, permissions(manifest.permissions));
-
-  const manifestDetails = el('details', { class: 'json-details module-manifest-details' }, [
-    el('summary', {}, t('fullManifest')),
-    el('pre', {}, JSON.stringify(manifest, null, 2))
-  ]);
-
-  return el('article', { class: 'panel module-card' }, [
-    header,
-    sourceMeta,
-    permsGrid,
-    manifestDetails,
-    el('p', { class: 'field-help module-card-footer-note' }, t('declaredNotEnforced'))
-  ]);
-}
-function reviewView(data, mode = 'execution') {
-  const review = data.review;
-  const nodes = [el('div', { class: 'review-summary' }, [el('div', {}, [el('h3', {}, review.pack?.title ?? review.pack?.id ?? '—'), el('p', {}, `${review.pack?.id ?? '—'} · v${review.pack?.version ?? '—'}`)]), pill(data.isolation ? data.isolation.profile : t('noSandbox'), 'amber')]), el('div', { class: `notice ${mode === 'execution' ? 'notice-warning' : ''}` }, mode === 'execution' && data.isolation ? (state.language === 'zh' ? '请核对执行模式与固定限制。Docker 模式隔离文件、网络与进程，并可开放审阅过的界面通道；已有 Linux 用户模式只分离账号，保留该账号的普通权限。协议内的信息与代码仍需信任。' : 'Inspect the execution profile and fixed restrictions. Docker isolates files, network, and processes with an optional reviewed UI tunnel. Existing Linux user mode separates accounts and retains their ordinary permissions. Protocol data and code still require trust.') : t(mode === 'execution' ? 'codeExecutionNotice' : 'importNoExecution')), el('div', { class: 'review-section' }, [el('h3', {}, t('source')), el('p', { class: 'review-digest' }, review.directory ?? '—')]), el('div', { class: 'review-section' }, [el('h3', {}, t('modulesPermissions')), el('div', { class: 'review-modules' }, (review.modules ?? []).map(module => moduleView(module, review, false)))]), el('div', { class: 'review-section' }, [el('h3', {}, t('executionOrder')), el('div', { class: 'review-order' }, (review.order ?? []).flatMap((id, i) => [i ? '→' : null, el('span', {}, id)]))]), el('div', { class: 'review-section' }, [el('h3', {}, t('environmentReview')), ...runtimeEnvironment(review.environment)])];
-  nodes.push(el('div', { class: 'review-section', 'data-review-hub-compatibility': '' }, [
-    el('h3', {}, say('Hub 与运行接口', 'Hub and Runtime API')),
-    definition([
-      [say('当前 Hub 发行版本', 'Installed Hub release'), review.hubVersion ?? review.hubCompatibility?.installedHubVersion ?? '—'],
-      [say('生成锁时的发行版本（记录）', 'Lock generation release (metadata)'), review.lock?.hubVersion ?? '—'],
-      [say('锁格式', 'Lock format'), review.lock?.format ?? '—'],
-      [say('要求的线协议 / 当前线协议', 'Required / current wire protocol'), `${review.lock?.hubCompatibility?.wireVersion ?? '—'} / ${review.hubCompatibility?.actual?.wireVersion ?? '—'}`],
-      [say('要求的 Runtime 接口 / 当前接口', 'Required / current Runtime API'), `${review.lock?.hubCompatibility?.runtimeApi ?? '—'} / ${review.hubCompatibility?.actual?.runtimeApi ?? '—'}`],
-    ]),
-    el('p', { class: 'field-help' }, say('兼容性由通讯和运行接口契约判断。生成锁时的发行版本仅作记录；执行授权仍绑定当前安装环境的审阅。', 'Compatibility is checked against communication and Runtime API contracts. The lock generation release is metadata; execution approval remains bound to a review of the current installed environment.')),
-  ]));
-  if (data.isolation) nodes.push(el('details', { class: 'json-details', open: true }, [el('summary', {}, data.isolation.profile), el('pre', {}, JSON.stringify(data.isolation, null, 2))]));
-  for(const module of review.modules??[]) if(module.deployment?.dependencies) nodes.push(el('div',{class:'notice'},[el('h3',{},say('依赖准备','Dependency preparation')),el('p',{},say('启动时将在此实例的私有目录安装锁定的官方 npm 依赖；Electron 配方下载官方桌面运行时，不执行模块自定义安装命令。','Starting prepares locked official npm dependencies in this instance’s private directory. The Electron recipe downloads its official desktop runtime; module installation commands are not run.')),el('pre',{},JSON.stringify(module.deployment.dependencies,null,2))]));
-  if (data.sourceReceipt?.publisherEvidence) nodes.push(advanced.publisherReport(data.sourceReceipt.publisherEvidence));
-  if (data.sourceReceipt) nodes.push(el('details', { class: 'json-details', open: true }, [el('summary', {}, t('sourceReceipt')), el('p', {}, t('integrityNotIdentity')), el('pre', {}, JSON.stringify(data.sourceReceipt, null, 2))]));
-  if (data.permissionDiff?.length) nodes.push(el('div', { class: 'notice notice-warning' }, [el('h3', {}, t('permissionChanges')), el('p', {}, t('changesRequireReview')), ...data.permissionDiff.map(change => el('div', { class: 'review-module' }, [el('h4', {}, change.module ?? '—'), ...Object.keys({ ...change.before, ...change.after }).filter(key => JSON.stringify(change.before?.[key]) !== JSON.stringify(change.after?.[key])).map(key => el('p', {}, `${key}: ${display(change.before?.[key])} → ${display(change.after?.[key])}`))]))]));
-  nodes.push(el('p', { class: 'field-help' }, `${t('reviewValidUntil')}: ${date(data.expiresAt)}`), el('details', { class: 'json-details' }, [el('summary', {}, t('reviewFingerprint')), el('p', { class: 'review-digest' }, review.digest)]));
-  return nodes;
-}
-
-function renderDetailHeading(instance) {
-  const id = idOf(instance), status = instance.status ?? {}, busy = Boolean(operationFor(instance));
-  const isRunning = running(instance);
-  const [label, tone] = statusLabel(instance);
-  const statusPill = pill(label, tone);
-  if (isRunning && !isStale(status)) statusPill.prepend(el('span', { class: 'status-dot' }));
-
-  const heading = el('div', { class: 'detail-hero' }, [
-    el('div', { class: 'detail-hero-left' }, [
-      el('div', { class: `detail-hero-symbol${isRunning ? ' is-running' : ''}`, 'aria-hidden': 'true' }, createIcon('packs', 'icon-xl')),
-      el('div', { class: 'detail-hero-body' }, [
-        el('div', { class: 'detail-hero-title-row' }, [
-          el('h1', {}, instance.pack?.title ?? instance.pack?.id ?? id),
-          statusPill
-        ]),
-        el('div', { class: 'detail-hero-meta' }, [
-          el('span', { class: 'hero-meta-id mono' }, id),
-          el('span', { class: 'hero-meta-pill' }, `v${instance.pack?.version ?? '—'}`),
-          el('span', { class: 'hero-meta-tag' }, declaredModuleCount(instance) === null
-            ? `${t('moduleCount')}: ${t('unknown')}` : `${declaredModuleCount(instance)} ${say('个模块', 'modules')}`),
-          status.executionProfile
-            ? el('span', { class: 'hero-meta-profile' }, status.executionProfile)
-            : null
-        ].filter(Boolean))
-      ])
-    ]),
-    el('div', { class: 'detail-hero-right' }, [
-      el('div', { class: 'hero-obs-tag subtle mono' }, `${say('观测于', 'Observed')}: ${date(state.lastRefresh)}`)
-    ])
-  ]);
-  $('#detail-heading').replaceChildren(heading);
-
-  const primaryActions = [];
-  if (running(instance) || exitUnconfirmed(instance) || preparing(instance)) {
-    const stopBtn = button(t('stop'), () => stopInstance(id), 'button button-danger', stopBlocked(instance) || status.state === 'stopping');
-    stopBtn.prepend(createIcon('stop', 'button-icon'));
-    primaryActions.push(stopBtn);
-    if (status.state === 'running' && !isStale(status)) {
-      const restartBtn = button(t('restart'), () => reviewInstance(id, 'restart'), 'button', busy);
-      restartBtn.prepend(createIcon('restart', 'button-icon'));
-      primaryActions.push(restartBtn);
-    }
-  } else if (!instance.detached && status.state !== 'detached' && !instance.deletionPending) {
-    const startBtn = button(t('start'), () => reviewInstance(id, 'start'), 'button button-primary', busy || isStale(status));
-    startBtn.prepend(createIcon('play', 'button-icon'));
-    primaryActions.push(startBtn);
-  }
-
-  if (status.state === 'running' && !isStale(status)) {
-    const entry = localLink(t('openApp'), instance.links?.entryUrl, 'button button-primary', true);
-    if (entry) {
-      entry.prepend(createIcon('arrowRight', 'button-icon'));
-      primaryActions.push(entry);
-    }
-    const workbench = localLink(t('openWorkbenchTarget'), instance.links?.workbenchUrl, 'button button-quiet', true);
-    if (workbench) {
-      workbench.prepend(createIcon('workbench', 'button-icon'));
-      primaryActions.push(workbench);
-    }
-  }
-
-  const topology = !isStale(status) && localLink(t('topology'), instance.links?.managementUrl);
-  if (topology) {
-    topology.prepend(createIcon('hubs', 'button-icon'));
-    primaryActions.push(topology);
-  }
-
-  const toolActions = [];
-  const reviewBtn = button(t('review'), () => reviewInstance(id, 'review'), 'button button-quiet', busy || instance.deletionPending);
-  reviewBtn.prepend(createIcon('inspect', 'button-icon'));
-  toolActions.push(reviewBtn);
-
-  const exportBtn = button(t('exportPackage'), () => { $('#export-error').hidden = true; $('#export-dialog').showModal(); }, 'button button-quiet', busy || instance.detached || status.state === 'detached' || instance.deletionPending);
-  exportBtn.prepend(createIcon('file', 'button-icon'));
-  toolActions.push(exportBtn);
-
-  const createBtn = button(t('createFromPack'), () => advanced.openCreator(instance.packageDirectory), 'button button-quiet', busy || instance.deletionPending);
-  createBtn.prepend(createIcon('creator', 'button-icon'));
-  toolActions.push(createBtn);
-
-  const deleteBtn = button(t('delete'), () => confirmDeleteInstance(instance), 'button button-danger-quiet', deletionBlocked(instance));
-  deleteBtn.prepend(createIcon('trash', 'button-icon'));
-  toolActions.push(deleteBtn);
-
-  $('#detail-actions').replaceChildren(
-    el('div', { class: 'detail-actions-group detail-actions-primary' }, primaryActions),
-    el('div', { class: 'detail-actions-group detail-actions-secondary' }, toolActions)
+  const detailToggleBtn = button(
+    isExpanded ? say('收起 ▴', 'Collapse ▴') : say('详情 ▾', 'Details ▾'),
+    () => toggle(),
+    'button button-quiet sh-program-detail-toggle'
   );
 
-  const notices = [];
-  if (instance.deletionPending) notices.push(el('div', { class: 'notice notice-error' }, say(`删除尚未完成。剩余文件及删除记录保留在 ${instance.retainedDirectory}。核对后可再次明确确认删除。`, `Deletion is incomplete. Remaining files and the deletion journal are retained at ${instance.retainedDirectory}. Inspect them before explicitly retrying deletion.`)));
-  if (isStale(status)) notices.push(el('div', { class: 'notice notice-warning' }, `${t('observationUnknown')} ${t('observedAt')}: ${date(state.lastRefresh)}. ${t('staleMeaning')}`));
-  if ((status.cleanupIncomplete || status.state === 'failed') && exitUnconfirmed(instance)) notices.push(el('div', { class: 'notice notice-error' }, t('cleanupMeaning')));
-  if (status.failure) notices.push(el('div', { class: 'notice notice-error' }, `${t('startupFailure')}: ${status.failure.message ?? display(status.failure)}`));
-  if (operationFor(instance)) notices.push(el('div', { class: 'notice' }, `${t('processing')} ${t(operationFor(instance).kind)}`));
-  $('#detail-notice').replaceChildren(...notices);
-}
+  const rowActions = actions([
+    isRunning
+      ? button(say('停止…', 'Stop…'), () => stopProgram(row), 'button button-quiet', !isLive())
+      : button(say('启动', 'Start'), () => startProgram(row), 'button button-primary', !isLive() || ['starting', 'stopping', 'unknown'].includes(row.state)),
+    button(say('参数与接线', 'Configure & wire'), () => openWorkbench('configuration', row.programId), 'button button-quiet'),
+    detailToggleBtn
+  ]);
+  rowActions.className = 'sh-program-row-actions result-actions';
 
-function renderStatus(instance) {
-  const status = instance.status ?? {}, components = status.components ?? [];
-  const isRunning = status.state === 'running';
-  const observed = !isStale(status) && freshObservation(state.lastRefresh);
-  const hubUrl = status.hub?.url ?? instance.links?.hubUrl ?? null;
-  const runningComps = components.filter(c => c.process === 'running').length;
-  const readyComps = components.filter(c => c.readiness === 'ready').length;
-  const commComps = components.filter(c => c.communication === 'connected').length;
+  const rowEl = el('div', {
+    class: 'sh-program-row',
+    role: 'button',
+    tabindex: '0',
+    'aria-expanded': String(isExpanded)
+  }, [rowMain, rowActions]);
 
-  const metricCards = el('div', { class: 'detail-metric-strip' }, [
-    el('div', { class: 'detail-metric-card' }, [
-      el('div', { class: 'metric-header' }, [
-        el('span', { class: 'metric-label' }, say('运行状态', 'Runtime State')),
-        el('span', { class: 'metric-icon', 'aria-hidden': 'true' }, createIcon(isRunning ? 'play' : 'stop'))
-      ]),
-      el('div', { class: 'metric-value-row' }, [
-        pill(...statusLabel(instance))
-      ]),
-      el('p', { class: 'metric-sub mono' }, status.runId ? `Run: ${status.runId.slice(0, 18)}` : say('未在运行', 'Not running'))
+  const detailEl = el('div', { class: 'sh-program-card-detail' }, [
+    el('div', { class: 'sh-card-meta' }, [
+      el('span', { class: 'sh-meta-tag mono' }, `${row.module.id}@${row.module.version}`),
+      el('span', { class: 'sh-meta-tag' }, say('可信本机执行', 'Trusted Local')),
+      row.sourceDirectory ? el('span', { class: 'sh-meta-tag mono' }, `${say('源码', 'Source')}: ${row.sourceDirectory}`) : null,
+      groups.length
+        ? el('span', { class: 'sh-meta-tag sh-tag-accent' }, `${say('引用组', 'Group')}: ${groups.map(title).join(', ')}`)
+        : el('span', { class: 'sh-meta-tag subtle' }, say('未分组', 'Ungrouped'))
+    ].filter(Boolean)),
+    chips.length ? el('div', { class: 'sh-spec-chips' }, chips) : null,
+    row.error ? el('p', { class: 'notice notice-error' }, row.error.message) : null,
+    actions([
+      safeLink(say('打开界面 ↗', 'Open interface'), row.entryUrl),
+      button(say('新建实例', 'New instance'), () => registerModule(row.sourceDirectory), 'button button-quiet'),
+      button(say('日志', 'Logs'), () => logs(row), 'button button-quiet'),
+      button(say('移除登记', 'Unregister'), () => confirm({
+        title: say('移除模块登记', 'Unregister module'),
+        message: say('仅已停止且未被组引用的实例可移除。私有状态目录保留，消费者绑定需先调整。', 'Only stopped instances without group references can be removed. Private state is retained; adjust consumer bindings first.'),
+        action: async () => { await api(`/api/programs/${encodeURIComponent(row.programId)}/remove`, {}); await refresh(); },
+        danger: true
+      }), 'button button-quiet', !isLive() || row.state === 'running')
     ]),
-    el('div', { class: 'detail-metric-card' }, [
-      el('div', { class: 'metric-header' }, [
-        el('span', { class: 'metric-label' }, say('活跃进程 / 模块', 'Active Modules')),
-        el('span', { class: 'metric-icon', 'aria-hidden': 'true' }, createIcon('task'))
-      ]),
-      el('div', { class: 'metric-value-row' }, [
-        el('strong', { class: 'metric-value' }, `${observed ? runningComps : t('unknown')} / ${declaredModuleCount(instance) ?? t('unknown')}`),
-        observed ? pill(runningComps === components.length && components.length > 0 ? say('全部在线', 'All Online') : runningComps > 0 ? say('部分在线', 'Partial') : say('已停止', 'Stopped'), runningComps === components.length && components.length > 0 ? 'teal' : runningComps > 0 ? 'amber' : '') : pill(t('observationUnknown'), 'amber')
-      ]),
-      el('p', { class: 'metric-sub' }, `${components.filter(c => c.pid).length} ${say('个已记录的进程 PID', 'recorded process PIDs')}`)
-    ]),
-    el('div', { class: 'detail-metric-card' }, [
-      el('div', { class: 'metric-header' }, [
-        el('span', { class: 'metric-label' }, say('通信总线与就绪', 'Bus & Ready State')),
-        el('span', { class: 'metric-icon', 'aria-hidden': 'true' }, createIcon('hubs'))
-      ]),
-      el('div', { class: 'metric-value-row' }, [
-        el('strong', { class: 'metric-value' }, `${observed ? commComps : t('unknown')} / ${components.length}`),
-        observed ? pill(commComps > 0 ? say('总线连通', 'Bus Online') : say('未连接', 'Offline'), commComps > 0 ? 'teal' : '') : pill(t('observationUnknown'), 'amber')
-      ]),
-      el('p', { class: 'metric-sub' }, `${readyComps} ${say('个模块自报就绪', 'modules ready')}`)
-    ]),
-    el('div', { class: 'detail-metric-card' }, [
-      el('div', { class: 'metric-header' }, [
-        el('span', { class: 'metric-label' }, say('隔离执行等级', 'Isolation Profile')),
-        el('span', { class: 'metric-icon', 'aria-hidden': 'true' }, createIcon('shield'))
-      ]),
-      el('div', { class: 'metric-value-row' }, [
-        pill(status.executionProfile ?? (status.runId ? t('unknown') : say('尚未运行', 'Not run')), status.executionProfile ? 'teal' : '')
-      ]),
-      el('p', { class: 'metric-sub' }, (status.executionProfile ?? '').startsWith('docker-') ? say('Docker 容器隔离', 'Docker isolation')
-        : status.executionProfile === 'trusted-local' ? say('可信本机 · 无 OS 沙箱', 'Trusted local · No OS sandbox')
-        : status.executionProfile === 'linux-existing-user/v1' ? say('已有用户身份分离 · 无 OS 沙箱', 'Existing-user identity separation · No OS sandbox')
-        : say('暂无本次运行的保护记录。', 'No protection record for this run.'))
-    ])
+    details(say('通信声明与来源详情', 'Communication declaration and source'), {
+      source: row.sourceDirectory,
+      principal: row.principal,
+      revision: row.configurationRevision,
+      topics: row.topics,
+      bridges: row.bridges,
+      bindings: row.bindings,
+      groups: groups.map(group => group.id)
+    })
   ]);
 
-  const observationNotice = el('div', { class: `notice ${isStale(status) ? 'notice-warning' : 'notice-info'} observation-banner` }, [
-    el('div', { class: 'observation-banner-main' }, [
-      el('span', { class: 'observation-banner-title' }, isStale(status) ? t('observationUnknown') : t('currentObservation')),
-      el('span', { class: 'subtle mono' }, `${t('runId')}: ${status.runId ?? '—'} · ${t('observedAt')}: ${date(state.lastRefresh)}`)
-    ]),
-    isStale(status) ? button(t('refresh'), () => refresh({ explicit: true }), 'button button-small button-primary') : null
+  const card = el('article', {
+    class: `panel sh-program-card ${isExpanded ? 'is-expanded' : 'is-compact'}`,
+    'data-program-id': row.programId
+  }, [
+    rowEl,
+    detailEl
   ]);
 
-  const headers = ['modules', 'process', 'communication', 'readiness', 'health', 'businessResult'];
-  const table = el('table', { class: 'component-matrix-table' }, [
-    el('thead', {}, el('tr', {}, [
-      el('th', { scope: 'col' }, t('modules')),
-      el('th', { scope: 'col' }, t('process')),
-      el('th', { scope: 'col' }, t('communication')),
-      el('th', { scope: 'col' }, t('readiness')),
-      el('th', { scope: 'col' }, t('health')),
-      el('th', { scope: 'col', class: 'th-actions' }, say('日志直达', 'Logs'))
-    ])),
-    el('tbody', {}, components.map(c => el('tr', { class: 'component-row' }, [
-      el('td', { class: 'td-component-info' }, [
-        el('div', { class: 'component-name-wrap' }, [
-          el('span', { class: 'component-id-badge mono' }, c.id),
-          componentRuntimeKind(instance, c) === 'python' ? el('span', { class: 'runtime-kind-chip badge-python' }, 'Python')
-            : componentRuntimeKind(instance, c) === 'node' ? el('span', { class: 'runtime-kind-chip badge-node' }, 'JS')
-            : el('span', { class: 'runtime-kind-chip' }, t('unknown'))
-        ]),
-        el('div', { class: 'component-module-name subtle' }, c.module)
-      ]),
-      el('td', {}, [
-        processBadge(isStale(status) ? null : c.process),
-        c.pid ? el('div', { class: 'component-pid-pill mono subtle' }, `PID ${c.pid}`) : null
-      ]),
-      el('td', {}, commBadge(isStale(status) ? null : c.communication)),
-      el('td', {}, readinessBadge(isStale(status) || c.process !== 'running' ? null : c.readiness)),
-      el('td', {}, isStale(status) || c.process !== 'running' ? pill(t('healthUnknown')) : healthBadge(c.health)),
-      el('td', { class: 'td-actions' }, [
-        button(say('日志', 'Logs'), () => {
-          state.logSelection = c.id;
-          changeTab('logs');
-        }, 'button button-small button-quiet')
-      ])
-    ])))
-  ]);
-
-  const componentsPanel = el('div', { class: 'panel component-matrix-panel' }, [
-    el('div', { class: 'panel-heading' }, [
-      el('div', { class: 'panel-heading-title' }, [
-        el('div', { class: 'panel-icon', 'aria-hidden': 'true' }, createIcon('task')),
-        el('div', {}, [
-          el('h2', {}, say('模块进程与健康诊断', 'Module Processes & Health')),
-          el('p', { class: 'panel-subhead' }, say('各模块进程运行状态、总线通信与健康探针反馈。', 'Per-module runtime state, bus connectivity and health probes.'))
-        ])
-      ]),
-      components.length ? pill(`${components.length} ${say('个模块', 'modules')}`) : null
-    ]),
-    components.length ? el('div', { class: 'status-table-wrap' }, table) : el('div', { class: 'empty-state-card' }, [
-      el('p', {}, isStale(status) ? t('unknown') : t('notStarted'))
-    ]),
-    el('p', { class: 'observation-note' }, t('statusMeaning'))
-  ]);
-
-  const topologyPanel = el('div', { class: 'panel topology-panel' }, [
-    el('div', { class: 'panel-heading' }, [
-      el('div', { class: 'panel-heading-title' }, [
-        el('div', { class: 'panel-icon', 'aria-hidden': 'true' }, createIcon('hubs')),
-        el('div', {}, [
-          el('h2', {}, t('bridgeOwnership')),
-          el('p', { class: 'panel-subhead' }, say('网桥身份归属与通信路由映射关系。', 'Bridge identity ownership and routing mapping.'))
-        ])
-      ]),
-      button(t('refreshTopology'), () => loadTopology(idOf(instance), true), 'button button-small button-quiet')
-    ]),
-    el('div', { id: 'bridge-mapping' }, topologyView(instance)),
-    el('p', { class: 'observation-note' }, t('mappingNotice'))
-  ]);
-
-  return [metricCards, observationNotice, componentsPanel, topologyPanel];
-}
-
-
-
-function topologyView(instance) {
-  const topology = state.topology?.instanceId === idOf(instance) ? state.topology : null;
-  if (!topology || topology.runId !== instance.status?.runId) return [el('p', { class: 'field-help' }, t('topologyUnavailable'))];
-  const observed = !isStale(instance.status) && !state.topologyUnavailable && topology.observation === 'live' && freshObservation(topology.observedAt);
-  const note = el('div', { class: 'observation-banner subtle-banner' }, [
-    el('span', {}, `${observed ? t('currentObservation') : t('observationUnknown')}`),
-    el('span', { class: 'mono' }, `${t('observedAt')}: ${date(topology.observedAt)}`)
-  ]);
-  if (!topology.bridges?.length) return [note, el('p', { class: 'field-help' }, t(observed ? 'noBridges' : 'topologyUnavailable'))];
-  return [
-    note,
-    el('div', { class: 'bridge-cards-list' }, topology.bridges.map(bridge => {
-      const isManaged = bridge.ownership === 'managed';
-      const actions = [];
-      if (isManaged) {
-        actions.push(button(t('logs'), () => { state.logSelection = bridge.componentId; changeTab('logs'); }, 'button button-small button-quiet'));
-      }
-      if (observed && bridge.managementUrl) {
-        actions.push(localLink(t('topology'), bridge.managementUrl, 'button button-small button-quiet', true));
-      }
-      return el('div', { class: `runtime-row bridge-row-card${isManaged ? ' is-managed' : ''}` }, [
-        el('div', { class: 'bridge-info-main' }, [
-          el('div', { class: 'bridge-title-row' }, [
-            el('h3', { class: 'mono' }, bridge.bridgeId ?? bridge.declaredId ?? '—'),
-            pill(t(!observed ? 'mappingUnknown' : isManaged ? 'managedBridge' : 'externalUnknown'), observed && isManaged ? 'teal' : 'amber')
-          ]),
-          el('div', { class: 'bridge-meta-row subtle' }, [
-            el('span', {}, `${t('principal')}: ${bridge.principal ?? '—'}`),
-            el('span', {}, `${t('bridgeSession')}: ${bridge.session ?? '—'}`)
-          ]),
-          isManaged ? el('div', { class: 'bridge-comp-row mono small' }, [
-            el('span', { class: 'pill pill-subtle' }, bridge.componentId ?? '—'),
-            el('span', { class: 'subtle' }, bridge.moduleId ?? '—'),
-            bridge.pid ? el('span', { class: 'subtle' }, `PID ${bridge.pid}`) : null
-          ].filter(Boolean)) : null
-        ]),
-        el('div', { class: 'bridge-actions-col' }, actions)
-      ]);
-    }))
-  ];
-}
-
-function renderModules(instance) {
-  const review = state.reviews.get(idOf(instance))?.review;
-  if (!review) return [empty(t('noModuleReview'), t('probeNotice'), button(t('review'), () => reviewInstance(idOf(instance), 'review'), 'button button-primary'))];
-
-  const hero = el('div', { class: 'module-security-hero' }, [
-    el('div', { class: 'module-security-icon', 'aria-hidden': 'true' }, createIcon('shield')),
-    el('div', { class: 'module-security-content' }, [
-      el('div', { class: 'eyebrow' }, say('安全基线与隔离边界', 'SECURITY BASELINE & BOUNDARY')),
-      el('h2', {}, say('模块声明与权限审阅', 'Module Declarations & Permission Review')),
-      el('p', {}, t('sandboxNotice')),
-      el('div', { class: 'module-security-badges' }, [
-        pill(instance.status?.executionProfile ?? (instance.status?.runId ? t('unknown') : say('尚未运行', 'Not run')))
-      ])
-    ])
-  ]);
-
-  let orderRow = null;
-  if (review.order?.length) {
-    orderRow = el('div', { class: 'panel module-order-panel' }, [
-      el('h3', {}, t('executionOrder')),
-      el('div', { class: 'review-order' }, review.order.flatMap((id, i) => [
-        i ? el('span', { class: 'order-arrow', 'aria-hidden': 'true' }, '→') : null,
-        el('span', { class: 'order-step-chip mono' }, id)
-      ]).filter(Boolean))
-    ]);
+  function toggle() {
+    if (expandedPrograms.has(row.programId)) {
+      expandedPrograms.delete(row.programId);
+    } else {
+      expandedPrograms.add(row.programId);
+    }
+    const next = expandedPrograms.has(row.programId);
+    card.className = `panel sh-program-card ${next ? 'is-expanded' : 'is-compact'}`;
+    rowEl.setAttribute('aria-expanded', String(next));
+    chevron.textContent = next ? '▾' : '▸';
+    detailToggleBtn.textContent = next ? say('收起 ▴', 'Collapse ▴') : say('详情 ▾', 'Details ▾');
   }
 
-  const moduleCards = (review.modules ?? []).map(module => moduleView(module, review, true));
-  return [hero, orderRow, ...moduleCards, el('p', { class: 'observation-note' }, t('sourceSafeText'))].filter(Boolean);
+  rowEl.addEventListener('click', (e) => {
+    if (e.target?.closest?.('button, a, input, select, textarea')) return;
+    toggle();
+  });
+  rowEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      if (e.target?.closest?.('button, a, input, select, textarea')) return;
+      e.preventDefault();
+      toggle();
+    }
+  });
+
+  return card;
+}
+const collapsedFolders = new Set();
+let moduleViewMode = 'folders';
+
+function isFolderExpanded(id) {
+  return !collapsedFolders.has(id);
 }
 
-function renderLogs(instance) {
-  const matching = state.logs?.instanceId === idOf(instance) && state.logs?.runId === instance.status?.runId;
-  const logs = matching ? state.logs.logs ?? {} : {};
-  const selection = state.logSelection;
-  const select = el('select', { id: 'log-component', 'aria-label': t('modules'), class: 'log-select' }, [
-    el('option', { value: 'all' }, t('allComponents')),
-    ...Object.keys(logs).map(id => el('option', { value: id }, id))
-  ]);
-  select.value = Object.hasOwn(logs, selection) || selection === 'all' ? selection : 'all';
-  select.addEventListener('change', () => { state.logSelection = select.value; renderDetail(true); });
+function toggleFolder(id) {
+  if (collapsedFolders.has(id)) collapsedFolders.delete(id);
+  else collapsedFolders.add(id);
+  renderView();
+}
 
-  let fullLogText = '';
-  const panels = [];
-  for (const [id, values] of Object.entries(logs)) {
-    if (select.value !== 'all' && select.value !== id) continue;
-    for (const stream of ['stdout', 'stderr']) {
-      if (values[stream]) {
-        fullLogText += `[${id} / ${stream}]\n${values[stream]}\n\n`;
-        const isStderr = stream === 'stderr';
-        panels.push(el('div', { class: `terminal-stream-block${isStderr ? ' is-stderr' : ''}` }, [
-          el('div', { class: 'terminal-stream-header' }, [
-            el('span', { class: `terminal-stream-badge ${isStderr ? 'badge-stderr' : 'badge-stdout'}` }, stream.toUpperCase()),
-            el('span', { class: 'terminal-stream-comp mono' }, id),
-            values.truncated ? pill(t('truncated'), 'amber') : null
-          ].filter(Boolean)),
-          el('pre', { class: 'terminal-stream-pre' }, values[stream])
-        ]));
-      }
+function groupFolder(group, memberRows) {
+  const isExpanded = isFolderExpanded(group.id);
+  const selectedCount = group.startupPlan?.members?.filter(row => row.enabled)?.length ?? 0;
+
+  const chevron = el('span', { class: 'sh-folder-chevron' }, isExpanded ? '▾' : '▸');
+  const icon = el('span', { class: 'sh-folder-icon' }, '📁');
+  const titleNode = el('h2', { class: 'sh-folder-title' }, title(group));
+  const idNode = el('p', { class: 'mono sh-folder-id' }, group.id);
+  const countTag = el('span', { class: 'sh-spec-chip' }, `${memberRows.length} ${say('个模块', 'modules')}`);
+  const planTag = el('span', { class: 'sh-spec-chip' }, `${say('计划选中', 'Selected for startup')}: ${selectedCount}/${group.memberProgramIds.length}`);
+
+  const headerLeft = el('div', { class: 'sh-folder-info', role: 'button', 'aria-expanded': String(isExpanded), tabindex: '0' }, [
+    chevron, icon, titleNode, idNode, countTag, planTag
+  ]);
+  headerLeft.addEventListener('click', () => toggleFolder(group.id));
+  headerLeft.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFolder(group.id); } });
+
+  const headerActions = actions([
+    button(say('启动组', 'Review & start'), () => startPlan(group), 'button button-primary', !isLive()),
+    button(say('停止组…', 'Stop group…'), () => stopGroup(group), 'button button-quiet', !isLive()),
+    button(say('编辑成员', 'Edit members'), () => editGroup(group), 'button button-quiet'),
+    button(say('启动计划', 'Startup plan'), () => openWorkbench('group', group.id), 'button button-quiet'),
+    button(say('删除组', 'Delete group'), () => confirm({
+      title: say('删除组引用', 'Delete group references'),
+      message: say('只删除分组，不停止、不移除任何实例。', 'Delete only the group. All instances remain registered and keep running.'),
+      action: async () => { await api(`/api/groups/${encodeURIComponent(group.id)}/remove`, { expectedRevision: group.revision }); await refresh(); }
+    }), 'button button-quiet')
+  ]);
+
+  const head = el('header', { class: 'sh-folder-head' }, [headerLeft, headerActions]);
+
+  const bodyChildren = [];
+  if (isExpanded) {
+    if (memberRows.length) {
+      bodyChildren.push(el('div', { class: 'sh-card-grid sh-folder-grid' }, memberRows.map(programCard)));
+    } else {
+      bodyChildren.push(el('div', { class: 'sh-folder-empty' }, [
+        info(say('该文件夹暂无模块，点击“编辑成员”勾选已有模块。', 'No members in this folder yet. Click "Edit members" to add modules.')),
+        button(say('添加模块到组', 'Add modules to group'), () => editGroup(group), 'button button-quiet')
+      ]));
     }
   }
 
-  const copyBtn = button(say('复制当前日志', 'Copy Logs'), async () => {
-    if (!fullLogText.trim()) {
-      toast(t('noLogs'));
+  return el('article', { class: `panel sh-folder-panel sh-group-card${isExpanded ? ' is-open' : ' is-collapsed'}`, 'data-group-id': group.id }, [
+    head,
+    isExpanded ? el('div', { class: 'sh-folder-body' }, bodyChildren) : null
+  ].filter(Boolean));
+}
+
+function ungroupedFolder(programs) {
+  const isExpanded = isFolderExpanded('__ungrouped__');
+  const chevron = el('span', { class: 'sh-folder-chevron' }, isExpanded ? '▾' : '▸');
+  const icon = el('span', { class: 'sh-folder-icon' }, '📂');
+  const titleNode = el('h2', { class: 'sh-folder-title' }, say('未分组模块', 'Ungrouped Modules'));
+  const countTag = el('span', { class: 'sh-spec-chip' }, `${programs.length} ${say('个独立模块', 'standalone modules')}`);
+  const hint = el('span', { class: 'subtle small' }, say('尚未归入任何模块组', 'Not assigned to any module group'));
+
+  const headerLeft = el('div', { class: 'sh-folder-info', role: 'button', 'aria-expanded': String(isExpanded), tabindex: '0' }, [
+    chevron, icon, titleNode, countTag, hint
+  ]);
+  headerLeft.addEventListener('click', () => toggleFolder('__ungrouped__'));
+  headerLeft.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFolder('__ungrouped__'); } });
+
+  const headerActions = actions([
+    button(say('新建模块组归类', 'Create group for these'), () => editGroup(), 'button button-quiet')
+  ]);
+
+  const head = el('header', { class: 'sh-folder-head sh-ungrouped-head' }, [headerLeft, headerActions]);
+
+  const bodyChildren = [];
+  if (isExpanded) {
+    bodyChildren.push(el('div', { class: 'sh-card-grid sh-folder-grid' }, programs.map(programCard)));
+  }
+
+  return el('article', { class: `panel sh-folder-panel sh-ungrouped-panel${isExpanded ? ' is-open' : ' is-collapsed'}` }, [
+    head,
+    isExpanded ? el('div', { class: 'sh-folder-body' }, bodyChildren) : null
+  ].filter(Boolean));
+}
+
+let moduleCategory = 'all';
+
+function openExternalAuthorize() {
+  if (!isLive()) {
+    error(new Error(say('请先启动世界枢纽，再授权临时接入。', 'Start World Hub first before authorizing external programs.')));
+    return;
+  }
+  const programId = input('externalProgramId', '', { placeholder: say('例如: python-client', 'e.g. python-client') });
+  const displayName = input('externalTitle', '', { placeholder: say('可选显示名称', 'Optional display name') });
+  const publish = input('publishTopics', '', { placeholder: say('例如: data/metrics, events/in', 'e.g. data/metrics, events/in') });
+  const subscribe = input('subscribeTopics', '', { placeholder: say('例如: commands/out', 'e.g. commands/out') });
+
+  const parseTopics = str => [...new Set((str || '').split(/[\n,]/).map(p => p.trim()).filter(Boolean))];
+
+  const node = dialog(say('授权外部程序接入', 'Authorize external program'), [
+    el('p', { class: 'field-help' }, say(
+      '为外部 Python/Node.js 或第三方自管理程序签发本轮通信凭据。权限按身份汇总，程序由外部自行运行管理。',
+      'Issue credentials for this Hub run to an external program or script. The external process manages itself.'
+    )),
+    field(say('外部程序标识 (ID)', 'External program ID'), programId),
+    field(say('显示名称', 'Display name'), displayName),
+    field(say('允许发送的通道（逗号分隔）', 'Publish topics (comma separated)'), publish),
+    field(say('允许抽取的通道（逗号分隔）', 'Subscribe topics (comma separated)'), subscribe),
+    actions([
+      button(say('取消', 'Cancel'), () => node.close(), 'button button-quiet'),
+      button(say('预览并授权', 'Preview & authorize'), () => run(async () => {
+        const id = programId.value.trim();
+        if (!id) throw new Error(say('请提供外部程序标识。', 'Provide an external program ID.'));
+        const reviewedRun = state.externalInventory?.runId;
+        const result = await api('/api/programs/external/preview', {
+          action: 'admit',
+          programId: id,
+          ...(displayName.value.trim() ? { title: displayName.value.trim() } : {}),
+          expectedRunId: reviewedRun,
+          expectedRevision: state.externalInventory?.revision,
+          bridges: [{
+            slot: 'main',
+            publish: parseTopics(publish.value),
+            subscribe: parseTopics(subscribe.value)
+          }]
+        });
+        node.close();
+        review({
+          title: say('确认外部程序接入授权', 'Confirm external program authorization'),
+          data: result.review ?? result.preview,
+          message: say('本次凭据只在当前 Hub 运行期间有效。授权后请妥善保管连接配置。', 'Credentials are valid for this Hub run only.'),
+          apply: async () => {
+            const applied = await api('/api/programs/external/apply', { reviewId: result.reviewId, accepted: true });
+            await refresh();
+            const conn = applied?.connection ?? applied?.connectionConfig;
+            if (conn) {
+              const configText = JSON.stringify(conn, null, 2);
+              dialog(say('新签发的连接配置凭据', 'New connection configuration'), [
+                el('p', { class: 'notice notice-success' }, say('授权成功！请将以下连接配置传给外部程序。关闭后不再显示私钥。', 'Authorized! Provide this connection configuration to the external program. It will not be shown again.')),
+                el('pre', { class: 'review-digest' }, configText),
+                actions([button(say('复制并关闭', 'Copy & close'), async () => {
+                  try { await navigator.clipboard.writeText(configText); } catch {}
+                  toast(say('已复制到剪贴板。', 'Copied to clipboard.'));
+                }, 'button button-primary')])
+              ]);
+            } else {
+              toast(say('外部接入授权已签发。', 'External program authorized.'));
+            }
+          }
+        });
+      }), 'button button-primary')
+    ])
+  ]);
+}
+
+function externalProgramCard(program) {
+  const connections = (state.externalInventory?.observedSessions ?? []).filter(s => s.principal === program.principal || (program.connections ?? []).some(c => c.connectionId === s.connectionId));
+  const activeCount = connections.length;
+  const isExpanded = expandedCards.has(`ext:${program.programId}`);
+  const chevron = el('span', { class: 'sh-program-chevron' }, isExpanded ? '▾' : '▸');
+  const avatar = el('div', { class: 'sh-program-avatar' }, '⚡');
+  const titleText = el('span', { class: 'sh-program-name' }, title(program));
+  const idBadge = el('span', { class: 'sh-program-id mono' }, program.programId);
+  const typePill = pill(say('临时接入', 'Ephemeral'), 'warning');
+  const selfPill = pill(say('进程自管', 'Self-managed'), 'neutral');
+  const statePill = activeCount ? pill(say(`${activeCount} 个连接`, `${activeCount} active`), 'teal') : pill(say('未连接', 'Disconnected'), '');
+
+  const rowMain = el('div', { class: 'sh-program-row-main' }, [
+    chevron,
+    avatar,
+    titleText,
+    idBadge,
+    typePill,
+    selfPill,
+    statePill
+  ]);
+
+  const detailToggleBtn = button(
+    isExpanded ? say('收起 ▴', 'Collapse ▴') : say('连接与权限 ▾', 'Connections ▾'),
+    () => {
+      if (isExpanded) expandedCards.delete(`ext:${program.programId}`);
+      else expandedCards.add(`ext:${program.programId}`);
+      renderView();
+    },
+    'button button-quiet sh-program-detail-toggle'
+  );
+
+  const rowActions = actions([
+    button(say('撤销授权', 'Revoke'), () => run(async () => {
+      const reviewedRun = state.externalInventory?.runId;
+      const result = await api('/api/programs/external/preview', { action: 'revoke', programId: program.programId, expectedRunId: reviewedRun, expectedRevision: state.externalInventory?.revision });
+      review({
+        title: say('撤销外部程序授权', 'Revoke external program authorization'),
+        data: result.review ?? result.preview,
+        message: say('撤销将关闭该外部程序的所有连接并吊销本轮通信权限。', 'Revoking closes all connections and cancels communication rights for this Hub run.'),
+        apply: async () => {
+          await api('/api/programs/external/apply', { reviewId: result.reviewId, accepted: true });
+          await refresh();
+          toast(say('外部授权已撤销。', 'External authorization revoked.'));
+        }
+      });
+    }), 'button button-quiet'),
+    detailToggleBtn
+  ]);
+  rowActions.className = 'sh-program-row-actions result-actions';
+
+  const rowEl = el('div', {
+    class: 'sh-program-row',
+    role: 'button',
+    tabindex: '0',
+    'aria-expanded': String(isExpanded)
+  }, [rowMain, rowActions]);
+  rowMain.addEventListener('click', () => {
+    if (isExpanded) expandedCards.delete(`ext:${program.programId}`);
+    else expandedCards.add(`ext:${program.programId}`);
+    renderView();
+  });
+
+  const detailEl = el('div', { class: 'sh-program-card-detail' }, [
+    el('div', { class: 'sh-card-meta' }, [
+      el('span', { class: 'sh-meta-tag' }, say('外部自运行程序', 'Externally run')),
+      el('span', { class: 'sh-meta-tag' }, say('凭据仅限本轮 Hub 有效', 'Current run credentials')),
+      el('span', { class: 'sh-meta-tag mono' }, `${say('主体标识', 'Principal')}: ${program.principal ?? '—'}`)
+    ]),
+    details(say('桥槽声明与有效授权', 'Slot declarations and effective grants'), { bridges: program.bridges, effectiveAllow: program.effectiveAllow, principal: program.principal }),
+    connections.length
+      ? el('div', { class: 'sh-spec-chips' }, connections.map(s => el('div', { class: 'sh-spec-chip' }, [
+          el('span', {}, `${s.declaredId ?? 'bridge'} · ${s.remoteAddress ?? '127.0.0.1'} (${say('已发', 'Sent')} ${s.published ?? 0} / ${say('已收', 'Recv')} ${s.delivered ?? 0})`),
+          s.connectionId ? button(say('断开', 'Disconnect'), () => run(async () => {
+            const reviewedRun = state.externalInventory?.runId;
+            const res = await api('/api/programs/external/preview', { action: 'disconnect', principal: s.principal ?? program.principal, connectionIds: [s.connectionId], expectedRunId: reviewedRun, expectedRevision: state.externalInventory?.revision });
+            review({
+              title: say('断开连接', 'Disconnect connection'),
+              data: res.review ?? res.preview,
+              message: say('确认断开该连接？外部程序可使用原凭据重新连接。', 'Disconnect this session? The program may reconnect with its credentials.'),
+              apply: async () => {
+                await api('/api/programs/external/apply', { reviewId: res.reviewId, accepted: true });
+                await refresh();
+                toast(say('已断开连接。', 'Connection disconnected.'));
+              }
+            });
+          }), 'button button-quiet') : null
+        ].filter(Boolean))))
+      : info(say('当前没有活跃连接。使用此程序的主体凭证接入世界枢纽后将在此显示。', 'No active connections. Connections appear here once the program authenticates.'))
+  ]);
+
+  return el('article', { class: `panel sh-program-card sh-external-card${isExpanded ? ' is-expanded' : ' is-collapsed'}` }, [
+    rowEl,
+    isExpanded ? detailEl : null
+  ].filter(Boolean));
+}
+
+function programs() {
+  const content = el('div', { class: 'sh-programs-container' });
+  const viewToolbar = el('div', { class: 'sh-view-toolbar' });
+  const filter = input('programSearch', '', { type: 'search', 'aria-label': say('搜索模块实例', 'Search module instances'), placeholder: say('搜索名称或实例标识', 'Search names or instance IDs') });
+  filter.value = state.programSearch ?? '';
+
+  let drawContent;
+
+  const drawToolbar = () => {
+    const categoryToggle = el('div', { class: 'sh-category-toggle' }, [
+      button([el('span', {}, say('全部', 'All')), el('small', { class: 'pill-count' }, String(state.programs.length + (state.externalInventory?.programs?.length ?? 0)))], () => { moduleCategory = 'all'; draw(); }, `button button-quiet${moduleCategory === 'all' ? ' is-active' : ''}`),
+      button([el('span', {}, say('📁 常驻受管', '📁 Resident')), el('small', { class: 'pill-count' }, String(state.programs.length))], () => { moduleCategory = 'resident'; draw(); }, `button button-quiet${moduleCategory === 'resident' ? ' is-active' : ''}`),
+      button([el('span', {}, say('⚡ 临时接入', '⚡ Ephemeral')), el('small', { class: 'pill-count' }, String(state.externalInventory?.programs?.length ?? 0))], () => { moduleCategory = 'ephemeral'; draw(); }, `button button-quiet${moduleCategory === 'ephemeral' ? ' is-active' : ''}`)
+    ]);
+
+    const modeToggle = state.groups.length && moduleCategory !== 'ephemeral' ? el('div', { class: 'sh-view-mode-toggle' }, [
+      button([el('span', {}, '📁 '), el('span', {}, say('按文件夹折叠', 'Folders'))], () => { moduleViewMode = 'folders'; draw(); }, `button button-quiet${moduleViewMode === 'folders' ? ' is-active' : ''}`),
+      button([el('span', {}, '▦ '), el('span', {}, say('平铺所有', 'Flat Grid'))], () => { moduleViewMode = 'flat'; draw(); }, `button button-quiet${moduleViewMode === 'flat' ? ' is-active' : ''}`),
+      moduleViewMode === 'folders' ? button(say('全部展开', 'Expand all'), () => { collapsedFolders.clear(); drawContent(); }, 'button button-quiet') : null,
+      moduleViewMode === 'folders' ? button(say('全部折叠', 'Collapse all'), () => { for (const g of state.groups) collapsedFolders.add(g.id); collapsedFolders.add('__ungrouped__'); drawContent(); }, 'button button-quiet') : null
+    ].filter(Boolean)) : null;
+
+    const toolbarActions = el('div', { class: 'sh-page-heading sh-toolbar-actions' }, [
+      button(say('接入本地模块', 'Connect local module'), () => importAndConnectModule(), 'button button-primary'),
+      button(say('新建模块组', 'New module group'), () => editGroup(), 'button button-quiet'),
+      button(say('授权临时接入', 'Authorize external'), openExternalAuthorize, 'button button-quiet')
+    ]);
+
+    const row1 = el('div', { class: 'sh-toolbar-row sh-toolbar-row-primary' }, [
+      field(say('筛选实例', 'Filter instances'), filter),
+      categoryToggle
+    ]);
+    const row2 = el('div', { class: 'sh-toolbar-row sh-toolbar-row-secondary' }, [
+      toolbarActions,
+      modeToggle
+    ].filter(Boolean));
+
+    viewToolbar.replaceChildren(row1, row2);
+  };
+
+  drawContent = () => {
+    state.programSearch = filter.value;
+    const query = filter.value.toLowerCase().trim();
+    const matchesQuery = row => `${title(row)} ${row.programId} ${row.module?.id ?? ''}`.toLowerCase().includes(query);
+    const filteredPrograms = state.programs.filter(matchesQuery);
+    const externalList = (state.externalInventory?.programs ?? []).filter(matchesQuery);
+
+    if (moduleCategory === 'ephemeral') {
+      if (!isLive()) {
+        content.replaceChildren(
+          el('div', { class: 'notice notice-warning' }, [
+            info(say('世界枢纽当前未运行。启动世界枢纽后可接入外部临时程序并观察通信。', 'World Hub is stopped. Start World Hub to authorize external ephemeral programs.'))
+          ]),
+          empty(say('世界枢纽已停止。', 'World Hub is stopped.'))
+        );
+        return;
+      }
+      if (!externalList.length) {
+        content.replaceChildren(empty(
+          say('当前没有临时接入的外部程序。可为外部 Python/Node.js 脚本或第三方程序签发通信凭据。', 'No external programs authorized in this run. You can issue credentials for external scripts.'),
+          say('授权外部程序接入', 'Authorize external program'),
+          () => openExternalAuthorize()
+        ));
+        return;
+      }
+      content.replaceChildren(el('div', { class: 'sh-card-grid' }, externalList.map(externalProgramCard)));
       return;
     }
-    try {
-      await navigator.clipboard.writeText(fullLogText);
-      toast(t('copied'));
-    } catch {
-      toast(t('copyUnavailable'));
+
+    const residentNodes = [];
+    if (!state.programs.length && moduleCategory === 'resident') {
+      content.replaceChildren(empty(
+        say('暂无常驻受管模块。可从本地接入模块或从在线获取。', 'No resident managed modules. Connect a local module or get online.'),
+        say('从本地接入模块', 'Connect module from local'),
+        () => importAndConnectModule()
+      ));
+      return;
     }
-  }, 'button button-small button-quiet');
-  copyBtn.prepend(createIcon('copy', 'button-icon'));
 
-  const refreshBtn = button(t('refreshLogs'), () => loadLogs(idOf(instance), true), 'button button-small button-quiet');
-  refreshBtn.prepend(createIcon('refresh', 'button-icon'));
+    if (moduleViewMode === 'flat' || !state.groups.length) {
+      const flatGrid = el('div', { class: 'sh-card-grid' });
+      if (filteredPrograms.length) {
+        flatGrid.replaceChildren(...filteredPrograms.map(programCard));
+      } else if (state.programs.length) {
+        flatGrid.replaceChildren(empty(say('暂无匹配的模块实例。', 'No matching module instances.')));
+      }
+      residentNodes.push(flatGrid);
+    } else {
+      const folderNodes = [];
+      for (const group of state.groups) {
+        const memberRows = state.programs
+          .filter(row => group.memberProgramIds.includes(row.programId))
+          .filter(matchesQuery);
+        const groupMatches = title(group).toLowerCase().includes(query) || group.id.toLowerCase().includes(query);
+        if (query && !groupMatches && !memberRows.length) continue;
+        folderNodes.push(groupFolder(group, memberRows));
+      }
 
-  const toolbar = el('div', { class: 'terminal-toolbar' }, [
-    el('div', { class: 'terminal-toolbar-left' }, [
-      el('label', { class: 'log-select-label' }, [
-        el('span', { class: 'log-select-icon', 'aria-hidden': 'true' }, createIcon('task')),
-        select
-      ]),
-      matching ? el('span', { class: 'terminal-run-chip mono' }, `Run: ${state.logs?.runId?.slice(0, 16) ?? '—'}`) : null
-    ].filter(Boolean)),
-    el('div', { class: 'terminal-toolbar-right' }, [
-      copyBtn,
-      refreshBtn
-    ])
-  ]);
+      const ungrouped = state.programs
+        .filter(row => !state.groups.some(group => group.memberProgramIds.includes(row.programId)))
+        .filter(matchesQuery);
+      if (ungrouped.length) {
+        folderNodes.push(ungroupedFolder(ungrouped));
+      }
 
-  const windowBar = el('div', { class: 'terminal-window-header' }, [
-    el('div', { class: 'terminal-dots' }, [
-      el('span', { class: 'dot dot-red' }),
-      el('span', { class: 'dot dot-yellow' }),
-      el('span', { class: 'dot dot-green' })
-    ]),
-    el('div', { class: 'terminal-window-title mono' }, `logs://${idOf(instance)}/${select.value} · ${matching ? date(state.logs.observedAt) : 'inactive'}`)
-  ]);
-
-  const terminalContent = panels.length
-    ? el('div', { class: 'terminal-body' }, panels)
-    : el('div', { class: 'terminal-empty' }, [
-        el('div', { class: 'terminal-empty-prompt mono' }, '$ world-hub instance logs --stream'),
-        el('p', { class: 'terminal-empty-text subtle' }, t('noLogs'))
-      ]);
-
-  const consoleWindow = el('div', { class: 'terminal-window' }, [
-    windowBar,
-    terminalContent
-  ]);
-
-  const privacyNotice = el('div', { class: 'notice notice-info' }, t('privacyNotice'));
-
-  return [toolbar, privacyNotice, consoleWindow];
-}
-
-function renderDetails(instance) {
-  const status = instance.status ?? {};
-  const id = idOf(instance);
-  const hubUrl = status.links?.hub ?? status.hub?.url ?? instance.hubUrl;
-  const isRunning = running(instance);
-  const observed = observationLive() && status.observedAt;
-
-  const cardIdentity = el('div', { class: 'panel spec-card' }, [
-    el('div', { class: 'panel-heading' }, [
-      el('div', { class: 'panel-heading-title' }, [
-        el('div', { class: 'panel-icon', 'aria-hidden': 'true' }, createIcon('file')),
-        el('div', {}, [
-          el('h2', {}, say('实例标识与本地路径', 'Instance Identity & Paths')),
-          el('p', { class: 'panel-subhead' }, say('本实例在磁盘上的独立目录结构与版本标识。', 'Independent disk directory structure and version metadata.'))
-        ])
-      ])
-    ]),
-    definition([
-      [t('instanceId'), el('span', { class: 'mono bold' }, id)],
-      [say('整合包 ID', 'Pack ID'), el('span', { class: 'mono' }, instance.pack?.id ?? id)],
-      [say('整合包标题', 'Pack Title'), instance.pack?.title ?? '—'],
-      [say('版本号', 'Version'), `v${instance.pack?.version ?? '—'}`],
-      [t('importedAt'), date(instance.importedAt)],
-      [t('instanceDirectory'), el('span', { class: 'mono' }, instance.directory ?? '—')]
-    ])
-  ]);
-
-  const cardExecution = el('div', { class: 'panel spec-card' }, [
-    el('div', { class: 'panel-heading' }, [
-      el('div', { class: 'panel-heading-title' }, [
-        el('div', { class: 'panel-icon', 'aria-hidden': 'true' }, createIcon('shield')),
-        el('div', {}, [
-          el('h2', {}, say('执行模式与解释器绑定', 'Execution Profile & Interpreters')),
-          el('p', { class: 'panel-subhead' }, say('运行环境隔离模式、保护参数以及解释器探针。', 'Isolation profile, protection parameters and interpreter probes.'))
-        ])
-      ])
-    ]),
-    definition([
-      [say('该次运行的执行模式', 'Execution profile for this run'), status.executionProfile ?? t('unknown')],
-      [say('该次运行的保护参数', 'Protection parameters for this run'), status.isolation ?? t('unknown')],
-      [t('boundEnvironment'), instance.environment ? el('span', { class: 'mono' }, typeof instance.environment === 'object' ? JSON.stringify(instance.environment) : String(instance.environment)) : t('unknown')]
-    ])
-  ]);
-
-  const cardLifecycle = el('div', { class: 'panel spec-card' }, [
-    el('div', { class: 'panel-heading' }, [
-      el('div', { class: 'panel-heading-title' }, [
-        el('div', { class: 'panel-icon', 'aria-hidden': 'true' }, createIcon('clock')),
-        el('div', {}, [
-          el('h2', {}, say('运行生命周期与观察时间戳', 'Runtime Lifecycle & Observation')),
-          el('p', { class: 'panel-subhead' }, say('进程生命周期标记与最近一次通信检测记录。', 'Lifecycle markers and the latest communication observation.'))
-        ])
-      ])
-    ]),
-    definition([
-      [t('runId'), el('span', { class: 'mono' }, status.runId ?? t('notStarted'))],
-      [t('observedAt'), date(status.components?.[0]?.communicationObservedAt ?? status.observedAt)],
-      [t('stoppedAt'), date(status.stoppedAt)]
-    ])
-  ]);
-
-  const hubVal = hubUrl
-    ? el('div', { class: 'comm-val-inline' }, [
-        el('code', { class: 'mono comm-endpoint-code' }, hubUrl),
-        button(say('复制', 'Copy'), async () => {
-          try {
-            await navigator.clipboard.writeText(hubUrl);
-            toast(t('copied'));
-          } catch {
-            toast(t('copyUnavailable'));
-          }
-        }, 'button button-small button-quiet')
-      ])
-    : el('span', { class: 'subtle mono' }, t('hubWaiting'));
-
-  const commActions = [];
-  if (instance.links?.workbenchUrl && isRunning) {
-    const wbLink = localLink(t('openWorkbenchTarget'), instance.links.workbenchUrl, 'button button-small button-primary', true);
-    if (wbLink) {
-      wbLink.prepend(createIcon('workbench', 'button-icon'));
-      commActions.push(wbLink);
+      if (!folderNodes.length && state.programs.length) {
+        residentNodes.push(empty(say('暂无匹配的分组或模块实例。', 'No matching groups or module instances.')));
+      } else {
+        residentNodes.push(...folderNodes);
+      }
     }
-  }
-  if (instance.links?.managementUrl && isRunning) {
-    const topoLink = localLink(t('topology'), instance.links.managementUrl, 'button button-small button-quiet', true);
-    if (topoLink) {
-      topoLink.prepend(createIcon('hubs', 'button-icon'));
-      commActions.push(topoLink);
+
+    const allNodes = [...residentNodes];
+    if (moduleCategory === 'all' && externalList.length) {
+      allNodes.push(el('section', { class: 'sh-external-section' }, [
+        el('div', { class: 'sh-section-header' }, [
+          el('div', {}, [
+            el('h3', {}, say('⚡ 外部临时接入（本轮有效）', '⚡ External Ephemeral Access (Current Run)')),
+            info(say('外部独立程序按需通过通信 Token 连入世界枢纽，Launcher 不托管其进程。', 'External self-managed programs connect via communication token without process adoption.'))
+          ]),
+          button(say('授权外部程序接入', 'Authorize external program'), openExternalAuthorize, 'button button-quiet')
+        ]),
+        el('div', { class: 'sh-card-grid' }, externalList.map(externalProgramCard))
+      ]));
     }
-  }
 
-  const cardComm = el('div', { class: 'panel spec-card' }, [
-    el('div', { class: 'panel-heading' }, [
-      el('div', { class: 'panel-heading-title' }, [
-        el('div', { class: 'panel-icon', 'aria-hidden': 'true' }, createIcon('workbench')),
-        el('div', {}, [
-          el('h2', {}, say('通信端点与调试工作台', 'Communication Endpoints & Workbench')),
-          el('p', { class: 'panel-subhead' }, say('实例独立的 WebSocket 通信总线与工作台调试通道。', 'Instance-isolated WebSocket bus and workbench debugging channel.'))
-        ])
-      ]),
-      pill(t(observed && isRunning ? 'running' : isRunning ? 'running' : 'stopped'), isRunning ? 'teal' : '')
-    ]),
-    definition([
-      [say('WebSocket 调试端点', 'WebSocket Endpoint'), hubVal],
-      [say('通信工作台地址', 'Workbench URL'), instance.links?.workbenchUrl ? localLink(instance.links.workbenchUrl, instance.links.workbenchUrl, 'text-link mono', true) : el('span', { class: 'subtle' }, t('unknown'))],
-      [say('拓扑管理端点', 'Topology URL'), instance.links?.managementUrl ? localLink(instance.links.managementUrl, instance.links.managementUrl, 'text-link mono', true) : el('span', { class: 'subtle' }, t('unknown'))],
-      [say('观察时间', 'Observed At'), el('span', { class: 'mono' }, date(state.hubsObservedAt ?? status.observedAt ?? state.lastRefresh))]
-    ]),
-    commActions.length ? el('div', { class: 'spec-card-actions' }, commActions) : null
-  ].filter(Boolean));
+    if (!allNodes.length) {
+      content.replaceChildren(empty(
+        say('暂无接入模块。可接入本地模块或在线获取模块。', 'No connected modules. Connect a local module or get modules online.'),
+        say('从本地接入模块', 'Connect module from local'),
+        () => importAndConnectModule()
+      ));
+    } else {
+      content.replaceChildren(...allNodes);
+    }
+  };
 
-  const advisory = el('div', { class: 'notice notice-warning' }, [
-    el('p', {}, t('isolationNotice'))
-  ]);
+  const draw = () => {
+    drawToolbar();
+    drawContent();
+  };
+
+  filter.addEventListener('input', () => { drawContent(); });
+  draw();
 
   return [
-    el('div', { class: 'instance-spec-grid' }, [cardIdentity, cardExecution, cardLifecycle, cardComm]),
-    advisory
+    viewToolbar,
+    content
   ];
 }
-function focusedButton(root) { const active = document.activeElement; if (!root.contains(active) || !['BUTTON', 'A'].includes(active.tagName)) return null; return { tag: active.tagName, text: active.textContent, href: active.getAttribute('href') }; }
-function restoreButton(root, focus) { if (focus) [...root.querySelectorAll('button,a')].find(node => node.tagName === focus.tag && node.textContent === focus.text && node.getAttribute('href') === focus.href)?.focus({ preventScroll: true }); }
-function renderDetail(force = false) {
-  if (state.view !== 'detail') return;
-  const instance = current();
-  if (!instance) { navigate('packs'); return; }
-  const headingStamp = JSON.stringify([instance.pack, instance.links, instance.status?.state, instance.status?.observation, instance.status?.cleanupIncomplete, instance.status?.stoppedAt, instance.status?.failure, isStale(instance.status), state.language, state.operations.get(state.selected)]);
-  if (force || headingStamp !== state.headingStamp) { const focus = focusedButton($('#detail-actions')); renderDetailHeading(instance); restoreButton($('#detail-actions'), focus); state.headingStamp = headingStamp; }
-  const content = state.tab === 'status'
-    ? [instance.status?.components?.map(c => [c.id, c.module, c.pid, c.process, c.communication, c.readiness, Boolean(c.health?.lastCheckedAt), c.health?.ready]), instance.status?.runId, instance.status?.observation, state.topology]
-    : state.tab === 'logs' ? state.logs : state.tab === 'modules' ? state.reviews.get(state.selected)?.reviewId
-    : state.tab === 'storage' ? [instance.pack, instance.detached, instance.stagedFrom, instance.environment, instance.status?.state, instance.status?.runId, instance.status?.stoppedAt, instance.status?.cleanupIncomplete, operationFor(instance)]
-    : [instance.pack, instance.directory, instance.importedAt, instance.environment, instance.status?.runId, instance.status?.stoppedAt, instance.status?.executionProfile, instance.status?.isolation];
-  const stamp = JSON.stringify([state.selected, content, state.tab, state.language, isStale(instance.status), state.topologyUnavailable]);
-  if (!force && stamp === state.detailStamp) return;
-  state.detailStamp = stamp;
-  const saved = advanced?.preserve($('#detail-content'));
-  const children = state.tab === 'status' ? renderStatus(instance) : state.tab === 'modules' ? renderModules(instance) : state.tab === 'logs' ? renderLogs(instance) : state.tab === 'storage' ? advanced.renderStorage(instance) : renderDetails(instance);
-  $('#detail-content').replaceChildren(...children);
-  if (saved) advanced.reinstate($('#detail-content'), saved);
+async function startPlan(group) {
+  const result = group ? await api(`/api/groups/${encodeURIComponent(group.id)}/start/preview`, { expectedRevision: group.revision }) : await api('/api/programs/startup-plan/review', {});
+  review({ title: group ? `${title(group)} · ${say('启动计划', 'Startup plan')}` : say('全局启动计划', 'Global startup plan'), data: result.review, message: say('只启动已勾选成员，遵循精确顺序与前置关系。已运行的共享实例不会重复启动，计划外模块不受影响。', 'Start only selected members in the exact order and prerequisites. Running shared instances are reused. Other modules remain unaffected.'), apply: async () => operation(await api(group ? `/api/groups/${encodeURIComponent(group.id)}/start/apply` : '/api/programs/startup-plan/start', { reviewId: result.reviewId, accepted: true })) });
 }
-function renderAll(force = false) {
-  const stamp = JSON.stringify([state.instances.map(i => [idOf(i), i.pack, i.moduleCount, i.status?.state, i.status?.observation, i.status?.cleanupIncomplete, i.status?.components?.map(c => [c.id, c.communication]), state.reviews.get(idOf(i))?.reviewId]), state.hubs, [...state.operations.entries()], state.language, observationLive(), state.hubsUnavailable, freshObservation(state.hubsObservedAt)]);
-  if (force || stamp !== state.renderStamp) { const root = $(`#view-${state.view}`), focus = root && focusedButton(root); renderStats(); renderPacks(); renderOverview(); renderHubs(); if (root) restoreButton(root, focus); state.renderStamp = stamp; }
-  renderDetail(force);
+function editGroup(group) {
+  const id = input('groupId', group?.id ?? '', { disabled: Boolean(group), placeholder: 'my-group' }), label = input('groupTitle', group?.title ?? ''), members = new Set(group?.memberProgramIds ?? []);
+  const node = dialog(group ? say('编辑模块组', 'Edit module group') : say('新建模块组', 'New module group'), [field(say('组标识', 'Group ID'), id), field(say('组名称', 'Group name'), label), info(say('勾选已有实例；加入组不复制模块、不启动进程、不增加权限。', 'Select existing instances. Joining a group does not copy modules, start processes or grant permissions.')),
+    el('div', { class: 'sh-group-members' }, state.programs.map(program => { const check = input(program.programId, '', { type: 'checkbox', checked: members.has(program.programId) }); check.addEventListener('change', () => { if (check.checked) members.add(program.programId); else members.delete(program.programId); }); return el('label', { class: 'sh-check' }, [check, el('span', {}, `${title(program)} · ${program.programId}`)]); }))]);
+  node.append(actions([button(say('保存引用', 'Save references'), () => run(async () => {
+    const selected = [...members], oldPlan = group?.startupPlan;
+    const plan = { format: 'world-hub.launcher-startup-plan/v1', onFailure: oldPlan?.onFailure ?? 'continue-independent', members: selected.map(programId => { const old = oldPlan?.members.find(row => row.programId === programId); return { programId, enabled: old?.enabled ?? false, after: (old?.after ?? []).filter(other => members.has(other)) }; }), startupOrder: [...(oldPlan?.startupOrder ?? []).filter(programId => members.has(programId)), ...selected.filter(programId => !oldPlan?.startupOrder?.includes(programId))] };
+    await api('/api/groups/save', { group: { id: id.value.trim(), title: label.value.trim(), memberProgramIds: selected, startupPlan: plan }, ...(group ? { expectedRevision: group.revision } : {}) }); node.close(); await refresh();
+  }), 'button button-primary')]));
 }
+async function stopGroup(group) {
+  const result = await api(`/api/groups/${encodeURIComponent(group.id)}/stop/preview`, { expectedRevision: group.revision });
+  const selected = new Set(result.review.programs.filter(row => row.ownsProcess && !row.sharedWithGroups.length).map(row => row.programId));
+  const choices = el('section', {}, result.review.programs.map(row => { const check = input(`stop-${row.programId}`, '', { type: 'checkbox', checked: selected.has(row.programId) }); check.addEventListener('change', () => { if (check.checked) selected.add(row.programId); else selected.delete(row.programId); }); return el('label', { class: 'sh-check' }, [check, el('span', {}, `${row.programId}${row.sharedWithGroups.length ? ` · ${say('其他引用组', 'Other groups')}: ${row.sharedWithGroups.map(title).join(', ')}` : ''}`)]); }));
+  review({ title: say('审阅停止模块组', 'Review stopping module group'), data: result.review, extra: choices, message: say('勾选要停止的具体实例。共享成员默认保留运行，停止会影响其他引用组与消费者；Hub 保持运行。', 'Select the exact instances to stop. Shared members remain running by default. Stopping them affects other groups and consumers. The Hub remains running.'), apply: async () => operation(await api(`/api/groups/${encodeURIComponent(group.id)}/stop/apply`, { reviewId: result.reviewId, accepted: true, programIds: [...selected] })) });
+}
+function openWorkbench(mode = 'configuration', id) { workbench.open(mode, id); navigate('workbench'); }
 
-function recordRoute() {
-  if (restoringHistory) return;
-  const url = `${location.pathname}${state.view === 'detail' ? `?instance=${encodeURIComponent(state.selected)}` : ''}#${state.view === 'detail' ? state.tab : state.view}`;
-  if (url === `${location.pathname}${location.search}${location.hash}` && historyReady) return;
-  history[historyReady ? 'pushState' : 'replaceState']({ view: state.view, instance: state.selected, tab: state.tab }, '', url);
-  historyReady = true;
+async function inspectSource(id = state.sourceId) {
+  const selected = state.sources.find(row => row.id === id); if (!selected) return;
+  try { const result = await api('/api/sources/inspect', { sourceId: selected.id }); state.sourceId = id; state.sourceIndex = result; state.sourceError = null; }
+  catch (issue) { state.sourceError = issue.message; }
+  if (state.view === 'sources') renderView();
 }
-function closeMenu() { $('.sidebar').dataset.menuOpen = 'false'; $('#sidebar-menu-toggle').setAttribute('aria-expanded', 'false'); $('#sidebar-menu-toggle').setAttribute('aria-label', t('menuOpen')); }
-function focusPage() { window.scrollTo(0, 0); const target = $(`#view-${state.view} h1`) ?? $(`#view-${state.view} h2`) ?? $('#main'); target?.setAttribute('tabindex', '-1'); target?.focus({ preventScroll: true }); }
-function navigate(view, updateHash = true) {
-  if (['overview', 'workbench', 'hubs'].includes(view)) view = 'packs';
-  state.view = view;
-  for (const section of document.querySelectorAll('.view')) section.hidden = section.id !== `view-${view}`;
-  const myViews = ['packs', 'modules', 'templates', 'detail'];
-  for (const item of document.querySelectorAll('[data-view]')) { const selected = item.dataset.view === (myViews.includes(view) ? 'packs' : view); item.classList.toggle('active', selected); if (selected) item.setAttribute('aria-current', 'page'); else item.removeAttribute('aria-current'); }
-  $('#breadcrumb').textContent = view === 'detail' ? currentTitle(state.selected) : ['sources', 'creator', 'modules', 'templates'].includes(view) ? advanced.label(view) : t({ packs: 'myPacks', environment: 'environment' }[view] ?? 'myPacks');
-  if (updateHash) recordRoute();
-  closeMenu();
-  if (view === 'environment') renderEnvironment();
-  advanced?.navigate(view);
-  renderAll(true);
-  if (['packs', 'modules', 'templates'].includes(view)) advanced?.renderAssetTabs?.(view);
-  if (updateHash) focusPage();
-}
-async function restoreHistory() {
-  if (restoringHistory || !state.auth?.token) return;
-  restoringHistory = true;
-  try {
-    const id = new URLSearchParams(location.search).get('instance'), hash = location.hash.slice(1);
-    if (id && state.instances.some(i => idOf(i) === id)) await selectInstance(id, ['status', 'modules', 'logs', 'storage', 'details'].includes(hash) ? hash : 'status');
-    else navigate(['packs', 'environment', 'sources', 'creator', 'modules', 'templates'].includes(hash) ? hash : 'packs', false);
-    focusPage();
-  } finally { restoringHistory = false; }
-}
-async function selectInstance(id, tab = 'status', componentId = null) {
-  state.selected = id; state.topology = null; state.topologyUnavailable = false; state.logs = null; state.logsRequest++; state.detailStamp = ''; state.headingStamp = ''; state.topologyStamp = '';
-  state.logSelection = componentId ?? 'all';
-  changeTab(tab, false); navigate('detail');
-  try { const result = await api(endpoint(id)); replaceInstance(result.instance); renderDetail(true); if (tab === 'logs') await loadLogs(id); else if (tab === 'status') await loadTopology(id); }
-  catch (error) { toast(error.message); }
-}
-function changeTab(tab, updateHash = true) {
-  state.tab = tab;
-  $('#detail-content').setAttribute('aria-labelledby', `tab-${tab}`);
-  for (const button of document.querySelectorAll('[data-tab]')) { const selected = button.dataset.tab === tab; button.setAttribute('aria-selected', String(selected)); button.tabIndex = selected ? 0 : -1; }
-  renderDetail(true);
-  if (updateHash) { recordRoute(); if (tab === 'logs') void loadLogs(state.selected, true); if (tab === 'status') void loadTopology(state.selected, true); }
-  if (tab === 'storage') advanced?.loadStorage(state.selected);
-}
-function invalidateChangedRun(instance) {
-  const previous = state.instances.find(item => idOf(item) === idOf(instance));
-  if (state.selected === idOf(instance) && previous?.status?.runId !== instance.status?.runId) {
-    state.logs = null; state.logsRequest++; state.topology = null; state.topologyUnavailable = false; state.topologyStamp = '';
-  }
-}
-function replaceInstance(instance) { invalidateChangedRun(instance); const id = idOf(instance), index = state.instances.findIndex(i => idOf(i) === id); if (index === -1) state.instances.push(instance); else state.instances[index] = instance; }
-
-async function refresh({ explicit = false } = {}) {
-  const refreshBtn = $('#refresh');
-  if (explicit && refreshBtn) {
-    refreshBtn.classList.add('is-spinning');
-    setTimeout(() => refreshBtn.classList.remove('is-spinning'), 600);
-  }
-  if (state.loading || !state.auth?.token) return;
-  state.loading = true;
-  try {
-    const results = await Promise.allSettled([api('/api/instances'), api('/api/hubs')]);
-    if (results[0].status === 'rejected') throw results[0].reason;
-    const instances = results[0].value.instances ?? []; instances.forEach(invalidateChangedRun); state.instances = instances;
-    if (results[1].status === 'fulfilled') { state.hubs = results[1].value.hubs ?? []; state.hubsObservedAt = new Date().toISOString(); state.hubsUnavailable = false; }
-    else { state.hubsUnavailable = true; if (explicit) toast(results[1].reason.message); }
-    state.online = true; state.lastRefresh = new Date().toISOString(); showNotice('#connection-notice', state.returnNotice, state.returnNotice ? 'warning' : ''); renderAll(explicit); void tasks?.check?.();
-    if (state.view === 'detail' && state.tab === 'status') {
-      const instance = current(), topologyStamp = JSON.stringify([instance?.status?.runId, instance?.status?.components?.map(c => c.bridges)]);
-      if (topologyStamp !== state.topologyStamp && !state.topologyLoading) { state.topologyStamp = topologyStamp; void loadTopology(state.selected); }
+async function fetchModule(entry) {
+  const observed = state.sourceIndex;
+  review({
+    title: observed.offline ? say('检查缓存制品并接入', 'Inspect cached artifact & connect') : say('审阅模块下载并接入', 'Review module download & connect'),
+    data: { title: title(entry), entryId: entry.entryId, version: entry.version, license: entry.license, sha256: entry.sha256, sourceId: observed.sourceId, source: observed.source },
+    message: observed.offline
+      ? say('来源不可用。本次仅请求后端重新核验已有缓存的完整性，核验后将直接引导接入世界枢纽。', 'The source is unavailable. Rechecking existing cache integrity before guiding connection to World Hub.')
+      : say('下载并核验模块制品到本机缓存，核验后将直接引导接入世界枢纽。', 'Download and verify module into local cache, then directly guide connection to World Hub.'),
+    apply: async () => {
+      const fresh = await api('/api/sources/inspect', { sourceId: observed.sourceId }), current = fresh.index.entries.find(row => sameSourceArtifact(entry, row));
+      if (!current || !canAcquireSourceModule(fresh, current)) throw new Error(say('来源制品已改变或没有可核验缓存，请重新选择并审阅。', 'The source artifact changed or no cache is available for verification. Select and review again.'));
+      const result = await operation(await api('/api/sources/fetch', sourceFetchInput(fresh, current)));
+      state.sourceIndex = fresh; state.sourceError = null;
+      await refresh();
+      toast(say('模块已下载，正在准备接入…', 'Module downloaded, preparing connection…'));
+      if (result.directory) {
+        await registerModule(result.directory);
+      }
+      return result;
     }
-  } catch (error) { state.online = false; state.topologyUnavailable = true; showNotice('#connection-notice', `${t('observationUnknown')} ${error.message}`); renderAll(true); }
-  finally { state.loading = false; updateConnectionState(); }
+  });
 }
-async function loadTopology(id, explicit = false) {
-  const instance = current(); if (!id || !instance?.status?.runId || !running(instance)) return;
-  const runId = instance.status.runId;
-  if (state.topologyLoading) return;
-  state.topologyLoading = true;
-  try {
-    const data = await api(`${endpoint(id, 'topology')}?runId=${encodeURIComponent(runId)}`);
-    if (state.selected !== id || current()?.status?.runId !== data.topology?.runId) return;
-    state.topology = data.topology; state.topologyUnavailable = false; renderDetail(true);
-  } catch (error) { if (state.selected === id && current()?.status?.runId === runId) { state.topologyUnavailable = true; state.topologyStamp = ''; renderDetail(true); if (explicit) toast(error.message); } }
-  finally { state.topologyLoading = false; }
+function addSource() {
+  const name = input('sourceName'), source = input('source', '', { 'data-path-purpose': 'source' }), pin = input('expectedSha256'), privateNetwork = input('privateNetwork', '', { type: 'checkbox' });
+  const node = dialog(say('添加下载源', 'Add download source'), [field(say('名称', 'Name'), name), field(say('索引地址或本机索引文件', 'Index URL or local index file'), source), field(say('索引 SHA-256（可选）', 'Index SHA-256 (optional)'), pin), el('label', { class: 'sh-check' }, [privateNetwork, el('span', {}, say('信任此来源的私网或 DNS 代理连接', 'Trust private network or DNS proxy connections for this source'))])]);
+  node.append(actions([button(say('保存来源', 'Save source'), () => run(async () => { const result = await api('/api/sources/save', { name: name.value.trim(), source: source.value.trim(), enabled: true, priority: 0, allowPrivateNetwork: privateNetwork.checked, ...(pin.value.trim() ? { expectedSha256: pin.value.trim() } : {}) }); node.close(); await refresh(); await inspectSource(result.source?.id ?? state.sources.at(-1)?.id); }), 'button button-primary')]));
 }
-async function loadLogs(id, explicit = false) {
-  if (!id) return;
-  const runId = state.instances.find(instance => idOf(instance) === id)?.status?.runId, request = ++state.logsRequest;
-  try { const data = await api(endpoint(id, 'logs')); if (request !== state.logsRequest || state.selected !== id || current()?.status?.runId !== runId || data.logs?.instanceId !== id || data.logs?.runId !== runId) return; state.logs = data.logs; renderDetail(true); }
-  catch (error) { if (explicit) toast(error.message); }
+function sources() {
+  const selector = el('select', { 'aria-label': say('下载来源', 'Download source') }, [el('option', { value: '' }, say('选择来源', 'Choose a source')), ...state.sources.map(row => el('option', { value: row.id, disabled: row.enabled === false }, row.name))]); selector.value = state.sourceId ?? ''; selector.addEventListener('change', () => { state.sourceIndex = null; state.sourceError = null; state.sourceId = selector.value; void run(() => inspectSource()); });
+  const entries = (state.sourceIndex?.index?.entries ?? []).filter(row => row.kind === 'module').map(row => ({ ...row, sourceId: state.sourceIndex.sourceId, source: state.sourceIndex.source, indexDigest: state.sourceIndex.digest }));
+  return [
+    el('section', { class: 'panel' }, [
+      field(say('下载来源', 'Download source'), selector),
+      actions([
+        button(say('刷新索引', 'Refresh index'), () => inspectSource(), 'button button-primary', !state.sourceId),
+        button(say('管理来源', 'Manage sources'), manageSources, 'button button-quiet'),
+        button(say('添加下载源', 'Add source'), addSource, 'button button-quiet'),
+        ...(!state.sources.some(row => row.source === 'https://peros.cn/workshop/index.json') ? [
+          button(say('添加官方来源', 'Add official source'), () => run(async () => {
+            const result = await api('/api/sources/save', { name: say('官方模块社区', 'Official module community'), source: 'https://peros.cn/workshop/index.json', enabled: true, priority: 0, allowPrivateNetwork: false });
+            await refresh(); await inspectSource(result.source.id);
+          }), 'button button-quiet')
+        ] : [])
+      ]),
+      state.sourceError ? el('p', { role: 'alert', class: 'notice notice-error' }, state.sourceError) : null,
+      state.sourceIndex?.offline ? el('p', { role: 'status', class: 'notice notice-warning' }, say('来源当前不可用，显示上次索引观察。仅可请求后台重新核验已有缓存；存在标记不表示缓存已通过核验，也不会沿用执行授权。', 'The source is unavailable. Showing its last index observation. Only existing cache may be requested for fresh backend integrity verification. A presence flag is not verification, and execution authorization is never reused.')) : null
+    ]),
+    entries.length ? el('div', { class: 'sh-card-grid' }, groupAssets(entries, { mode: 'source', kind: 'module' }).map(group => { const chosen = sourceSelection.get(group); return el('article', { class: 'panel sh-module-card' }, [el('h2', {}, title(chosen.row)), el('p', { class: 'mono' }, group.id), renderAssetVersionSelector({ el, say }, group, sourceSelection, { onChange: renderView }), info(chosen.row.description ? title({ title: chosen.row.description }) : ''), info(`SHA-256 ${chosen.sha256}`), button(state.sourceIndex?.offline ? chosen.row.cached ? say('检查缓存并接入', 'Verify cache & connect') : say('无可用缓存', 'No available cache') : say('下载并接入', 'Download & connect'), () => fetchModule(sourceSelection.get(group).row), 'button button-primary', Boolean(state.sourceError) || !canAcquireSourceModule(state.sourceIndex, chosen.row))]); })) : empty(say('选择下载来源并刷新索引。', 'Select a source and refresh its index.'))];
+}
+function manageSources() { dialog(say('下载来源', 'Download sources'), state.sources.map(row => el('section', { class: 'panel' }, [el('h3', {}, row.name), info(row.source), info(`${say('网络策略', 'Network policy')}: ${row.allowPrivateNetwork ? say('可信私网／DNS 代理', 'Trusted private network / DNS proxy') : say('公共网络', 'Public network')}`), actions([button(row.enabled === false ? say('启用', 'Enable') : say('暂停', 'Disable'), async () => { await api('/api/sources/save', { ...Object.fromEntries(['id', 'name', 'source', 'enabled', 'priority', 'expectedSha256', 'allowPrivateNetwork', 'revision'].filter(key => row[key] !== undefined).map(key => [key, row[key]])), enabled: row.enabled === false }); await refresh(); toast(say('来源已更新。', 'Source updated.')); }, 'button button-quiet'), button(say('移除来源', 'Remove source'), () => confirm({ title: say('移除下载来源', 'Remove download source'), message: row.source, action: async () => { await api(`/api/sources/${encodeURIComponent(row.id)}/delete`, {}); if (state.sourceId === row.id) { state.sourceId = null; state.sourceIndex = null; } await refresh(); } }), 'button button-quiet')])]))); }
+function environment() {
+  if (!environmentForm) {
+    const nodePath = input('nodePath', state.session?.defaults?.nodePath ?? '', { 'data-path-purpose': 'executable' }), pythonPath = input('pythonPath', state.session?.defaults?.pythonPath ?? '', { 'data-path-purpose': 'executable' }), result = el('div');
+    const discover = async () => { const data = await api('/api/paths/known'); const candidates = data.objects.filter(row => row.kind === 'executable'); result.replaceChildren(...candidates.map(row => button(row.path ?? row, () => { (String(row.path ?? row).toLowerCase().includes('python') ? pythonPath : nodePath).value = row.path ?? row; }, 'button button-quiet'))); if (!candidates.length) result.append(info(say('未发现候选，可使用系统选择器定位解释器。', 'No candidates found. Use the system picker to locate a runtime.'))); };
+    const runProbe = async () => { const data = await api('/api/environment', { ...(nodePath.value.trim() ? { nodePath: nodePath.value.trim() } : {}), ...(pythonPath.value.trim() ? { pythonPath: pythonPath.value.trim() } : {}) }); state.environment = data; result.replaceChildren(details(say('固定解释器探针结果', 'Fixed interpreter probe results'), data)); };
+    const directory = input('moduleDirectory', '', { 'data-path-purpose': 'module' });
+    const dependencies = button(say('检查模块依赖声明', 'Inspect module dependency declaration'), () => run(async () => { const found = await api('/api/deployment/inspect', { directory: directory.value.trim() }); result.replaceChildren(details(say('已锁定的依赖声明', 'Locked dependency declaration'), found.deploymentReview?.dependencies ?? null)); }), 'button button-primary');
+    environmentForm = el('div', {}, [el('section', { class: 'panel' }, [el('h2', {}, say('解释器与环境探针', 'Runtimes and environment probes')), el('div', { class: 'sh-editor-grid' }, [field(say('Node.js（留空使用 Launcher 的 Node.js）', 'Node.js (leave blank to use Launcher runtime)'), nodePath), field(say('Python（留空从 PATH 检测）', 'Python (leave blank to detect on PATH)'), pythonPath)]), actions([button(say('运行固定探针', 'Run fixed probes'), () => run(runProbe), 'button button-primary'), button(say('发现解释器', 'Discover runtimes'), () => run(discover), 'button button-quiet')]), result]), el('section', { class: 'panel' }, [el('h2', {}, say('模块依赖', 'Module dependencies')), field(say('模块目录', 'Module directory'), directory), info(say('模块依赖在启动审阅中核对并准备；这里仅检查锁定声明，不执行安装。', 'Module dependencies are reviewed and prepared during startup. This page only inspects the locked declaration.')), dependencies]), el('section', { class: 'panel' }, [el('h2', {}, say('执行边界', 'Execution boundary')), info(say('受管模块在可信本机环境执行；通信授权不等于操作系统沙箱。外部程序继续自行管理进程。', 'Managed modules execute in the trusted local environment. Communication authorization is not an OS sandbox. External programs retain process ownership.'))])]);
+  }
+  return [environmentForm];
+}
+function renderTaskTrigger() { const active = state.operations.filter(row => ['queued', 'running'].includes(row.state)).length; $('#tasks').textContent = `${say('任务', 'Tasks')}${active ? ` · ${active}` : ''}`; }
+async function showTasks() {
+  const { operations = [] } = await api('/api/operations'); state.operations = operations; renderTaskTrigger();
+  const content = el('div'), node = dialog(say('任务与操作记录', 'Tasks and operation history'), [content]);
+  const draw = () => content.replaceChildren(...(state.operations.length ? state.operations.map(row => el('section', { class: 'panel' }, [el('h3', {}, `${row.kind} · ${row.state}`), info(date(row.finishedAt ?? row.startedAt)), row.error ? el('p', { class: 'notice notice-error' }, row.error.message) : null, details(say('操作结果', 'Operation result'), row.result ?? {}), ['queued', 'running'].includes(row.state) ? button(say('取消任务', 'Cancel task'), async () => { await api(`/api/operations/${encodeURIComponent(row.id)}/cancel`, {}); toast(say('取消已请求，等待服务端确认清理。', 'Cancellation requested; waiting for confirmed cleanup.')); }, 'button button-quiet') : null])) : [info(say('还没有操作记录。', 'No operation history yet.'))])); draw(); activeTasks = { node, draw }; node.addEventListener('close', () => { activeTasks = null; });
 }
 
-function importIdentity() {
-  const original = $('#import-form').elements.instanceId;
-  let section = $('#import-identity-review');
-  if (!section) {
-    const input = el('input', { name: 'reviewInstanceId', required: true, pattern: '[a-z0-9][a-z0-9._\\-]{0,63}', maxlength: '64', autocomplete: 'off', spellcheck: 'false' });
-    section = el('label', { id: 'import-identity-review', hidden: true }, [el('span', { class: 'identity-review-label' }, t('instanceId')), input]);
-    $('#import-review').before(section);
-    input.addEventListener('input', () => { original.value = input.value; validateIdentity(); });
-  }
-  section.querySelector('input').value = original.value; section.querySelector('span').textContent = t('instanceId');
-  original.disabled = Boolean(state.importReview);
-  return section;
+function moduleCenter() {
+  const tabs = el('div', { class: 'view-subtabs', role: 'tablist', 'aria-label': say('模块中心', 'Module Center') }, [
+    button(say('已接入模块', 'Connected Modules'), () => { moduleSubtab = 'programs'; renderShell(); renderView(); }, `view-subtab${moduleSubtab === 'programs' ? ' is-active' : ''}`),
+    button(say('在线获取', 'Get Modules'), () => { moduleSubtab = 'sources'; renderShell(); renderView(); }, `view-subtab${moduleSubtab === 'sources' ? ' is-active' : ''}`)
+  ]);
+  const content = moduleSubtab === 'sources' ? sources() : programs();
+  return [tabs, ...(Array.isArray(content) ? content : [content])];
 }
-function validateIdentity() {
-  const input = $('#import-form').elements.instanceId, id = input.value.trim(), exists = state.instances.some(i => idOf(i) === id);
-  let note = $('#import-id-hint');
-  if (!note) { note = el('p', { id: 'import-id-hint', class: 'field-help', role: 'status' }); $('#import-error').before(note); }
-  note.textContent = exists ? say('该实例 ID 已存在。换个 ID 后可继续，已完成的来源审阅可保留。', 'This instance ID already exists. Choose another ID to continue; a completed source review can be kept.') : '';
-  input.setAttribute('aria-invalid', String(exists)); $('#import-identity-review')?.querySelector('input').setAttribute('aria-invalid', String(exists));
-  return !exists;
+function communicationCenter() {
+  return environment();
 }
-function suggestIdentity() {
-  const form = $('#import-form'), base = (form.elements.directory.value.split(/[/\\]/).filter(Boolean).at(-1) ?? 'pack').toLowerCase().replace(/[^a-z0-9._-]/g, '-').replace(/^[^a-z0-9]+/, '').slice(0, 50) || 'pack';
-  let id = base, count = 1; while (state.instances.some(i => idOf(i) === id)) id = `${base}-${++count}`;
-  form.elements.instanceId.value = id; return id;
-}
-function openImport(selectedDirectory) {
-  state.importRequest++;
-  state.importReview = null;
-  $('#import-review').hidden = true; $('#import-fields').hidden = false; $('#import-error').hidden = true; $('#import-back').hidden = true;
-  $('#import-submit').textContent = t('checkPackage'); $('#import-submit').disabled = false;
-  $('#step-select').classList.add('active'); $('#step-review').classList.remove('active'); $('#step-create').classList.remove('active');
-  for (const kind of ['nodePath', 'pythonPath']) $('#import-form').elements[kind].value = state.environmentSelection[kind] ?? state.session?.defaults?.[kind] ?? '';
-  const directory = state.session?.defaults?.packDirectory;
-  if (typeof selectedDirectory === 'string') $('#import-form').elements.directory.value = selectedDirectory;
-  if (directory && !$('#import-form').elements.directory.value) $('#import-form').elements.directory.value = directory;
-  if (!$('#import-form').elements.instanceId.value || state.instances.some(i => idOf(i) === $('#import-form').elements.instanceId.value.trim())) suggestIdentity();
-  importIdentity().hidden = true; validateIdentity();
-  $('#import-dialog').showModal();
-}
-function environmentOptions(form) { return Object.fromEntries(['nodePath', 'pythonPath'].map(key => [key, form.elements[key]?.value.trim()]).filter(([, value]) => value)); }
-const reviewExpired = review => Boolean(review?.expiresAt) && (!Number.isFinite(Date.parse(review.expiresAt)) || Date.now() >= Date.parse(review.expiresAt));
-function invalidateExecutionReview(error) {
-  if (state.trustInstanceId) state.reviews.delete(state.trustInstanceId);
-  state.trustReview = null; $('#trust-consent').checked = false; $('#trust-consent').disabled = true; $('#trust-submit').disabled = true;
-  if (error) renderError('#trust-error', error); else showNotice('#trust-error', t('reviewExpired'), 'warning');
-  $('#trust-error').append(button(t('checkAgain'), () => reviewInstance(state.trustInstanceId, state.trustKind), 'button button-small button-primary'));
-}
-async function importSubmit(event) {
-  event.preventDefault(); const form = event.currentTarget, submit = $('#import-submit');
-  if (submit.disabled) return;
-  const request = state.importRequest;
-  $('#import-error').hidden = true; submit.disabled = true;
-  try {
-    if (!validateIdentity()) { const active = state.importReview ? $('#import-identity-review input') : form.elements.instanceId; active.focus(); throw new Error(say('请先选择未使用的实例 ID。', 'Choose an unused instance ID first.')); }
-    if (reviewExpired(state.importReview)) { state.importReview = null; $('#import-review').hidden = true; $('#import-fields').hidden = false; $('#import-back').hidden = true; importIdentity().hidden = true; throw new Error(t('reviewExpired')); }
-    if (!state.importReview) {
-      submit.textContent = t('checking');
-      const data = await api('/api/review', { directory: form.elements.directory.value.trim(), ...environmentOptions(form), ...(state.isolationSelection ? { isolation: state.isolationSelection } : {}) });
-      if (request !== state.importRequest || !$('#import-dialog').open) return;
-      state.importReview = data; $('#import-review').replaceChildren(...reviewView(data, 'import')); $('#import-review').hidden = false; $('#import-fields').hidden = true; $('#import-back').hidden = false;
-      importIdentity().hidden = false;
-      $('#step-review').classList.add('active'); $('#step-create').classList.add('active'); submit.textContent = t('confirmImport');
-    } else {
-      submit.textContent = t('importing');
-      const data = await api('/api/instances', { reviewId: state.importReview.reviewId, instanceId: form.elements.instanceId.value.trim() });
-      const id = idOf(data.instance); state.reviews.set(id, state.importReview); replaceInstance(data.instance); $('#import-dialog').close(); state.importReview = null; renderAll(true); void tasks?.check(); toast(t('importedSuccess', { id })); await selectInstance(id);
-    }
-  } catch (error) { if (request === state.importRequest) { if (['REVIEW_REQUIRED', 'REVIEW_CHANGED'].includes(error.code)) { state.importReview = null; $('#import-review').hidden = true; $('#import-fields').hidden = false; $('#import-back').hidden = true; importIdentity().hidden = true; } if (error.code === 'INSTANCE_EXISTS') validateIdentity(); renderError('#import-error', error); } }
-  finally { if (request === state.importRequest) { submit.disabled = false; submit.textContent = t(state.importReview ? 'confirmImport' : 'checkPackage'); } }
-}
-async function reviewInstance(id, kind) {
-  const instance = state.instances.find(i => idOf(i) === id); if (!instance || operationFor(instance)) return;
-  const request = ++state.trustRequest;
-  state.trustReview = null; state.trustKind = kind; state.trustInstanceId = id; $('#trust-consent').checked = false; $('#trust-consent').disabled = true; $('#trust-submit').disabled = true; $('#trust-error').hidden = true;
-  $('#trust-review').replaceChildren(el('p', { class: 'dialog-description' }, t('checking')));
-  $('#trust-submit').textContent = t(kind === 'restart' ? 'trustAndRestart' : 'trustAndStart');
-  $('.consent').hidden = kind === 'review'; $('#trust-submit').hidden = kind === 'review'; if (!$('#trust-dialog').open) $('#trust-dialog').showModal();
-  try {
-    const selected = Object.keys(state.environmentSelection).length ? state.environmentSelection : instance.environment ?? {};
-    const data = await api(endpoint(id, 'review'), { ...selected, ...(state.isolationSelection ? { isolation: state.isolationSelection } : {}) });
-    if (request !== state.trustRequest || !$('#trust-dialog').open) return;
-    state.reviews.set(id, data); state.trustReview = { ...data, instanceId: id }; $('#trust-consent').disabled = false;
-    $('#trust-review').replaceChildren(...reviewView(data), el('p', { class: 'field-help' }, t('reviewEnvironmentHint'))); renderDetail(true);
-  } catch (error) { if (request !== state.trustRequest) return; $('#trust-review').replaceChildren(el('p', {}, t('envMissing'))); renderError('#trust-error', error); }
-}
-async function authorizeExecution() {
-  const review = state.trustReview;
-  if (!review || !$('#trust-consent').checked) return;
-  if (reviewExpired(review)) { invalidateExecutionReview(); return; }
-  $('#trust-submit').disabled = true; $('#trust-error').hidden = true;
-  try {
-    const data = await api(endpoint(review.instanceId, state.trustKind), { reviewId: review.reviewId, accepted: true });
-    $('#trust-dialog').close(); state.trustReview = null; await followOperation(data.operationId, review.instanceId, state.trustKind);
-  } catch (error) { if (['REVIEW_REQUIRED', 'REVIEW_CHANGED'].includes(error.code) || error.status === 401) invalidateExecutionReview(error); else { renderError('#trust-error', error); $('#trust-submit').disabled = !$('#trust-consent').checked; } }
-}
-async function stopInstance(id) {
-  const instance = state.instances.find(i => idOf(i) === id);
-  if (stopBlocked(instance)) return;
-  try { const data = await api(endpoint(id, 'stop'), {}); await followOperation(data.operationId, id, 'stop'); }
-  catch (error) { toast(error.message); }
-}
-async function hubOperation(kind) {
-  if (state.operations.has('hub:default')) return;
-  try { const data = await api(`/api/hubs/default/${kind}`, {}); await followOperation(data.operationId, 'hub:default', kind); }
-  catch (error) { operationError(error); }
-}
-async function followOperation(operationId, instanceId, kind) {
-  if (!operationId) { await refresh({ explicit: true }); return; }
-  state.operations.set(instanceId, { operationId, kind }); renderAll(true);
-  if (!instanceId.startsWith('hub:') && ['start', 'stop', 'restart'].includes(kind)) toast(t(`${kind}Accepted`, { id: instanceId }));
-  // Lifecycle completion is taken from the operation and refreshed status, never a stored PID.
-  const poll = async () => {
-    try {
-      const data = await api(`/api/operations/${encodeURIComponent(operationId)}`), operation = data.operation;
-      if (operation.state === 'running') { await refresh(); setTimeout(poll, 1000); return; }
-      if (state.operations.get(instanceId)?.operationId === operationId) state.operations.delete(instanceId);
-      if (operation.state === 'failed') operationError(Object.assign(new Error(operation.error?.message ?? t('operationFailed')), operation.error ?? {}));
-      else if (kind === 'export') { toast(t('exportedSuccess', { destination: operation.result?.destination ?? state.exportDestination ?? '—' })); void tasks?.open(); }
-      else if (instanceId === 'hub:default') toast(t(kind === 'start' ? 'defaultHubStarted' : 'defaultHubStopped'));
-      await refresh({ explicit: true });
-      if (state.selected === instanceId) { if (state.tab === 'logs') await loadLogs(instanceId); if (state.tab === 'status') await loadTopology(instanceId); }
-    } catch (error) { if (state.operations.get(instanceId)?.operationId === operationId) state.operations.delete(instanceId); renderAll(true); operationError(error); }
+function renderView() {
+  if (!$('#view-content')) return;
+  const views = {
+    overview: () => { moduleSubtab = 'programs'; return moduleCenter(); },
+    modules: moduleCenter,
+    programs: () => { moduleSubtab = 'programs'; return moduleCenter(); },
+    groups: () => { moduleSubtab = 'programs'; return moduleCenter(); },
+    communication: communicationCenter,
+    workbench: () => [workbench.render()],
+    sources: () => { moduleSubtab = 'sources'; return moduleCenter(); },
+    dynamic: () => { moduleSubtab = 'programs'; moduleCategory = 'ephemeral'; return moduleCenter(); },
+    environment: () => { return communicationCenter(); }
   };
-  void poll();
+  $('#view-content').replaceChildren(...views[state.view]()); paths?.enhance($('#view-content'));
 }
-async function exportSubmit(event) {
-  event.preventDefault(); const form = event.currentTarget, submit = form.querySelector('[type=submit]');
-  if (!state.selected) return; const id = state.selected;
-  submit.disabled = true; $('#export-error').hidden = true;
-  try { state.exportDestination = form.elements.destination.value.trim(); const data = await api(endpoint(id, 'export'), { destination: state.exportDestination }); $('#export-dialog').close(); await followOperation(data.operationId, id, 'export'); }
-  catch (error) { renderError('#export-error', error); }
-  finally { submit.disabled = false; }
-}
-async function detectEnvironment(event) {
-  event?.preventDefault(); const form = $('#environment-form'), submit = form.querySelector('[type=submit]'); submit.disabled = true;
-  const selection = environmentOptions(form);
-  try {
-    state.environment = await api('/api/environment', selection);
-    state.environmentSelection = selection;
-    renderEnvironment();
-    advanced?.renderEnvironmentTools?.();
-    toast(t('detected'));
-  }
-  catch (error) { $('#environment-results').replaceChildren(el('div', { class: 'notice notice-error' }, errorContents(error))); }
-  finally { submit.disabled = false; }
-}
-
-function languageChanged() {
-  applyLanguage(state.language); $('#language').value = state.language;
-  for (const item of document.querySelectorAll('[data-view]')) item.setAttribute('aria-label', ['creator', 'sources'].includes(item.dataset.view) ? advanced.label(item.dataset.view) : t({packs:'my',overview:'overview',hubs:'hubs',workbench:'workbench',environment:'environment'}[item.dataset.view]));
-  $('#theme').title = t('toggleTheme'); $('#theme').setAttribute('aria-label', t('toggleTheme')); $('#navigation').setAttribute('aria-label', t('useNavigation')); $('#creator-navigation').setAttribute('aria-label', t('createNavigation')); $('#system-navigation').setAttribute('aria-label', t('systemNavigation')); $('#search').setAttribute('aria-label', t('searchInstances'));
-  for (const close of document.querySelectorAll('.close-dialog.icon-button')) close.setAttribute('aria-label', t('close'));
-  updateConnectionState();
-  renderAll(true); renderEnvironment();
-  if (state.importReview) { $('#import-review').replaceChildren(...reviewView(state.importReview, 'import')); $('#import-submit').textContent = t('confirmImport'); }
-  if (state.trustReview) { $('#trust-review').replaceChildren(...reviewView(state.trustReview)); $('#trust-submit').textContent = t(state.trustKind === 'restart' ? 'trustAndRestart' : 'trustAndStart'); }
-  advanced?.languageChanged();
-  paths?.languageChanged(); tasks?.languageChanged(); importIdentity(); validateIdentity();
-  const menu = $('#sidebar-menu-toggle'); menu.setAttribute('aria-label', t(menu.getAttribute('aria-expanded') === 'true' ? 'menuClose' : 'menuOpen'));
-  const refreshBtn = $('#refresh'); if (refreshBtn) { refreshBtn.title = t('refresh'); refreshBtn.setAttribute('aria-label', t('refresh')); }
-  $('#breadcrumb').textContent = state.view === 'detail' ? currentTitle(state.selected) : ['sources', 'creator', 'modules', 'templates'].includes(state.view) ? advanced.label(state.view) : t({ packs: 'myPacks', environment: 'environment' }[state.view] ?? 'myPacks');
-  updateNavAndThemeIcons();
-}
-function updateNavAndThemeIcons() {
-  const refreshBtn = $('#refresh');
-  if (refreshBtn && !refreshBtn.querySelector('svg')) refreshBtn.replaceChildren(createIcon('refresh'));
-  const navIcons = { packs: 'packs', modules: 'modules', templates: 'templates', overview: 'overview', hubs: 'hubs', workbench: 'workbench', sources: 'sources', creator: 'creator', environment: 'environment' };
-  for (const item of document.querySelectorAll('.nav-item[data-view]')) {
-    const iconSpan = item.querySelector('.nav-icon');
-    const iconName = navIcons[item.dataset.view];
-    if (iconSpan && iconName && !iconSpan.querySelector('svg')) iconSpan.replaceChildren(createIcon(iconName));
-  }
-  const isLight = document.documentElement.dataset.theme === 'light';
-  const themeBtn = $('#theme');
-  if (themeBtn) themeBtn.replaceChildren(createIcon(isLight ? 'themeDark' : 'themeLight'));
-  for (const closeBtn of document.querySelectorAll('.close-dialog.icon-button')) {
-    if (!closeBtn.querySelector('svg')) closeBtn.replaceChildren(createIcon('close'));
-  }
-  const backBtn = $('#back-to-packs');
-  if (backBtn && !backBtn.querySelector('svg')) {
-    const arrow = backBtn.querySelector('span[aria-hidden=true]');
-    if (arrow) arrow.replaceChildren(createIcon('arrowLeft'));
-  }
-  const searchField = $('.search-field');
-  if (searchField && !searchField.querySelector('svg')) {
-    const searchIcon = searchField.querySelector('span[aria-hidden=true]');
-    if (searchIcon) searchIcon.replaceChildren(createIcon('search'));
-  }
-  const importBtn = document.querySelector('[data-action=import]');
-  if (importBtn && !importBtn.querySelector('svg')) {
-    const plusIcon = importBtn.querySelector('span[aria-hidden=true]');
-    if (plusIcon) plusIcon.replaceChildren(createIcon('plus'));
-  }
-  const detailTabIcons = {
-    'tab-status': 'sparkle',
-    'tab-modules': 'shield',
-    'tab-logs': 'workbench',
-    'tab-storage': 'database',
-    'tab-details': 'inspect'
-  };
-  for (const [id, iconName] of Object.entries(detailTabIcons)) {
-    const tabBtn = $(`#${id}`);
-    const iconSpan = tabBtn?.querySelector('.tab-icon');
-    if (iconSpan && !iconSpan.querySelector('svg')) {
-      iconSpan.replaceChildren(createIcon(iconName));
-    }
-  }
-}
-function initializeEvents() {
-  document.addEventListener('keydown', handleTabKeydown);
-  $('#sidebar-menu-toggle').addEventListener('click', () => { const open = $('#sidebar-menu-toggle').getAttribute('aria-expanded') !== 'true'; $('.sidebar').dataset.menuOpen = String(open); $('#sidebar-menu-toggle').setAttribute('aria-expanded', String(open)); $('#sidebar-menu-toggle').setAttribute('aria-label', t(open ? 'menuClose' : 'menuOpen')); });
-  window.addEventListener('popstate', () => void restoreHistory());
-  for (const item of document.querySelectorAll('[data-view]')) item.addEventListener('click', () => navigate(item.dataset.view));
-  for (const item of document.querySelectorAll('[data-action=import]')) item.addEventListener('click', openImport);
-
-  const importDropdownTrigger = $('#import-dropdown-trigger');
-  const importDropdownMenu = $('#import-dropdown-menu');
-  if (importDropdownTrigger && importDropdownMenu) {
-    importDropdownTrigger.addEventListener('click', (event) => {
-      event.stopPropagation();
-      const isHidden = importDropdownMenu.hidden;
-      importDropdownMenu.hidden = !isHidden;
-      importDropdownTrigger.setAttribute('aria-expanded', String(isHidden));
-    });
-    $('#action-import-new')?.addEventListener('click', () => {
-      importDropdownMenu.hidden = true;
-      importDropdownTrigger.setAttribute('aria-expanded', 'false');
-      openImport();
-    });
-    $('#restore-entry')?.addEventListener('click', () => {
-      importDropdownMenu.hidden = true;
-      importDropdownTrigger.setAttribute('aria-expanded', 'false');
-      advanced?.openRestore?.();
-    });
-    document.addEventListener('click', (event) => {
-      if (!event.target?.closest?.('#import-dropdown-wrap')) {
-        if (!importDropdownMenu.hidden) {
-          importDropdownMenu.hidden = true;
-          importDropdownTrigger.setAttribute('aria-expanded', 'false');
+function renderShell() {
+  document.documentElement.lang = state.language === 'zh' ? 'zh-CN' : 'en'; $('#language').value = state.language;
+  $('#workspace-label').textContent = say('本机模块工作空间', 'Local module workspace'); $('#local-description').textContent = say('世界枢纽 · 模块自由组合', 'World Hub · freely connected modules');
+  $('#connection-state').textContent = state.online ? say('本机会话已连接', 'Local session connected') : say('本机会话未连接', 'Local session offline');
+  const currentNavKey = state.view === 'workbench' ? 'modules' : state.view;
+  const currentSubKey = state.view === 'modules' ? (moduleSubtab === 'groups' ? 'programs' : moduleSubtab) : state.view === 'communication' ? 'environment' : state.view === 'workbench' ? 'programs' : '';
+  const stamp = `${state.language}:${state.view}:${moduleSubtab}:${communicationSubtab}:${workbench?.mode?.()}`;
+  if (navigationStamp !== stamp) {
+    navigationStamp = stamp;
+    const navNodes = [];
+    for (const [key, zh, en, icon, children] of navigation) {
+      const isTopActive = currentNavKey === key;
+      const topBtn = button([createIcon(icon), el('span', {}, say(zh, en))], () => {
+        if (key === 'modules') {
+          if (state.view !== 'modules') moduleSubtab = 'programs';
+          navigate('modules');
+        } else if (key === 'communication') {
+          communicationSubtab = 'environment';
+          navigate('communication');
+        } else {
+          navigate(key);
         }
+      }, `nav-item${isTopActive ? ' active' : ''}`);
+      topBtn.dataset.view = key;
+      if (isTopActive) topBtn.setAttribute('aria-current', 'page');
+      navNodes.push(topBtn);
+
+      if (children && children.length) {
+        const subButtons = children.map(([subKey, subZh, subEn]) => {
+          const isSubActive = isTopActive && currentSubKey === subKey;
+          const subBtn = button([el('span', { class: 'nav-dot' }), el('span', {}, say(subZh, subEn))], () => {
+            if (key === 'modules') {
+              moduleSubtab = subKey;
+              navigate('modules');
+            } else if (key === 'communication') {
+              communicationSubtab = subKey;
+              navigate('communication');
+            }
+          }, `nav-sub-item${isSubActive ? ' active' : ''}`);
+          subBtn.dataset.view = subKey;
+          if (isSubActive) subBtn.setAttribute('aria-current', 'page');
+          return subBtn;
+        });
+        navNodes.push(el('div', { class: 'nav-sub-group' }, subButtons));
       }
-    });
-    document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && !importDropdownMenu.hidden) {
-        importDropdownMenu.hidden = true;
-        importDropdownTrigger.setAttribute('aria-expanded', 'false');
-        importDropdownTrigger.focus();
-      }
-    });
+    }
+    $('#navigation').replaceChildren(...navNodes);
   }
-  $('#packs-workshop-btn')?.addEventListener('click', () => navigate('sources'));
-
-  for (const item of document.querySelectorAll('[data-tab]')) item.addEventListener('click', () => changeTab(item.dataset.tab));
-  $('.detail-tabs').addEventListener('keydown', event => { if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; const tabs = [...document.querySelectorAll('[data-tab]')], index = tabs.findIndex(tab => tab.dataset.tab === state.tab); const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length; event.preventDefault(); changeTab(tabs[next].dataset.tab); tabs[next].focus(); });
-  for (const item of document.querySelectorAll('.close-dialog')) item.addEventListener('click', () => $(`#${item.dataset.dialog}`).close());
-  $('#trust-dialog').addEventListener('close', () => { state.trustRequest++; state.trustReview = null; $('#trust-consent').checked = false; $('#trust-consent').disabled = true; $('#trust-submit').disabled = true; });
-  $('#import-dialog').addEventListener('close', () => { state.importRequest++; });
-  $('#language').addEventListener('change', event => { state.language = event.target.value; try { localStorage.setItem('world-hub.launcher.language', state.language); } catch {} languageChanged(); });
-  $('#theme').addEventListener('click', () => { const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; try { localStorage.setItem('world-hub.launcher.theme', theme); } catch {} updateNavAndThemeIcons(); });
-  $('#refresh').addEventListener('click', () => refresh({ explicit: true })); $('#search').addEventListener('input', renderPacks); $('#back-to-packs').addEventListener('click', () => navigate('packs'));
-  $('#import-form').elements.instanceId.addEventListener('input', validateIdentity);
-  $('#import-form').addEventListener('submit', importSubmit); $('#import-back').addEventListener('click', () => { state.importReview = null; $('#import-review').hidden = true; $('#import-fields').hidden = false; importIdentity().hidden = true; $('#import-back').hidden = true; $('#import-submit').textContent = t('checkPackage'); $('#import-error').hidden = true; $('#step-review').classList.remove('active'); $('#step-create').classList.remove('active'); });
-  $('#trust-consent').addEventListener('change', event => { if (reviewExpired(state.trustReview)) invalidateExecutionReview(); else $('#trust-submit').disabled = !event.target.checked || !state.trustReview; }); $('#trust-submit').addEventListener('click', authorizeExecution); $('#export-form').addEventListener('submit', exportSubmit); $('#environment-form').addEventListener('submit', detectEnvironment);
-  for (const item of document.querySelectorAll('[data-env-tab]')) item.addEventListener('click', () => setEnvironmentTab(item.dataset.envTab));
-  $('.brand').addEventListener('click', event => { event.preventDefault(); navigate('packs'); });
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) void refresh(); });
-}
-
-function handleTabKeydown(event) {
-  if (event.defaultPrevented) return;
-  const selected = event.target?.closest?.('[role="tab"]');
-  const list = selected?.closest('[role="tablist"]');
-  if (!list) return;
-  const vertical = list.getAttribute('aria-orientation') === 'vertical';
-  const previous = vertical ? 'ArrowUp' : 'ArrowLeft', following = vertical ? 'ArrowDown' : 'ArrowRight';
-  if (![previous, following, 'Home', 'End'].includes(event.key)) return;
-  const tabs = [...list.querySelectorAll('[role="tab"]')].filter(tab => tab.closest('[role="tablist"]') === list && !tab.disabled);
-  const index = tabs.indexOf(selected); if (index < 0 || !tabs.length) return;
-  const next = tabs[event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
-    : (index + (event.key === following ? 1 : -1) + tabs.length) % tabs.length];
-  event.preventDefault();
-  next.click();
-  const fresh = next.id ? document.getElementById(next.id) : next;
-  if (fresh?.isConnected !== false) fresh?.focus();
-}
-
-async function resolveReturnHint(hints) {
-  if (!hints.instance) return false;
-  const instance = state.instances.find(i => idOf(i) === hints.instance); if (!instance) { state.returnNotice = t('reviewChanged'); showNotice('#connection-notice', state.returnNotice, 'warning'); return false; }
-  let componentId;
-  // Full bridge hints are validated against the live server mapping; no ownership is inferred from names.
-  if (hints.runId || hints.hubOrigin || hints.bridgeId || hints.session) {
-    try {
-      const data = await api(`${endpoint(hints.instance, 'topology')}?runId=${encodeURIComponent(hints.runId ?? '')}`), topology = data.topology;
-      if (!hints.runId || !hints.hubOrigin || topology.runId !== hints.runId || new URL(topology.hub.url).origin !== hints.hubOrigin) throw new Error(t('staleMeaning'));
-      if (hints.bridgeId || hints.session) {
-        const matched = topology.bridges.find(bridge => bridge.bridgeId === hints.bridgeId && String(bridge.session) === hints.session && bridge.ownership === 'managed');
-        if (!hints.bridgeId || !hints.session || !matched) throw new Error(t('externalUnknown'));
-        componentId = matched.componentId;
-      }
-    } catch (error) { state.returnNotice = error.message; showNotice('#connection-notice', state.returnNotice, 'warning'); return false; }
+  const current = navigation.find(row => row[0] === state.view);
+  let breadcrumbText = current ? say(current[1], current[2]) : '—';
+  if (state.view === 'modules') {
+    const sub = navigation.find(r => r[0] === 'modules')?.[4]?.find(s => s[0] === moduleSubtab);
+    breadcrumbText = `${say('模块中心', 'Module Center')}${sub ? ` / ${say(sub[1], sub[2])}` : ''}`;
+  } else if (state.view === 'communication') {
+    breadcrumbText = say('系统与环境', 'Environment & System');
+  } else if (state.view === 'workbench') {
+    breadcrumbText = ['group', 'global-plan'].includes(workbench?.mode?.()) ? say('启动计划编排', 'Startup plan') : say('实例参数与接线', 'Configuration & wiring');
   }
-  await selectInstance(hints.instance, ['status', 'modules', 'logs', 'storage', 'details'].includes(hints.tab) ? hints.tab : 'status', componentId); return true;
+  $('#breadcrumb').textContent = breadcrumbText;
+  renderTaskTrigger(); renderHub(); renderStats();
 }
-
-async function boot() {
-  const hash = new URLSearchParams(location.hash.slice(1)), launchCode = hash.get('launch');
-  if (launchCode) history.replaceState(null, '', `${location.pathname}${location.search}`);
-  const queries = new URLSearchParams(location.search), hints = Object.fromEntries(queries); hints.tab = location.hash.slice(1);
-  const initialView = ['packs', 'environment', 'sources', 'creator', 'modules', 'templates'].includes(hints.tab) ? hints.tab : 'packs';
-  try { const theme = localStorage.getItem('world-hub.launcher.theme'); if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme; } catch {}
-  try { localStorage.removeItem(sessionKey); } catch { /* Remove credentials persisted by older UI builds. */ }
-  try { state.auth = JSON.parse(sessionStorage.getItem(sessionKey) ?? 'null'); } catch { state.auth = null; }
-  advanced = createAdvancedUi({ state, api, el, button, pill, t, toast, definition, display, date, guidance, errorContents, current, idOf, endpoint, operationFor, exitUnconfirmed, refresh, renderDetail, navigate, changeTab, selectInstance, openImport, replaceInstance, reviewView, createIcon, renderSquareArt, setEnvironmentTab, confirmDialog, openPathPicker: (input, purpose) => paths?.open(input, purpose) });
-  paths = createPathUi({ state, api, el, button, toast });
-  tasks = createTaskUi({ state, api, el, button, toast, date, selectInstance, openImport, openCreator: directory => advanced.openCreator(directory), createIcon });
-  initializeEvents(); languageChanged(); navigate(initialView, false);
+function navigate(view, updateHistory = true, subview = null) {
+  if (view === 'overview' || view === 'programs' || view === 'groups' || view === 'library') {
+    moduleSubtab = 'programs';
+    view = 'modules';
+  } else if (view === 'sources') {
+    moduleSubtab = 'sources';
+    view = 'modules';
+  } else if (view === 'dynamic') {
+    moduleSubtab = 'programs';
+    moduleCategory = 'ephemeral';
+    view = 'modules';
+  } else if (view === 'environment') {
+    communicationSubtab = 'environment';
+    view = 'communication';
+  }
+  if (subview) {
+    if (view === 'modules') moduleSubtab = ['groups', 'library'].includes(subview) ? 'programs' : subview;
+    if (view === 'communication') communicationSubtab = subview;
+  }
+  if (!navigation.some(row => row[0] === view) && view !== 'workbench') {
+    view = 'modules';
+    moduleSubtab = 'programs';
+  }
+  state.view = view;
+  if (updateHistory) history.pushState(null, '', `#${view === 'modules' ? moduleSubtab : view === 'communication' ? 'environment' : view}`);
+  renderShell(); renderView();
+  $('.sidebar')?.classList.remove('is-open'); $('#sidebar-menu-toggle').setAttribute('aria-expanded', 'false');
+}
+async function refresh() {
+  if (refreshing || !state.auth?.token) return;
+  refreshing = true;
   try {
-    if (state.auth?.token) {
-      try {
-        state.session = await api('/api/session');
-        if (state.session.csrfToken) state.auth.csrfToken = state.session.csrfToken;
-      } catch {
-        state.auth = null;
-        try { sessionStorage.removeItem(sessionKey); localStorage.removeItem(sessionKey); } catch {}
-      }
-    }
-    if (!state.auth?.token) {
-      if (!launchCode) throw new Error(t('sessionRequired'));
-      const session = await api('/api/session', { code: launchCode });
-      state.auth = { token: session.token, csrfToken: session.csrfToken };
-      state.session = session;
-    }
-    try { sessionStorage.setItem(sessionKey, JSON.stringify(state.auth)); } catch {}
-    $('#version').textContent = state.session.softwareVersion ? `v${state.session.softwareVersion}` : 'LOCAL';
-    for (const kind of ['nodePath', 'pythonPath']) $('#environment-form').elements[kind].value = state.session.defaults?.[kind] ?? '';
-    advanced.sessionReady(); paths.sessionReady();
-    await refresh({ explicit: true });
-    if (!await resolveReturnHint(hints)) navigate(initialView);
-    setInterval(() => { if (!document.hidden) { if (reviewExpired(state.trustReview)) invalidateExecutionReview(); renderAll(); if (state.auth?.token) void refresh(); } }, 1000);
-  } catch (error) { showNotice('#connection-notice', error.message); updateConnectionState(false); }
+    const previous = JSON.stringify([state.programs, state.groups, state.objects, state.online, state.hubsUnavailable, state.externalInventory]);
+    const results = await Promise.allSettled([api('/api/programs'), api('/api/hubs'), api('/api/groups'), api('/api/paths/known'), api('/api/sources'), api('/api/operations'), api('/api/programs/external')]);
+    const [programData, hubData, groupData, pathData, sourceData, operationData, externalData] = results;
+    if (programData.status === 'fulfilled') state.programs = programData.value.programs ?? [];
+    if (hubData.status === 'fulfilled') { state.hubs = hubData.value.hubs ?? []; state.hubsObservedAt = new Date().toISOString(); state.hubsUnavailable = false; } else state.hubsUnavailable = true;
+    if (groupData.status === 'fulfilled') state.groups = groupData.value.groups ?? [];
+    if (pathData.status === 'fulfilled') state.objects = moduleLibraryRows(pathData.value);
+    if (sourceData.status === 'fulfilled') state.sources = sourceData.value.sources ?? [];
+    if (operationData.status === 'fulfilled') state.operations = operationData.value.operations ?? [];
+    if (externalData.status === 'fulfilled') state.externalInventory = externalData.value ?? null;
+    state.online = programData.status === 'fulfilled' && hubData.status === 'fulfilled';
+    const failure = results.find(result => result.status === 'rejected'); $('#connection-notice').hidden = !failure; $('#connection-notice').textContent = failure ? localizeErrorMessage(failure.reason.message, state.language) : '';
+    renderShell();
+    // Polling never rebuilds open editors, focused filters, source choices or consent dialogs.
+    const changed = previous !== JSON.stringify([state.programs, state.groups, state.objects, state.online, state.hubsUnavailable, state.externalInventory]);
+    if (changed && ['groups', 'modules'].includes(state.view)) renderView();
+    else if (changed && state.view === 'programs' && !$('#view-content input:focus')) renderView();
+    activeTasks?.draw();
+  } finally { refreshing = false; }
 }
-
-void boot();
+async function boot() {
+  const launchCode = new URLSearchParams(location.hash.slice(1)).get('launch'), hashTarget = location.hash.slice(1);
+  const initialView = ['sources', 'environment', 'workbench', 'library', 'programs'].includes(hashTarget) || navigation.some(row => row[0] === hashTarget) ? hashTarget : 'modules';
+  if (launchCode) history.replaceState(null, '', location.pathname + location.search);
+  try { localStorage.removeItem(sessionKey); const theme = localStorage.getItem('world-hub.launcher.theme'); if (['dark', 'light'].includes(theme)) document.documentElement.dataset.theme = theme; state.auth = JSON.parse(sessionStorage.getItem(sessionKey) ?? 'null'); } catch {}
+  const ctx = { state, api, el, button, toast, date, refresh, navigate, title, run, review, confirm, error, stopProgram };
+  paths = createPathUi(ctx); ctx.paths = paths; workbench = createModuleWorkbench(ctx);
+  communication = createGlobalDynamicModulesUi({ ...ctx, openCreatorFromPrograms: () => openWorkbench() });
+  $('#language').addEventListener('change', () => { state.language = $('#language').value === 'en' ? 'en' : 'zh'; try { localStorage.setItem('world-hub.launcher.language', state.language); } catch {} environmentForm = null; paths.languageChanged(); renderShell(); renderView(); });
+  $('#theme').addEventListener('click', () => { document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; try { localStorage.setItem('world-hub.launcher.theme', document.documentElement.dataset.theme); } catch {} });
+  $('#refresh').addEventListener('click', () => void run(async () => { await refresh(); if (state.view === 'workbench') return; renderView(); })); $('#tasks').addEventListener('click', () => void run(showTasks));
+  $('#sidebar-menu-toggle').addEventListener('click', () => { const expanded = $('#sidebar-menu-toggle').getAttribute('aria-expanded') !== 'true'; $('.sidebar').classList.toggle('is-open', expanded); $('#sidebar-menu-toggle').setAttribute('aria-expanded', String(expanded)); });
+  window.addEventListener('popstate', () => navigate(location.hash.slice(1), false)); navigate(initialView, false);
+  try {
+    if (state.auth?.token) try { state.session = await api('/api/session'); state.auth.csrfToken = state.session.csrfToken; } catch { state.auth = null; }
+    if (!state.auth) { if (!launchCode) throw new Error(say('请使用启动器提供的新链接打开页面。', 'Open this page using a fresh link from Launcher.')); state.session = await api('/api/session', { code: launchCode }); state.auth = { token: state.session.token, csrfToken: state.session.csrfToken }; }
+    sessionStorage.setItem(sessionKey, JSON.stringify(state.auth)); $('#version').textContent = `v${state.session.softwareVersion}`; paths.sessionReady(); await refresh(); renderView();
+    setInterval(() => { if (!document.hidden && state.auth?.token) void refresh(); }, 4000);
+  } catch (issue) { state.online = false; $('#connection-notice').textContent = localizeErrorMessage(issue.message, state.language); $('#connection-notice').hidden = false; renderShell(); }
+}
+if (typeof document !== 'undefined' && document.querySelector('#single-hub-app')) void boot();

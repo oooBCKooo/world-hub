@@ -14,3 +14,7 @@
 | [接入操作体验](operations.md) | 草稿、快照顺序、有限等待、筛选、历史状态与回调隔离 |
 
 这些合同不规定外部程序的语言、进程、页面、业务模型或模块桥部署方式。示例约定和测试控制协议也不升级为 Hub 业务接口。验证入口及未执行项的解释见[验证说明](../verification.md)。
+
+Launcher 的当前部署对象为独立模块实例与模块组，一个工作空间使用一个全局 Hub。工具层说明见[Launcher](../ecosystem/launcher.md)、[模块声明](../ecosystem/modules.md)与[直接装配](../ecosystem/launcher-deployment.md)；这些职责不进入 Hub 通信内核。
+
+原整合包、模板、Atomic／Mesh 和整包改装规格已退出当前产品导航，历史文件保留供审计，不再作为当前部署要求。当前通信合同与 SDK 不依赖这些对象。

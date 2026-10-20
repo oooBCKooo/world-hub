@@ -6,11 +6,17 @@ import { instancePath, inspectPackage, copyPackage, safeId } from './package.mjs
 import { ordinaryPath, privateJson, readBounded, relativePath, hash, processPath } from './paths.mjs';
 import { withStoppedInstance, confirmedStopped, backupStoppedInstance, extractBackup, inspectBackup, backupLimits } from './maintenance.mjs';
 import { ownProcess } from './process.mjs';
+import { summarizePack, effectivePackType, effectiveLifecyclePolicy, componentAutostarts } from './pack-paradigms.mjs';
+import { compareCompositionVersions } from './authoring-update.mjs';
+import { inspectStoppedAssemblySave } from './assembly-save.mjs';
 
 const FORMAT = 'world-hub.upgrade-transaction/v1';
 const GROUPS = ['package', 'programs', 'hub', 'instance.json'];
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const TERMINAL = new Set(['committed', 'rolled-back', 'aborted']);
+// Only the dedicated composition entry points may request opaque topology
+// preservation. Generic upgrades retain their provider-defined strict policy.
+const COMPOSITION_OPAQUE = Symbol('composition-opaque-state');
 const fault = (code, message) => Object.assign(new Error(message), { code });
 const exists = async file => { try { await lstat(file); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; } };
 const json = async file => JSON.parse((await readBounded(file, 4 * 1024 * 1024)).toString('utf8'));
@@ -31,7 +37,7 @@ export function compareUpgradePackages(current, candidate) {
     return { module: { id: module.manifest.id, version: module.manifest.version, source: module.source },
       codeSha256: hash(JSON.stringify(module.files)), license: module.manifest.license, contracts: { provides: module.manifest.provides, requires: module.manifest.requires },
       permissions: module.manifest.permissions, bridges: { slots: module.manifest.bridges, grants: component.bridges },
-      dependencies: component.after, platforms: module.manifest.platforms, runtime: { ...module.manifest.runtime,
+      dependencies: component.after, startup: { autostart: component.autostart ?? true, initialStart: componentAutostarts(plan.pack,component), critical: component.critical ?? false }, platforms: module.manifest.platforms, runtime: { ...module.manifest.runtime,
         pin: plan.lock.runtimes[module.manifest.runtime.kind] }, settingsSha256: hash(JSON.stringify(component.settings)), files: module.files };
   };
   const ids = [...new Set([...current.pack.components, ...candidate.pack.components].map(c => c.id))].sort();
@@ -42,17 +48,22 @@ export function compareUpgradePackages(current, candidate) {
     const code = { added: paths.filter(p => !beforeFiles.has(p)), removed: paths.filter(p => !afterFiles.has(p)),
       changed: paths.filter(p => beforeFiles.has(p) && afterFiles.has(p) && beforeFiles.get(p) !== afterFiles.get(p)) };
     const stripFiles = value => { if (!value) return null; const { files, ...visible } = value; return visible; };
-    const dimensions = ['module', 'license', 'contracts', 'permissions', 'bridges', 'dependencies', 'platforms', 'runtime', 'settingsSha256'];
+    const dimensions = ['module', 'license', 'contracts', 'permissions', 'bridges', 'dependencies', 'startup', 'platforms', 'runtime', 'settingsSha256'];
     return { id, change: !before ? 'added' : !after ? 'removed' : same(before, after) ? 'unchanged' : 'changed',
       before: stripFiles(before), after: stripFiles(after), code, changedDimensions: dimensions.filter(key => !same(before?.[key] ?? null, after?.[key] ?? null)) };
   });
   return { format: 'world-hub.upgrade-diff/v1', declarations: 'exact-checked', applicationBehavior: 'not-validated',
-    current: { pack: { id: current.pack.id, version: current.pack.version }, digest: current.digest, hubVersion: current.hubVersion, generatedWithHubVersion: current.lock.hubVersion, hubCompatibility: current.hubCompatibility,
+    current: { pack: summarizePack(current.pack), digest: current.digest, hubVersion: current.hubVersion, generatedWithHubVersion: current.lock.hubVersion, hubCompatibility: current.hubCompatibility,
       platform: current.lock.platform, interpreters: current.environment, runtimes: current.lock.runtimes },
-    candidate: { pack: { id: candidate.pack.id, version: candidate.pack.version }, digest: candidate.digest, hubVersion: candidate.hubVersion, generatedWithHubVersion: candidate.lock.hubVersion, hubCompatibility: candidate.hubCompatibility,
+    candidate: { pack: summarizePack(candidate.pack), digest: candidate.digest, hubVersion: candidate.hubVersion, generatedWithHubVersion: candidate.lock.hubVersion, hubCompatibility: candidate.hubCompatibility,
       platform: candidate.lock.platform, interpreters: candidate.environment, runtimes: candidate.lock.runtimes },
     components, bindings: { changed: !same(current.pack.bindings, candidate.pack.bindings), before: current.pack.bindings, after: candidate.pack.bindings },
     topics: { changed: !same(current.pack.topics, candidate.pack.topics), before: current.pack.topics, after: candidate.pack.topics },
+    startupOrder: { changed: !same(current.order, candidate.order) || !same(current.pack.startupOrder ?? null, candidate.pack.startupOrder ?? null),
+      before: [...current.order], after: [...candidate.order] },
+    lifecycle: { changed: effectivePackType(current.pack)!==effectivePackType(candidate.pack) || effectiveLifecyclePolicy(current.pack)!==effectiveLifecyclePolicy(candidate.pack),
+      before:{packType:effectivePackType(current.pack),lifecyclePolicy:effectiveLifecyclePolicy(current.pack)},
+      after:{packType:effectivePackType(candidate.pack),lifecyclePolicy:effectiveLifecyclePolicy(candidate.pack)} },
     rollbackBoundary };
 }
 function transactionDirectory(directory, transactionId) {
@@ -158,31 +169,87 @@ export function validateUpgradeStatePolicies(current, candidate, supplied) {
   }
   return result.sort((a, b) => a.componentId.localeCompare(b.componentId, 'en'));
 }
+function compositionStatePolicies(current, candidate, actualRoots) {
+  if (current.pack.id !== candidate.pack.id) throw fault('SOURCE_UPDATE_ID_CHANGED', 'An in-place customization retains its pack ID');
+  if (compareCompositionVersions(candidate.pack.version, current.pack.version) <= 0) throw fault('SOURCE_UPDATE_VERSION_REQUIRED', 'Choose a strictly higher customization version');
+  if (current.hubVersion !== candidate.hubVersion) throw fault('UPGRADE_HUB_VERSION', 'Opaque Hub state preservation requires the same installed Hub release');
+  const before = new Set([...current.pack.components.map(component => component.id), ...actualRoots]);
+  const after = new Set(candidate.pack.components.map(component => component.id));
+  return [...new Set([...before, ...after])].sort().map(componentId => ({ componentId,
+    mode: before.has(componentId) ? after.has(componentId) ? 'preserve-opaque' : 'archive-removed' : 'fresh',
+    businessCompatibility: 'not-inferred' }));
+}
+async function customizationStateRoots(directory, current, options, assemblyReview) {
+  const entries = await exists(join(directory, 'programs')) ? await readdir(join(directory, 'programs'), { withFileTypes: true }) : [];
+  if (entries.length > 128) throw fault('UPGRADE_SNAPSHOT_LIMIT', 'Customization state roots exceed the private snapshot bound');
+  const roots = entries.map(entry => {
+    safeId(entry.name, 'program state root');
+    if (!entry.isDirectory() || entry.isSymbolicLink()) throw fault('UPGRADE_STATE_UNKNOWN', 'Program state roots must be ordinary directories');
+    return entry.name;
+  }).sort();
+  const known = new Set(current.pack.components.map(component => component.id));
+  const extra = roots.filter(id => !known.has(id));
+  if (!extra.length || assemblyReview) return roots;
+  // An explicit baseline restore can legitimately leave data for a dynamic
+  // member omitted from its original source. Admit only IDs proven by that
+  // committed restoration's hash-verified source snapshot, never arbitrary
+  // undeclared folders found beside an installed package.
+  const proven = new Set();
+  for (const id of await exists(join(directory, 'upgrades')) ? await readdir(join(directory, 'upgrades')) : []) {
+    const restore = await readJournal(directory, id);
+    if (restore.operation !== 'restore-snapshot' || restore.state !== 'committed' || restore.target.digest !== current.digest || !restore.restoresTransactionId) continue;
+    const source = await readJournal(directory, restore.restoresTransactionId);
+    if (!source.snapshot || source.current.digest !== current.digest) continue;
+    const snapshot = await inspectBackup(join(transactionDirectory(directory, source.transactionId), 'snapshot.whbackup'), options);
+    if (snapshot.sha256 !== source.snapshot.sha256 || !snapshot.compatible || !same(snapshot.pack, summarizePack(current.pack)))
+      throw fault('UPGRADE_SNAPSHOT_CHANGED', 'Restored dynamic state provenance no longer matches its retained source snapshot');
+    for (const root of snapshot.backup.programStateRoots ?? []) proven.add(root);
+  }
+  if (extra.some(id => !proven.has(id))) throw fault('UPGRADE_STATE_UNKNOWN', 'Undeclared state has no retained runtime-restore provenance; preserve and inspect it before customizing');
+  return roots;
+}
 async function upgradePlan(directory, stopped, options) {
   await assertNoIncompleteUpgrades(directory);
   if (await exists(join(directory, 'detached.json'))) throw fault('INSTANCE_DETACHED', 'Reattach and review this instance before in-place upgrade');
   const current = await inspectPackage(join(directory, 'package'), options), candidate = await inspectPackage(options.candidate, options);
+  if (options[COMPOSITION_OPAQUE] === true && options.expectedCurrentDigest !== undefined && current.digest !== options.expectedCurrentDigest)
+    throw fault('UPGRADE_CHANGED', 'Installed source changed while preparing this customization; reload it before review');
   if (stopped.identity.hubVersion !== current.hubVersion) throw fault('INSTANCE_HUB_STATE_VERSION', 'Hub state belongs to another or unknown installed release; state migration must be explicit.');
   if (stopped.identity.digest !== current.digest) throw fault('UPGRADE_CHANGED', 'Current instance identity differs from its package/environment review');
-  const statePolicies = validateUpgradeStatePolicies(current, candidate, options.statePolicies);
-  await checkStateRoots(directory, current.pack);
+  const composition = options[COMPOSITION_OPAQUE] === true;
+  const assemblyReview = composition && options.compositionOrigin ? await inspectStoppedAssemblySave(directory, stopped,
+    { ...options, origin: options.compositionOrigin, opaque: true }) : null;
+  if (assemblyReview && options.assemblyReviewDigest && assemblyReview.digest !== options.assemblyReviewDigest)
+    throw fault('ASSEMBLY_SAVE_CHANGED', 'The stopped run, state policies or runtime composition changed after review');
+  const actualRoots = composition ? await customizationStateRoots(directory, current, options, assemblyReview) : null;
+  const statePolicies = composition ? compositionStatePolicies(current, candidate, actualRoots) : validateUpgradeStatePolicies(current, candidate, options.statePolicies);
+  await checkStateRoots(directory, composition ? { components: actualRoots.map(id => ({ id })) } : current.pack);
   const snapshot = await instanceSignature(directory, options.signal);
   const trustDigest = hash(JSON.stringify({ operation: 'upgrade', instanceId: options.instanceId, stateDir: directory, current: current.digest, candidate: candidate.digest,
-    candidateDirectory: candidate.directory, statePolicies, snapshot: snapshot.digest }));
+    candidateDirectory: candidate.directory, statePolicies, snapshot: snapshot.digest, assemblyReviewDigest: assemblyReview?.digest ?? null,
+    preservationMode: composition ? 'composition-opaque' : 'provider-defined' }));
   const createdAt = new Date().toISOString();
   return { format: 'world-hub.upgrade-preview/v1', instanceId: options.instanceId, trustDigest, createdAt,
-    expiresAt: new Date(Date.now() + 10 * 60000).toISOString(), current: { digest: current.digest, pack: { id: current.pack.id, version: current.pack.version } },
-    candidate: { digest: candidate.digest, directory: candidate.directory, pack: { id: candidate.pack.id, version: candidate.pack.version }, permissions: candidate.permissions },
+    expiresAt: new Date(Date.now() + 10 * 60000).toISOString(), current: { digest: current.digest, pack: summarizePack(current.pack) },
+    candidate: { digest: candidate.digest, directory: candidate.directory, pack: summarizePack(candidate.pack), permissions: candidate.permissions },
     statePolicies, snapshot: { digest: snapshot.digest, files: snapshot.files, bytes: snapshot.bytes },
     hubDataPolicy: 'preserve-exact-installed-version', startsModules: false, runsMigrations: statePolicies.some(p => p.mode === 'migrate'), sandbox: false,
-    fullDataRollbackRequiresNewReview: true, diff: compareUpgradePackages(current, candidate), stateCompatibility: 'provider-declared-not-business-validated',
-    rollbackBoundary, _current: current, _candidate: candidate, _snapshot: snapshot };
+    fullDataRollbackRequiresNewReview: true, diff: compareUpgradePackages(current, candidate),
+    preservationMode: composition ? 'composition-opaque' : 'provider-defined',
+    ...(assemblyReview ? { assemblyReviewDigest: assemblyReview.digest, origin: assemblyReview.origin,
+      retained: assemblyReview.retained, fresh: assemblyReview.fresh, archived: assemblyReview.archived,
+      beforeVersion: assemblyReview.beforeVersion, afterVersion: assemblyReview.afterVersion } : {}),
+    stateCompatibility: composition ? 'opaque-bytes-preserved-business-not-validated' : 'provider-declared-not-business-validated',
+    rollbackBoundary, _current: current, _candidate: candidate, _snapshot: snapshot,
+    _snapshotProgramStateRoots: actualRoots };
 }
-const publicPlan = ({ _current, _candidate, _snapshot, ...plan }) => plan;
+const publicPlan = ({ _current, _candidate, _snapshot, _snapshotProgramStateRoots, ...plan }) => plan;
 /** Read-only plan. Confirmation is an exact digest of software, policy, data and last run. */
 export async function previewUpgrade(options) {
   return withStoppedInstance(options, async (directory, stopped) => publicPlan(await upgradePlan(directory, stopped, options)));
 }
+export const previewCustomizationUpgrade = options => previewUpgrade({ ...options, [COMPOSITION_OPAQUE]: true });
+export const customizeInstance = options => upgradeInstance({ ...options, [COMPOSITION_OPAQUE]: true });
 /** Runtime calls this before start; deleting an owner lock never legitimizes a half transaction. */
 export async function assertNoIncompleteUpgrades(directory) {
   if (!await exists(join(directory, 'upgrades'))) return;
@@ -205,6 +272,14 @@ async function materializeCandidate(directory, journal, candidate, options) {
   await copyPackage(candidate, join(stage, 'package'));
   if ((await inspectPackage(join(stage, 'package'), options)).digest !== candidate.digest) throw fault('UPGRADE_CHANGED', 'Candidate changed while copying');
   for (const name of ['programs', 'hub']) if (await exists(join(transaction, 'snapshot', name))) await rename(join(transaction, 'snapshot', name), join(stage, name));
+  // Removed roots remain in the transaction archive and original tree; never
+  // leave them undeclared under the new live programs directory.
+  for (const policy of journal.statePolicies) {
+    if (policy.mode === 'archive-removed' && await exists(join(stage, 'programs', policy.componentId))) {
+      await mkdir(join(transaction, 'removed-programs'), { recursive: true, mode: 0o700 });
+      await rename(join(stage, 'programs', policy.componentId), join(transaction, 'removed-programs', policy.componentId));
+    } else if (policy.mode === 'fresh') await mkdir(join(stage, 'programs', policy.componentId), { recursive: true, mode: 0o700 });
+  }
   await privateJson(join(stage, 'instance.json'), { ...journal.identity, digest: candidate.digest, upgradedAt: new Date().toISOString(), upgradeTransactionId: journal.transactionId }, { exclusive: true });
   const immutable = { package: await signature(join(stage, 'package'), options.signal), hub: await signature(join(stage, 'hub'), options.signal) };
   for (const policy of journal.statePolicies.filter(p => p.mode === 'migrate')) {
@@ -295,10 +370,12 @@ export async function upgradeInstance(options) {
     await mkdir(transaction, { recursive: true, mode: 0o700 });
     const journal = { format: FORMAT, transactionId, instanceId: options.instanceId, state: 'preparing', createdAt: new Date().toISOString(),
       reviewDigest: reviewed.trustDigest, current: reviewed.current, target: reviewed.candidate, identity: stopped.identity, statePolicies: reviewed.statePolicies,
+      operation: options[COMPOSITION_OPAQUE] === true ? 'customization' : 'upgrade', preservationMode: reviewed.preservationMode,
       before: reviewed._snapshot, snapshot: null, migrationOwner: null, steps: GROUPS.map(name => ({ name, before: reviewed._snapshot.groups[name], next: null, phase: 'pending' })) };
     await writeJournal(directory, journal);
     try {
-      const snapshot = await backupStoppedInstance(directory, stopped, { ...options, maintenanceTransactionId: transactionId, destination: join(transaction, 'snapshot.whbackup') });
+      const snapshot = await backupStoppedInstance(directory, stopped, { ...options, maintenanceTransactionId: transactionId, destination: join(transaction, 'snapshot.whbackup'),
+        ...(reviewed._snapshotProgramStateRoots ? { snapshotProgramStateRoots: reviewed._snapshotProgramStateRoots } : {}) });
       journal.snapshot = { sha256: snapshot.sha256, files: snapshot.files, bytes: snapshot.bytes }; await writeJournal(directory, journal);
       await snapshotConsistent(directory, reviewed._snapshot, options.signal);
       await materializeCandidate(directory, journal, reviewed._candidate, options);
@@ -307,7 +384,7 @@ export async function upgradeInstance(options) {
       return { format: 'world-hub.upgrade-result/v1', instanceId: options.instanceId, transactionId, stateDir: directory,
         digest: reviewed._candidate.digest, plan: reviewed._candidate, state: 'committed', snapshot: journal.snapshot,
         private: true, startsModules: false, requiresNewExecutionReview: true, sandbox: false, rollbackBoundary,
-        stateCompatibility: journal.statePolicies.some(p => p.mode === 'migrate') ? 'migration-completed-business-validation-pending' : 'provider-declared-not-business-validated' };
+        stateCompatibility: options[COMPOSITION_OPAQUE] === true ? 'opaque-bytes-preserved-business-not-validated' : journal.statePolicies.some(p => p.mode === 'migrate') ? 'migration-completed-business-validation-pending' : 'provider-declared-not-business-validated' };
     } catch (error) {
       journal.error = { code: error.code ?? 'UPGRADE_FAILED', message: String(error.message).slice(0, 1024) };
       if (error.retainMaintenanceOwner) { await writeJournal(directory, journal); throw Object.assign(error, { transactionId }); }
@@ -336,6 +413,8 @@ async function rollbackPlan(directory, options, ownsPreviewLock = false) {
   const owner = recoveryRequired ? await ownerSnapshot(directory, options.transactionId) : null;
   if (!recoveryRequired && !ownsPreviewLock && await exists(join(directory, 'owner.lock'))) throw fault('INSTANCE_LOCKED', 'Stop the current owner before reviewing data restoration');
   const actual = await instanceSignature(directory, options.signal);
+  const currentPackage = !recoveryRequired ? await inspectPackage(join(directory, 'package'), options) : null;
+  if (currentPackage && currentPackage.digest !== stopped.identity.digest) throw fault('UPGRADE_CHANGED', 'Installed package differs from its identity before restoration review');
   let snapshot = null;
   if (journal.snapshot) {
     snapshot = await inspectBackup(join(transactionDirectory(directory, options.transactionId), 'snapshot.whbackup'), options);
@@ -346,7 +425,7 @@ async function rollbackPlan(directory, options, ownsPreviewLock = false) {
     journalDigest, current: actual.digest, snapshot: snapshot?.sha256 ?? null, owner }));
   return { format: 'world-hub.upgrade-rollback-preview/v1', instanceId: options.instanceId, transactionId: options.transactionId, trustDigest,
     createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 10 * 60000).toISOString(), recoveryRequired,
-    current: { digest: stopped.identity.digest, lastRunId: stopped.status?.runId ?? null, snapshotDigest: actual.digest, files: actual.files, bytes: actual.bytes },
+    current: { digest: stopped.identity.digest, ...(currentPackage ? { pack: summarizePack(currentPackage.pack) } : {}), lastRunId: stopped.status?.runId ?? null, snapshotDigest: actual.digest, files: actual.files, bytes: actual.bytes },
     restores: journal.current, snapshot: journal.snapshot, preservesLatestData: false, discardsCurrentData: !recoveryRequired,
     latestRunChanged: !same(actual.runtime, journal.after?.runtime ?? journal.before.runtime), startsModules: false, runsMigrations: false,
     sandbox: false, rollbackBoundary, _journal: journal, _journalDigest: journalDigest, _actual: actual, _owner: owner };
@@ -397,12 +476,14 @@ async function rollbackExecution(options, requireRecovery) {
     await mkdir(transaction, { recursive: true, mode: 0o700 });
     const restore = { format: FORMAT, transactionId: restoreId, instanceId: options.instanceId, state: 'preparing', createdAt: new Date().toISOString(),
       operation: 'restore-snapshot', restoresTransactionId: options.transactionId, identity: stopped.identity,
-      current: { digest: stopped.identity.digest, pack: journal.target.pack }, target: journal.current, reviewDigest: plan.trustDigest,
+      current: { digest: stopped.identity.digest, pack: plan.current.pack ?? journal.target.pack }, target: journal.current, reviewDigest: plan.trustDigest,
       before: plan._actual, snapshot: null, statePolicies: [], migrationOwner: null,
       steps: GROUPS.map(name => ({ name, before: plan._actual.groups[name], next: null, phase: 'pending' })) };
     await writeJournal(directory, restore);
     // Preserve latest reviewed data as a separate snapshot before an explicit destructive restore.
-    const latest = await backupStoppedInstance(directory, stopped, { ...options, maintenanceTransactionId: restoreId, destination: join(transaction, 'snapshot.whbackup') });
+    const latestRoots = await exists(join(directory, 'programs')) ? (await readdir(join(directory, 'programs'))).sort() : [];
+    const latest = await backupStoppedInstance(directory, stopped, { ...options, maintenanceTransactionId: restoreId,
+      snapshotProgramStateRoots: latestRoots, destination: join(transaction, 'snapshot.whbackup') });
     restore.snapshot = { sha256: latest.sha256, files: latest.files, bytes: latest.bytes }; await writeJournal(directory, restore);
     try {
       await extractBackup(join(transactionDirectory(directory, options.transactionId), 'snapshot.whbackup'), join(transaction, 'stage'), { signal: options.signal });
@@ -435,8 +516,20 @@ export async function inspectUpgradeHistory(options) {
   const transactions = [];
   for (const id of ids) {
     const journal = await readJournal(directory, id);
+    let restorable = false, snapshotError = null, snapshotPack = null;
+    if (options.verifySnapshots === true && journal.state === 'committed' && journal.snapshot) {
+      try {
+        const snapshot = await inspectBackup(join(transactionDirectory(directory, id), 'snapshot.whbackup'), options);
+        if (snapshot.sha256 !== journal.snapshot.sha256 || !snapshot.compatible) throw fault('UPGRADE_SNAPSHOT_CHANGED', 'Retained snapshot differs from the journal or installed environment');
+        if (!same(snapshot.pack, journal.current.pack)) throw fault('UPGRADE_SNAPSHOT_CHANGED', 'Retained snapshot package differs from the recorded source');
+        snapshotPack = snapshot.pack;
+        restorable = true;
+      } catch (error) { snapshotError = { code: error.code ?? 'UPGRADE_SNAPSHOT_UNAVAILABLE', message: String(error.message).slice(0, 512) }; }
+    }
     transactions.push({ transactionId: id, state: journal.state, createdAt: journal.createdAt, completedAt: journal.completedAt ?? null,
+      operation: journal.operation ?? 'upgrade', ...(journal.restoresTransactionId ? { restoresTransactionId: journal.restoresTransactionId } : {}),
       current: journal.current, target: { digest: journal.target.digest, pack: journal.target.pack }, snapshot: journal.snapshot,
+      ...(options.verifySnapshots === true ? { restorable, snapshotError, snapshotPack } : {}),
       error: journal.error ?? null, private: true, mayIncludeApplicationSecrets: true });
   }
   return { instanceId: options.instanceId, transactions: transactions.sort((a, b) => b.createdAt.localeCompare(a.createdAt, 'en')) };

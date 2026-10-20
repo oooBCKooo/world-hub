@@ -6,6 +6,7 @@ import vm from 'node:vm';
 import { createLauncherServer } from '../../../tools/launcher/server.mjs';
 import { diagnose } from '../../../tools/launcher/diagnostics.mjs';
 import { element } from './ui-dom.mjs';
+import { localizeErrorMessage } from '../../../tools/launcher/public/i18n.mjs';
 import { workspace, fixturePackage, environment, json, save } from './helpers.mjs';
 
 const options = { timeout: 30000, concurrency: false };
@@ -15,6 +16,7 @@ const installedHubVersion = JSON.parse(await readFile(new URL('../../../package.
 function ui(language = 'en') {
   const state = { language }, visits = [];
   const context = vm.createContext({ state, el: element, t: key => key,
+    localizeMsg: value => localizeErrorMessage(value, language),
     say: (zh, en) => language === 'zh' ? zh : en, display: String, date: String,
     button: (title, action, className) => element('button', { type: 'button', class: className, onclick: action }, title),
     pill: title => element('span', {}, title), navigate: view => visits.push(view),

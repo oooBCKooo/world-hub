@@ -4,6 +4,7 @@ import { cp, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { workspace, fixturePackage, environment, json, save, filesBelow } from '../launcher/helpers.mjs';
 import { createLock, inspectAuthoring, previewReplacement, derivePackage } from '../../../scripts/runtime/index.mjs';
+import { previewAddition } from '../../../scripts/runtime/authoring.mjs';
 
 test('PREVIEW-01 replacement checks actual declarations, shared identity and permissions without writing or executing code', { timeout: 45000 }, async t => {
   const app = await workspace(t), directory = await fixturePackage(app);
@@ -60,4 +61,49 @@ test('PREVIEW-02 preview and derivation share bridge, contract and platform chec
   await assert.rejects(derivePackage(directory, { ...environment, destination: join(app.directory, 'denied'), redistributionAcknowledged: true,
     replacements: [{ componentId: 'fixture', moduleDirectory: replacement }] }), /platform is unsupported/);
   assert.equal((await filesBelow(app.directory)).some(path => path.startsWith('denied')), false);
+});
+
+test('PREVIEW-ORDER addition appends to exact order before preflight and derivation/removal preserve independent order without selecting members', { timeout: 45000 }, async t => {
+  const app = await workspace(t), directory = await fixturePackage(app);
+  const initial = await json(join(directory, 'pack.json'));
+  initial.components.push({ ...structuredClone(initial.components[0]), id: 'second' });
+  initial.startupOrder = ['second','fixture'];
+  await save(join(directory, 'pack.json'), initial); await createLock(directory, environment);
+  const original = await inspectAuthoring(directory, environment), candidate = join(app.directory, 'additional');
+  await cp(join(directory, 'modules/fixture'), candidate, { recursive: true });
+  const manifest = await json(join(candidate, 'module.json')); manifest.id = 'test.additional';
+  await save(join(candidate, 'module.json'), manifest);
+  await writeFile(join(candidate, 'program.mjs'), 'throw new Error("Authoring preflight must not execute modules");\n');
+  const component = { ...structuredClone(initial.components[0]), id: 'added', module: manifest.id, after: [], autostart: false };
+  const draft = { ...structuredClone(initial), version: '1.0.1' };
+  const beforePack = await readFile(join(directory, 'pack.json')), beforeLock = await readFile(join(directory, 'pack.lock'));
+  const preview = await previewAddition(directory, { ...environment, expectedRevision: original.revision,
+    componentId: component.id, moduleDirectory: candidate, pack: draft, component });
+  assert.equal(preview.compatible, true); assert.equal(preview.startsModules, false); assert.equal(preview.writesFiles, false);
+  assert.deepEqual(preview.pack.startupOrder, ['second','fixture','added']);
+  assert.equal(preview.component.autostart, false); assert.deepEqual(preview.component.after, []);
+  const repeated = await previewAddition(directory, { ...environment, expectedRevision: original.revision,
+    componentId: component.id, moduleDirectory: candidate, pack: preview.pack, component });
+  assert.deepEqual(repeated.pack.startupOrder, ['second','fixture','added'], 'Rechecking an already present draft candidate does not append it twice');
+  assert.deepEqual(draft.startupOrder, ['second','fixture']); assert.equal(draft.components.length, 2, 'The submitted draft is not mutated');
+  assert.deepEqual(await readFile(join(directory, 'pack.json')), beforePack); assert.deepEqual(await readFile(join(directory, 'pack.lock')), beforeLock);
+  const derived = await derivePackage(directory, { ...environment, destination: join(app.directory, 'derived'),
+    expectedRevision: original.revision, pack: preview.pack, redistributionAcknowledged: true,
+    replacements: [{ componentId: 'added', moduleDirectory: candidate }], reviewedCandidates: [{ componentId: 'added', candidateDigest: preview.candidateDigest }] });
+  assert.deepEqual(derived.pack.startupOrder, ['second','fixture','added']);
+  const removed = structuredClone(derived.pack); removed.version = '1.0.2'; removed.components = removed.components.filter(row => row.id !== 'fixture'); removed.entry.component = 'second';
+  await assert.rejects(derivePackage(derived.directory, { ...environment, destination: join(app.directory, 'invalid-removal'),
+    expectedRevision: derived.revision, pack: removed, redistributionAcknowledged: true }), { code: 'STARTUP_ORDER_INVALID' });
+  removed.startupOrder = removed.startupOrder.filter(id => id !== 'fixture');
+  const final = await derivePackage(derived.directory, { ...environment, destination: join(app.directory, 'removed'),
+    expectedRevision: derived.revision, pack: removed, redistributionAcknowledged: true });
+  assert.deepEqual(final.pack.startupOrder, ['second','added']); assert.equal(final.pack.components.find(row => row.id === 'added').autostart, false);
+  assert.ok(final.pack.components.every(row => row.after.length === 0), 'Exact order never becomes inferred startup dependencies');
+});
+
+test('PREVIEW-ORDER addition refuses an invalid existing exact order rather than silently repairing it', { timeout: 30000 }, async t => {
+  const app = await workspace(t), directory = await fixturePackage(app), original = await inspectAuthoring(directory, environment);
+  const draft = { ...structuredClone(original.pack), startupOrder: ['unknown'] };
+  await assert.rejects(previewAddition(directory, { ...environment, componentId: 'added', moduleDirectory: join(directory, 'modules/fixture'), pack: draft }), { code: 'STARTUP_ORDER_INVALID' });
+  assert.deepEqual(draft.startupOrder, ['unknown']); assert.equal(draft.components.length, 1);
 });

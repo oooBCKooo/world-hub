@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/oooBCKooo/world-hub/docs/ecosystem/module-group.schema.json",
+  "title": "Shareable module group recipe, v1",
+  "$comment": "A module group is external deployment data, not a Hub protocol document. The runtime also validates safe source paths, exact member identities and files, unique member IDs and paths, member platform support, bridge slots, public settings, contract bindings and startup ordering. Those cross-file checks remain authoritative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "id", "version", "title", "license", "platforms", "provides", "requires", "modules", "startupPlan"],
+  "properties": {
+    "format": {"const": "world-hub.module-group/v1"},
+    "id": {"$ref": "#/$defs/id"},
+    "version": {"$ref": "#/$defs/version"},
+    "title": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\u0000\\r\\n]*\\S[^\\u0000\\r\\n]*$"},
+    "license": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^\\u0000\\r\\n]*\\S[^\\u0000\\r\\n]*$"},
+    "platforms": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z0-9]+-[a-z0-9]+$"}},
+    "provides": {"$ref": "#/$defs/contracts"},
+    "requires": {"$ref": "#/$defs/contracts"},
+    "modules": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"$ref": "#/$defs/member"}},
+    "startupPlan": {
+      "type": "object", "additionalProperties": false,
+      "required": ["members", "onFailure", "startupOrder"],
+      "properties": {
+        "members": {
+          "type": "array", "minItems": 1, "maxItems": 128,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["programId", "enabled", "after"],
+            "properties": {
+              "programId": {"$ref": "#/$defs/id"},
+              "enabled": {"type": "boolean"},
+              "after": {"type": "array", "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}
+            }
+          }
+        },
+        "onFailure": {"enum": ["continue-independent", "stop-plan"]},
+        "startupOrder": {"type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}
+      }
+    }
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+    "version": {"type": "string", "maxLength": 128, "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$"},
+    "contract": {
+      "type": "object", "additionalProperties": false, "required": ["id", "version"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^\\u0000]+$"},
+        "version": {"$ref": "#/$defs/version"}
+      }
+    },
+    "contracts": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/contract"}},
+    "member": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "path", "moduleId", "version", "configuration"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "path": {"type": "string", "minLength": 1, "maxLength": 240, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))[^\\\\:\\u0000]+$"},
+        "moduleId": {"$ref": "#/$defs/id"},
+        "version": {"$ref": "#/$defs/version"},
+        "configuration": {
+          "type": "object", "additionalProperties": false,
+          "required": ["topics", "bridges", "settings", "bindings"],
+          "properties": {
+            "topics": {
+              "type": "object", "minProperties": 1, "maxProperties": 64,
+              "propertyNames": {"$ref": "#/$defs/id"},
+              "additionalProperties": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^(?!/)(?!.*//)(?!.*\\/$)[^\\s\\u0000#+]+$"}
+            },
+            "bridges": {
+              "type": "object", "minProperties": 1, "maxProperties": 8,
+              "propertyNames": {"$ref": "#/$defs/id"},
+              "additionalProperties": {
+                "type": "object", "additionalProperties": false, "required": ["publish", "subscribe"],
+                "properties": {"publish": {"$ref": "#/$defs/aliases"}, "subscribe": {"$ref": "#/$defs/aliases"}}
+              }
+            },
+            "settings": {"type": "object", "description": "Public JSON settings, at most 64 KiB encoded. Secrets are forbidden recursively; member deployment declarations constrain types and ranges."},
+            "executionDefaults": {
+              "type": "object", "additionalProperties": false, "required": ["mode"],
+              "description": "Initial execution defaults for new member instances, overriding the embedded module deployment. Existing local policies and caller authorization are retained on update and rollback.",
+              "properties": {
+                "mode": {"enum": ["resident", "on-demand"]},
+                "idleTimeoutMs": {"type": "integer", "minimum": 1000, "maximum": 86400000, "default": 60000}
+              }
+            },
+            "bindings": {
+              "type": "array", "maxItems": 32, "uniqueItems": true,
+              "items": {
+                "type": "object", "additionalProperties": false, "required": ["providerId", "contract"],
+                "properties": {"providerId": {"$ref": "#/$defs/id"}, "contract": {"$ref": "#/$defs/contract"}}
+              }
+            }
+          }
+        }
+      }
+    },
+    "aliases": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}
+  }
+}

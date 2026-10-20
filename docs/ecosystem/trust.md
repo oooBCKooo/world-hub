@@ -16,7 +16,7 @@
 
 ## 公共证据封套 v1
 
-`world-hub.publisher-evidence/v1` 是最大 **256 KiB** 的公共 UTF-8 JSON。证据单独按摘要分发和缓存，不嵌入原始制品。`world-hub/runtime` 已导出纯检查接口：
+`world-hub.publisher-evidence/v1` 是最大 **256 KiB** 的公共 UTF-8 JSON。证据单独按摘要分发和缓存，不嵌入原始制品。共用验签实现使用以下检查形态（不是 npm 的公开 Runtime 导出）：
 
 ```js
 verifyPublisherEvidence({ artifact: {kind, id, version, sha256}, evidenceBytes,
@@ -70,27 +70,11 @@ verifyPublisherEvidence({ artifact: {kind, id, version, sha256}, evidenceBytes,
 
 Launcher 在下一次代码／启动审阅时重新核对已取得作品的证据。身份、撤销或风险状态改变后，旧执行审阅失效，用户需查看当前报告并重新审阅。它不远程杀死已运行程序，也不能撤销已发生的调用、设备动作或数据泄露。
 
-## CLI 和本地审阅
+## 历史 Launcher 审阅接口（已退役）
 
-本机签名是作者的显式操作。`publisher-keygen` 写两个新文件，`publisher-sign` 只在本机读取私钥，输出回执不含私钥。Workshop 和 Launcher 证据接口只接受公共数据。
+当前不分发旧 publisher CLI 或 world-hub/runtime 导出。公共证据格式仍可由作者使用自己的工具生成，不能把私钥提交给管理界面或 Workshop。下表仅记录已退役 Launcher 的接口；当前通信管理界面 `/manage` 不提供这些接口，也不提供旧版兼容入口。
 
-```sh
-world-hub-pack publisher-keygen --private-key new-private.pem --public-key new-public.json
-world-hub-pack publisher-sign --payload payload.json --private-key private.pem --destination signed-public-evidence.json
-world-hub-pack attach-publisher-evidence ./publication --evidence signed-public-evidence.json
-
-world-hub-pack publisher-anchor-plan --root ./local-trust --change anchor-change.json
-world-hub-pack publisher-anchor --root ./local-trust --change anchor-change.json --review-digest <reviewedDigest>
-world-hub-pack publisher-verify --root ./local-trust --evidence signed-public-evidence.json --artifact artifact-identity.json
-world-hub-pack publisher-update-plan --root ./local-trust --evidence control-evidence.json
-world-hub-pack publisher-update --root ./local-trust --evidence control-evidence.json --review-digest <reviewedDigest>
-```
-
-`payload.json` 使用上面的闭合 payload。CLI 的 `artifact-identity.json` 是独立检查实际制品后得到的 `{kind,id,version,sha256}`，不是整个分发制品 JSON。添加锚的变更文件为 `{action:"anchor",issuer,publicKey,role,identityBasis:{type:"public-key-fingerprint",note?}}`；停用用 `{action:"remove-anchor",issuer,keyId}`。轮换签名还须提供 `--second-private-key`。`publisher-verify` 只读；`publisher-update-plan` 绑定准确证据字节、作品身份和当前 revision，`publisher-update` 必须提交对应摘要。默认按离线核对；`--source-status online` 只记录这份证据本次在线取得，不声称查过最新状态。
-
-`world-hub/runtime` 另导出 `readPublisherTrust({root})`、`previewPublisherTrustChange({root,change})`、`applyPublisherTrustChange({root,change,reviewDigest})` 和 `verifyStoredPublisherEvidence({root,artifact,evidenceBytes,observe:false})`。`observe:false` 只读；显式 `observe:true` 仅原子记录有效声明，不自动添加公钥锚。
-
-Launcher 的“发布者公钥与风险证据”页面可读取锚、预览添加／停用，以及审阅公开签名、轮换、撤销和公告文件。作品签名可选实际 `artifact.json`，后端会验证真实字节。本地 HTTP 接口继续使用管理身份和 CSRF 保护：
+历史 Launcher 后台可读取锚、预览添加／停用，以及审阅公开签名、轮换、撤销和公告文件。选择实际 `artifact.json` 时后端验证真实字节；这些历史本地 HTTP 接口使用管理身份和 CSRF 保护：
 
 | 接口 | 输入与行为 |
 | --- | --- |
@@ -100,6 +84,6 @@ Launcher 的“发布者公钥与风险证据”页面可读取锚、预览添�
 | `POST /api/publisher-evidence/preview` | 选择 `{receiptId}`、`{evidencePath,artifactPath?}` 或 `{sourceId或source,indexDigest,entryId}`；只读审阅 |
 | `POST /api/publisher-evidence/observe` | `{previewId,accepted:true}`；证据和当前 revision 未变化时才记录 |
 
-所有信任结果保留 `startsModules:false`、`grantsExecution:false`。这套可选工具不引入中心强制注册、平台证书机构或对程序形态的规定。
+历史接口的信任结果保留 `startsModules:false`、`grantsExecution:false`，没有引入中心强制注册、平台证书机构或对程序形态的规定。
 
-公开[固定验签向量](publisher-vectors.json)与[独立 Python 校验器](publisher-vector-check.py)可用于其他语言实现；校验器的测试依赖是 `cryptography==50.0.0`，产品 Node 验签只用内置 crypto。向量中的固定测试密钥不能用作真实身份信任锚。CLI 的 `--artifact` 是调用者独立核对的 `{kind,id,version,sha256}` JSON；Launcher 的作品文件选择和软件源会实际读取制品并计算这个身份，不把声明自带的摘要当作实际内容验证。
+公开[固定验签向量](publisher-vectors.json)与[独立 Python 校验器](publisher-vector-check.py)仍可用于其他语言实现；校验器的测试依赖是 `cryptography==50.0.0`，共用 Node 验签实现只用内置 crypto。向量中的固定测试密钥不能用作真实身份信任锚。作品身份须由实际制品字节独立核对为 `{kind,id,version,sha256}`，不能把声明自带的摘要当作实际内容验证。历史 Launcher 的作品文件选择和软件源曾执行这项核对；公开向量本身不代表当前管理界面提供上述历史功能。

@@ -1,60 +1,42 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { join, resolve } from 'node:path';
 import { LauncherManager, launcherError } from './manager.mjs';
-import { ordinaryPath, readBounded } from '../../scripts/runtime/paths.mjs';
 import { diagnose } from './diagnostics.mjs';
 import { acquireLauncherOwner, defaultLauncherRoot } from './owner-lock.mjs';
-import { currentHubCompatibility } from '../../scripts/runtime/compatibility.mjs';
 
 const secret = () => randomBytes(32).toString('base64url');
 const equals = (a, b) => typeof a === 'string' && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 function fields(body, allowed, required = []) {
   if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(k => !allowed.includes(k))
     || required.some(k => !Object.hasOwn(body, k))) throw launcherError('INVALID_INPUT', 'Missing or unsupported request fields.', 400);
-  for (const [key, value] of Object.entries(body)) {
-    if (['accepted', 'redistributionAcknowledged', 'allowPrivateNetwork', 'enabled', 'observe'].includes(key)) { if (typeof value !== 'boolean') throw launcherError('INVALID_INPUT', `Invalid ${key}`, 400); }
-    else if (['priority', 'revision', 'offset'].includes(key)) { if (!Number.isSafeInteger(value)) throw launcherError('INVALID_INPUT', `Invalid ${key}`, 400); }
-    else if (key === 'expectedSha256' && value === '') { /* Explicitly clear an optional source pin. */ }
-    else if (['pack', 'component', 'values', 'identity', 'template', 'isolation', 'change', 'user', 'draft','settings','topics','bridges'].includes(key)) { if (!value || typeof value !== 'object' || Array.isArray(value)) throw launcherError('INVALID_INPUT', `Invalid ${key} object`, 400); }
-    else if (['modules','bindings'].includes(key)) {if(!Array.isArray(value)||value.length>(key==='modules'?32:64)||value.some(item=>!item||typeof item!=='object'||Array.isArray(item)))throw launcherError('INVALID_INPUT',`Invalid ${key}`,400);}
-    else if (key === 'statePolicies') { if (!Array.isArray(value) || value.length > 32 || value.some(policy => !policy || typeof policy !== 'object' || Array.isArray(policy))) throw launcherError('INVALID_INPUT', 'Invalid state policies', 400); }
-    else if (key === 'replacements') {
-      if (!Array.isArray(value) || value.length > 32) throw launcherError('INVALID_INPUT', 'Invalid replacements', 400);
-      for (const replacement of value) fields(replacement, ['componentId', 'moduleDirectory'], ['componentId', 'moduleDirectory']);
-    } else if (key === 'reviewedCandidates') {
-      if (!Array.isArray(value) || value.length > 32) throw launcherError('INVALID_INPUT', 'Invalid reviewed candidates', 400);
-      for (const candidate of value) fields(candidate, ['componentId', 'candidateDigest'], ['componentId', 'candidateDigest']);
-    } else if (typeof value !== 'string' || !value.trim() || value.length > 4096 || value.includes('\0')) throw launcherError('INVALID_INPUT', `Invalid ${key}`, 400);
+  for (const [key,value] of Object.entries(body)) {
+    if (['accepted','redistributionAcknowledged','allowPrivateNetwork','enabled','observe'].includes(key)) { if(typeof value!=='boolean')throw launcherError('INVALID_INPUT', 'Invalid '+key,400); }
+    else if (['priority','revision','offset'].includes(key)) { if(!Number.isSafeInteger(value))throw launcherError('INVALID_INPUT','Invalid '+key,400); }
+    else if (key==='expectedSha256'&&value==='') {}
+    else if (['plan','startupPlan','group','settings','topics','bridges','change','origin'].includes(key)) { if(!value||typeof value!=='object'||Array.isArray(value))throw launcherError('INVALID_INPUT','Invalid '+key,400); }
+    else if (key==='bindings') { if(!Array.isArray(value)||value.length>128||value.some(row=>!row||typeof row!=='object'||Array.isArray(row)))throw launcherError('INVALID_INPUT','Invalid bindings',400); }
+    else if (key==='programIds') { if(!Array.isArray(value)||value.length>128||value.some(id=>typeof id!=='string'||!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(id)))throw launcherError('INVALID_INPUT','Invalid program IDs',400); }
+    else if (typeof value!=='string'||!value.trim()||value.length>4096||value.includes('\0'))throw launcherError('INVALID_INPUT','Invalid '+key,400);
   }
 }
-async function bodyOf(request) {
+async function bodyOf(request, limit = 32768) {
   if (!/^application\/json(?:\s*;|$)/i.test(request.headers['content-type'] ?? '')) throw launcherError('JSON_REQUIRED', 'Use application/json.', 415);
   let size = 0; const chunks = [];
-  for await (const chunk of request) { size += chunk.length; if (size > 32768) throw launcherError('BODY_TOO_LARGE', 'JSON body exceeds 32 KiB.', 413); chunks.push(chunk); }
+  for await (const chunk of request) { size += chunk.length; if (size > limit) throw launcherError('BODY_TOO_LARGE', `JSON body exceeds ${limit} bytes.`, 413); chunks.push(chunk); }
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw launcherError('INVALID_JSON', 'Invalid JSON body.', 400); }
-}
-async function requirements(directory) {
-  try {
-    await ordinaryPath(directory);
-    const value = JSON.parse((await readBounded(join(resolve(directory), 'pack.lock'))).toString('utf8'));
-    const short = text => typeof text === 'string' ? text.slice(0, 128) : null;
-    const installedHubVersion = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')).version;
-    return { format: short(value.format), generatedWithHubVersion: short(value.hubVersion), installedHubVersion,
-      hubCompatibility: value.hubCompatibility ? { wireVersion: short(value.hubCompatibility.wireVersion), runtimeApi: short(value.hubCompatibility.runtimeApi) } : null,
-      currentHubCompatibility: currentHubCompatibility(), platform: { os: short(value.platform?.os), arch: short(value.platform?.arch) },
-      runtimes: Object.fromEntries(['node', 'python'].filter(kind => value.runtimes?.[kind]).map(kind => [kind, { version: short(value.runtimes[kind].version),
-        ...(kind === 'python' ? { packages: Object.fromEntries(Object.entries(value.runtimes[kind].packages ?? {}).slice(0, 32).map(([name, version]) => [name.slice(0, 64), short(version)])) } : {}) }])) };
-  } catch { return null; }
 }
 export async function createLauncherServer(options = {}) {
   const owner = await acquireLauncherOwner(options.root ?? defaultLauncherRoot());
   const manager = new LauncherManager({ ...options, root: owner.root });
   try { await manager.initialize(); } catch (error) { await owner.release(); throw error; }
+  let installedHubVersion = null;
+  try {
+    installedHubVersion = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')).version;
+  } catch {}
   const token = secret(), csrfToken = secret(), bootstrapCode = secret(), tokens = new Set([token]); let bootstrapUsed = false, url, closing;
   const context = () => ({ version: 'world-hub.launcher/v1', root: manager.root, defaults: manager.defaults, csrfToken,
-    softwareVersion: options.version ?? null, sandbox: false, ownerRecovery: owner.recovered });
+    softwareVersion: options.version ?? installedHubVersion ?? '0.19.0', sandbox: false, ownerRecovery: owner.recovered });
   const send = (response, status, body) => {
     response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' });
     response.end(JSON.stringify(body));
@@ -70,8 +52,8 @@ export async function createLauncherServer(options = {}) {
       if (['cross-site', 'same-site'].includes(request.headers['sec-fetch-site'])
         && !(document && request.headers['sec-fetch-mode'] === 'navigate' && request.headers['sec-fetch-dest'] === 'document'))
         throw launcherError('LOCAL_ORIGIN_REQUIRED', 'Only same-origin API and resource requests are accepted.', 403);
-      if (request.method === 'GET' && ['/', '/index.html', '/app.mjs', '/advanced.mjs', '/asset-versions.mjs', '/deployment-ui.mjs', '/completion-ui.mjs', '/publisher-ui.mjs', '/isolation-ui.mjs', '/path-ui.mjs', '/task-ui.mjs', '/icons.mjs', '/style.css', '/i18n.mjs'].includes(target.pathname)) {
-        const navigationKeys = document ? ['instance', 'runId', 'hubOrigin', 'bridgeId', 'session'] : [];
+      if (request.method === 'GET' && ["/","/index.html","/app.mjs","/module-workbench.mjs","/asset-versions.mjs","/global-dynamic-modules-tab.mjs","/path-ui.mjs","/icons.mjs","/style.css","/i18n.mjs"].includes(target.pathname)) {
+        const navigationKeys = document ? ['hubOrigin','bridgeId','session'] : [];
         if ([...target.searchParams.keys()].some(key => !navigationKeys.includes(key) || target.searchParams.getAll(key).length !== 1
           || target.searchParams.get(key).length > 4096)) throw launcherError('INVALID_INPUT', 'Unsupported navigation query.', 400);
         const file = target.pathname === '/' ? 'index.html' : target.pathname.slice(1);
@@ -83,125 +65,86 @@ export async function createLauncherServer(options = {}) {
       }
       const authorization = request.headers.authorization;
       const authenticated = typeof authorization === 'string' && [...tokens].some(value => equals(authorization, 'Bearer ' + value));
-      const allowedQuery = target.pathname.endsWith('/topology') ? ['runId'] : [];
+      const allowedQuery = [];
       if ([...target.searchParams.keys()].some(key => !allowedQuery.includes(key) || target.searchParams.getAll(key).length !== 1)) throw launcherError('INVALID_INPUT', 'Unsupported query.', 400);
       if (target.pathname === '/api/session' && request.method === 'POST' && !authenticated) {
         if (request.headers.origin !== url.slice(0, -1)) throw launcherError('LOCAL_ORIGIN_REQUIRED', 'Bootstrap requires the exact Launcher origin.', 403);
         const body = await bodyOf(request); fields(body, ['code'], ['code']);
-        if (bootstrapUsed || !equals(body.code, bootstrapCode)) throw launcherError('BOOTSTRAP_INVALID', 'Launch code is invalid or already used. Open a new Launcher session from its owning terminal.', 401);
-        bootstrapUsed = true; const uiToken = secret(); tokens.add(uiToken); send(response, 200, { ok: true, token: uiToken, ...context() }); return;
+        if (bootstrapUsed || !equals(body.code, bootstrapCode)) throw launcherError('BOOTSTRAP_INVALID', 'Launch code is invalid. Open a new Launcher session from its owning terminal.', 401);
+        bootstrapUsed = true;
+        const uiToken = secret(); tokens.add(uiToken); send(response, 200, { ok: true, token: uiToken, ...context() }); return;
       }
       if (!authenticated) throw launcherError('AUTH_REQUIRED', 'Launcher authorization required.', 401);
       if (request.method !== 'GET' && !equals(request.headers['x-csrf-token'], csrfToken)) throw launcherError('CSRF_REQUIRED', 'Launcher CSRF token required.', 403);
       let body;
-      if (request.method === 'POST') body = await bodyOf(request);
-      let result, status = 200;
-      if (target.pathname === '/api/session' && request.method === 'GET') result = context();
-      else if (target.pathname === '/api/artifacts/import' && request.method === 'POST') { fields(body,['path','kind'],['path','kind']);result=await manager.importArtifact(body); }
-      else if (target.pathname === '/api/deployment/inspect' && request.method === 'POST') { fields(body,['directory'],['directory']);result=await manager.localPrograms.inspect(body.directory); }
-      else if (target.pathname === '/api/compositions/preview' && request.method === 'POST') { fields(body,['id','version','title','license','modules','entry'],['id','modules']);result=await manager.compositionPreview(body); }
-      else if (target.pathname === '/api/compositions/create' && request.method === 'POST') { fields(body,['reviewId','accepted'],['reviewId','accepted']);result=manager.compositionCreate(body);status=202; }
-      else if (target.pathname === '/api/programs' && request.method === 'GET') result={programs:await manager.localPrograms.programs()};
-      else if (target.pathname === '/api/programs/preview' && request.method === 'POST') {fields(body,['programId','directory','settings','topics','bridges','bindings','nodePath','pythonPath'],['programId','directory']);result=await manager.localPrograms.preview(body);}
-      else if (target.pathname === '/api/programs/register' && request.method === 'POST') {fields(body,['reviewId','accepted'],['reviewId','accepted']);result=await manager.localPrograms.register(body);}
-      else if (/^\/api\/programs\/[a-z0-9][a-z0-9._-]{0,63}\/(review|start|stop|logs)$/.test(target.pathname)) {
-        const [,id,action]=target.pathname.match(/^\/api\/programs\/([^/]+)\/(.+)$/);
-        if(action==='logs'&&request.method==='GET')result={logs:await manager.localPrograms.logs(id)};
-        else if(request.method==='POST'){
-          fields(body,action==='start'?['reviewId','accepted']:[],action==='start'?['reviewId','accepted']:[]);
-          if(action==='review')result=await manager.localPrograms.reviewStart(id);
-          else {result=manager.launch('local-'+action,'$local-'+id,(_,signal)=>action==='start'?manager.localPrograms.start(id,{...body,signal}):manager.localPrograms.stop(id));status=202;}
-        } else throw launcherError('NOT_FOUND','Unknown local program action',404);
+      if (request.method === 'POST') body = await bodyOf(request, 1024 * 1024);
+      let result, status=200;
+      const post=request.method==='POST', get=request.method==='GET', pathname=target.pathname;
+      if(pathname==='/api/session'&&get)result=context();
+      else if(pathname==='/api/artifacts/import'&&post){fields(body,['path','kind'],['path','kind']);result=await manager.importArtifact(body);}
+      else if(pathname==='/api/deployment/inspect'&&post){fields(body,['directory'],['directory']);result=await manager.localPrograms.inspect(body.directory);}
+      else if(pathname==='/api/programs'&&get)result=await manager.programOverview();
+      else if(pathname==='/api/programs/topology'&&get)result=await manager.programTopology();
+      else if(pathname==='/api/programs/external'&&get)result=await manager.programExternalOverview();
+      else if(pathname==='/api/programs/external/preview'&&post){if(!body||typeof body!=='object'||Array.isArray(body))throw launcherError('INVALID_INPUT','External communication input must be an object.',400);result=await manager.programExternalPreview(body);}
+      else if(pathname==='/api/programs/external/apply'&&post){fields(body,['reviewId','accepted'],['reviewId','accepted']);result=await manager.programExternalApply(body);}
+      else if(pathname==='/api/programs/startup-plan'&&get)result=await manager.programStartupPlan();
+      else if(pathname==='/api/programs/startup-plan/save'&&post){fields(body,['plan','expectedRevision'],['plan','expectedRevision']);result=await manager.programStartupPlanSave(body);}
+      else if(pathname==='/api/programs/startup-plan/review'&&post){fields(body,[]);result=await manager.programStartupPlanReview();}
+      else if(pathname==='/api/programs/startup-plan/start'&&post){fields(body,['reviewId','accepted'],['reviewId','accepted']);result=manager.programStartupPlanStart(body);status=202;}
+      else if(pathname==='/api/programs/preview'&&post){fields(body,['programId','directory','settings','topics','bridges','bindings','nodePath','pythonPath'],['programId','directory']);result=await manager.localPrograms.preview(body);}
+      else if(pathname==='/api/programs/register'&&post){fields(body,['reviewId','accepted'],['reviewId','accepted']);result=await manager.localPrograms.register(body);}
+      else if(/^\/api\/programs\/[a-z0-9][a-z0-9._-]{0,63}\/configuration\/(preview|apply)$/.test(pathname)&&post){
+        const [,id,action]=pathname.match(/^\/api\/programs\/([^\/]+)\/configuration\/(.+)$/);
+        if(action==='preview'){fields(body,['expectedRevision','directory','settings','topics','bridges','bindings','nodePath','pythonPath'],['expectedRevision']);result=await manager.localPrograms.configurationPreview(id,body);}
+        else{fields(body,['reviewId','accepted'],['reviewId','accepted']);result=await manager.localPrograms.configurationApply(id,body);}
       }
-      else if (target.pathname === '/api/paths/browse' && request.method === 'POST') { fields(body, ['directory', 'purpose', 'offset']); result = await manager.paths.browse(body); }
-      else if (target.pathname === '/api/paths/check' && request.method === 'POST') { fields(body, ['path', 'purpose'], ['path']); result = await manager.paths.check(body); }
-      else if (target.pathname === '/api/paths/known' && request.method === 'GET') result = await manager.paths.known(manager);
-      else if (target.pathname === '/api/paths/remember' && request.method === 'POST') { fields(body, ['path', 'purpose'], ['path']); result = await manager.paths.remember(body); }
-      else if (target.pathname === '/api/paths/discover' && request.method === 'POST') { fields(body, ['directory'], ['directory']); result = manager.discoverPaths(body); status = 202; }
-      else if (target.pathname === '/api/paths/native-pick' && request.method === 'POST') { fields(body, ['purpose', 'initialPath'], ['purpose']); result = await manager.paths.nativePick(body); }
-      else if (target.pathname === '/api/creator-drafts' && request.method === 'GET') result = await manager.creatorDrafts.list();
-      else if (target.pathname === '/api/creator-drafts/save' && request.method === 'POST') { fields(body, ['draft'], ['draft']); result = await manager.creatorDrafts.save(body.draft); }
-      else if (target.pathname === '/api/creator-drafts/delete' && request.method === 'POST') { fields(body, ['directory'], ['directory']); result = await manager.creatorDrafts.delete(body.directory); }
-      else if (target.pathname === '/api/operations' && request.method === 'GET') result = manager.operationList();
-      else if (target.pathname === '/api/environment' && request.method === 'POST') { fields(body, ['nodePath', 'pythonPath']); result = await manager.detect(body); }
-      else if (target.pathname === '/api/isolation/probe' && request.method === 'POST') { fields(body, ['profile', 'dockerPath', 'endpoint', 'setprivPath', 'user']); result = await manager.isolationProbe(body); }
-      else if (target.pathname === '/api/environment/plan' && request.method === 'POST') { fields(body, ['directory', 'nodePath', 'pythonPath'], ['directory']); directory = body.directory; result = await manager.environmentPlan(body); }
-      else if (target.pathname === '/api/environment/prepare' && request.method === 'POST') { fields(body, ['planId', 'accepted'], ['planId', 'accepted']); result = manager.prepareEnvironment(body.planId, body.accepted); status = 202; }
-      else if (target.pathname === '/api/backups/inspect' && request.method === 'POST') { fields(body, ['backup'], ['backup']); result = { inspection: await manager.inspectBackup(body.backup) }; }
-      else if (target.pathname === '/api/backups/restore' && request.method === 'POST') { fields(body, ['backup', 'sha256', 'instanceId', 'nodePath', 'pythonPath', 'accepted'], ['backup', 'sha256', 'instanceId', 'accepted']); result = await manager.restore(body); status = 202; }
-      else if (target.pathname === '/api/templates/builtin' && request.method === 'GET') result = await manager.builtinTemplates();
-      else if (target.pathname === '/api/templates/inspect' && request.method === 'POST') { fields(body, ['directory'], ['directory']); result = await manager.templateInspect(body); }
-      else if (target.pathname === '/api/templates/preview' && request.method === 'POST') { fields(body, ['directory', 'values', 'identity'], ['directory', 'values']); result = await manager.templatePreview(body); }
-      else if (target.pathname === '/api/templates/instantiate' && request.method === 'POST') { fields(body, ['previewId', 'destination', 'redistributionAcknowledged'], ['previewId', 'destination', 'redistributionAcknowledged']); result = manager.templateInstantiate(body); status = 202; }
-      else if (target.pathname === '/api/templates/create' && request.method === 'POST') { fields(body, ['directory', 'template', 'destination', 'redistributionAcknowledged', 'expectedPackSha256'], ['directory', 'template', 'destination', 'redistributionAcknowledged']); result = manager.templateCreate(body); status = 202; }
-      else if (target.pathname === '/api/authoring/inspect' && request.method === 'POST') { fields(body, ['directory', 'nodePath', 'pythonPath'], ['directory']); directory = body.directory; result = { authoring: await manager.authoring(body) }; }
-      else if (target.pathname === '/api/authoring/preview' && request.method === 'POST') { fields(body, ['directory', 'componentId', 'moduleDirectory', 'nodePath', 'pythonPath', 'pack', 'replacements', 'expectedRevision'], ['directory', 'componentId', 'moduleDirectory']); result = { preview: await manager.previewReplacement(body) }; }
-      else if (target.pathname === '/api/authoring/addition-preview' && request.method === 'POST') { fields(body, ['directory', 'componentId', 'moduleDirectory', 'nodePath', 'pythonPath', 'pack', 'component', 'replacements', 'expectedRevision'], ['directory', 'componentId', 'moduleDirectory']); result = { preview: await manager.previewAddition(body) }; }
-      else if (target.pathname === '/api/authoring/read-comments' && request.method === 'POST') { fields(body, ['directory'], ['directory']); result = { comments: await manager.comments(body) }; }
-      else if (/^\/api\/authoring\/(derive|rebuild|proposal|apply-proposal|comments|export-comments|import-comments)$/.test(target.pathname) && request.method === 'POST') {
-        const kind = target.pathname.split('/').at(-1);
-        const allowed = ['directory', 'destination', 'nodePath', 'pythonPath', 'redistributionAcknowledged', 'expectedRevision'];
-        const required = ['directory', 'destination', 'redistributionAcknowledged'];
-        if (['derive', 'proposal'].includes(kind)) { allowed.push('pack', 'replacements', 'reviewedCandidates'); required.push('expectedRevision'); }
-        if (kind === 'apply-proposal') { allowed.push('proposalDirectory'); required.push('proposalDirectory'); }
-        if (kind === 'comments') { allowed.splice(0, allowed.length, 'directory', 'author', 'text', 'expectedRevision'); required.splice(0, required.length, 'directory', 'author', 'text', 'expectedRevision'); }
-        if (kind === 'export-comments') { allowed.splice(0, allowed.length, 'directory', 'destination'); required.splice(0, required.length, 'directory', 'destination'); }
-        if (kind === 'import-comments') { allowed.splice(0, allowed.length, 'directory', 'source', 'expectedRevision'); required.splice(0, required.length, 'directory', 'source', 'expectedRevision'); }
-        fields(body, allowed, required); result = manager.creator(kind === 'comments' ? 'comment' : kind, body); status = 202;
+      else if(/^\/api\/programs\/[a-z0-9][a-z0-9._-]{0,63}\/(review|start|stop|logs|remove)$/.test(pathname)){
+        const [,id,action]=pathname.match(/^\/api\/programs\/([^\/]+)\/(.+)$/);
+        if(action==='logs'&&get)result={logs:await manager.localPrograms.logs(id)};
+        else if(action==='remove'&&post){fields(body,[]);result=await manager.localPrograms.remove(id);}
+        else if(action==='review'&&post){fields(body,[]);result=await manager.localPrograms.reviewStart(id);}
+        else if(['start','stop'].includes(action)&&post){fields(body,action==='start'?['reviewId','accepted']:[],action==='start'?['reviewId','accepted']:[]);result=manager.launch('local-'+action,'$local-'+id,(_,signal)=>action==='start'?manager.localPrograms.start(id,{...body,signal}):manager.localPrograms.stop(id));status=202;}
+        else throw launcherError('NOT_FOUND','Unknown module action',404);
       }
-      else if (target.pathname === '/api/sources' && request.method === 'GET') result = await manager.sources();
-      else if (target.pathname === '/api/publisher-trust' && request.method === 'GET') result = { trust: await manager.publisherTrustState() };
-      else if (target.pathname === '/api/publisher-trust/preview' && request.method === 'POST') { fields(body, ['change'], ['change']); result = await manager.publisherTrustPreview(body.change); }
-      else if (target.pathname === '/api/publisher-trust/apply' && request.method === 'POST') { fields(body, ['change', 'reviewDigest', 'accepted'], ['change', 'reviewDigest', 'accepted']); result = await manager.publisherTrustApply(body); }
-      else if (target.pathname === '/api/publisher-evidence/preview' && request.method === 'POST') { fields(body, ['receiptId', 'evidencePath', 'artifactPath', 'sourceId', 'source', 'indexDigest', 'entryId']); result = await manager.publisherEvidencePreview(body); }
-      else if (target.pathname === '/api/publisher-evidence/observe' && request.method === 'POST') { fields(body, ['previewId', 'accepted'], ['previewId', 'accepted']); result = await manager.publisherEvidenceObserve(body); }
-      else if (['/api/sources', '/api/sources/save'].includes(target.pathname) && request.method === 'POST') { fields(body, ['id', 'name', 'source', 'enabled', 'priority', 'expectedSha256', 'allowPrivateNetwork', 'revision'], ['name', 'source']); result = await manager.saveSource(body); }
-      else if (/^\/api\/sources\/[a-z0-9._-]+\/delete$/.test(target.pathname) && request.method === 'POST') { fields(body, []); result = await manager.deleteSource(target.pathname.split('/').at(-2)); }
-      else if (target.pathname === '/api/sources/inspect' && request.method === 'POST') { fields(body, ['source', 'sourceId', 'expectedSha256', 'allowPrivateNetwork']); if (!body.source && !body.sourceId) throw launcherError('SOURCE_INPUT', 'Select a source.', 400); result = await manager.source(body); }
-      else if (target.pathname === '/api/sources/fetch' && request.method === 'POST') { fields(body, ['source', 'sourceId', 'receiptId', 'indexDigest', 'entryId', 'allowPrivateNetwork'], ['entryId']); if (!body.source && !body.sourceId) throw launcherError('SOURCE_INPUT', 'Select a source.', 400); result = manager.fetchSource(body); status = 202; }
-      else if (target.pathname === '/api/sources/publish' && request.method === 'POST') { fields(body, ['directory', 'destination', 'kind', 'nodePath', 'pythonPath', 'redistributionAcknowledged'], ['directory', 'destination', 'kind', 'redistributionAcknowledged']); result = manager.creator('publish', body); status = 202; }
-      else if (target.pathname === '/api/review' && request.method === 'POST') { fields(body, ['directory', 'nodePath', 'pythonPath', 'isolation'], ['directory']); directory = body.directory; result = await manager.review(directory, body); }
-      else if (target.pathname === '/api/instances' && request.method === 'GET') result = { instances: await manager.instances() };
-      else if (target.pathname === '/api/instances' && request.method === 'POST') { fields(body, ['reviewId', 'instanceId'], ['reviewId', 'instanceId']); result = { instance: await manager.import(body.reviewId, body.instanceId) }; }
-      else if (target.pathname === '/api/hubs' && request.method === 'GET') result = { hubs: await manager.hubs() };
-      else if (/^\/api\/hubs\/default\/(?:start|stop)$/.test(target.pathname) && request.method === 'POST') { fields(body, []); result = manager.defaultHub(target.pathname.split('/').at(-1)); status = 202; }
-      else if (/^\/api\/operations\/[a-f0-9-]+$/.test(target.pathname) && request.method === 'GET') result = { operation: manager.operation(target.pathname.split('/').at(-1)) };
-      else if (/^\/api\/operations\/[a-f0-9-]+\/cancel$/.test(target.pathname) && request.method === 'POST') { fields(body, []); result = { operation: await manager.cancelOperation(target.pathname.split('/').at(-2)) }; }
-      else {
-        const match = /^\/api\/instances\/([a-z0-9][a-z0-9._-]{0,63})(?:\/(review|start|stop|restart|logs|export|topology|storage|backup|detach|reattach|upgrade-plan|upgrade|upgrade-history|staged-upgrade-plan|staged-upgrade|rollback-plan|rollback-upgrade|recover-upgrade|delete))?$/.exec(target.pathname);
-        if (!match) throw launcherError('NOT_FOUND', 'Unknown Launcher operation.', 404);
-        const [, id, action] = match;
-        if (!action && request.method === 'GET') result = { instance: await manager.instance(id) };
-        else if (action === 'delete' && request.method === 'POST') { fields(body, ['accepted'], ['accepted']); result = await manager.deleteInstance(id, body.accepted); }
-        else if (action === 'review' && request.method === 'POST') { fields(body, ['nodePath', 'pythonPath', 'isolation']); directory = join(manager.row(id).root, 'instances', id, 'package'); result = await manager.reviewInstance(id, body); }
-        else if (['start', 'restart'].includes(action) && request.method === 'POST') { fields(body, ['reviewId', 'accepted'], ['reviewId', 'accepted']); result = await manager.start(id, body.reviewId, body.accepted, action === 'restart'); status = 202; }
-        else if (action === 'stop' && request.method === 'POST') { fields(body, []); result = manager.stop(id); status = 202; }
-        else if (action === 'export' && request.method === 'POST') { fields(body, ['destination'], ['destination']); result = manager.export(id, body.destination); status = 202; }
-        else if (action === 'storage' && request.method === 'GET') result = { storage: await manager.storage(id) };
-        else if (action === 'upgrade-history' && request.method === 'GET') result = await manager.upgradeHistory(id);
-        else if (action === 'upgrade-plan' && request.method === 'POST') { fields(body, ['candidate', 'statePolicies'], ['candidate', 'statePolicies']); result = await manager.upgradePreview(id, body); }
-        else if (action === 'staged-upgrade-plan' && request.method === 'POST') { fields(body, ['candidate', 'newInstanceId', 'backupDestination', 'statePolicy', 'statePolicies'], ['candidate', 'newInstanceId', 'backupDestination', 'statePolicy']); result = await manager.stagedUpgradePreview(id, body); }
-        else if (action === 'staged-upgrade' && request.method === 'POST') { fields(body, ['previewId', 'accepted'], ['previewId', 'accepted']); result = await manager.stagedUpgradeExecute(id, body); status = 202; }
-        else if (action === 'rollback-plan' && request.method === 'POST') { fields(body, ['transactionId'], ['transactionId']); result = await manager.rollbackPreview(id, body); }
-        else if (['upgrade', 'rollback-upgrade', 'recover-upgrade'].includes(action) && request.method === 'POST') { fields(body, ['previewId', 'accepted'], ['previewId', 'accepted']); result = await manager.completionExecute(id, action, body); status = 202; }
-        else if (action === 'backup' && request.method === 'POST') { fields(body, ['destination', 'accepted'], ['destination', 'accepted']); result = manager.backup(id, body.destination, body.accepted); status = 202; }
-        else if (action === 'detach' && request.method === 'POST') { fields(body, ['accepted'], ['accepted']); result = manager.detach(id, body.accepted); status = 202; }
-        else if (action === 'reattach' && request.method === 'POST') { fields(body, ['reviewId', 'accepted'], ['reviewId', 'accepted']); result = await manager.reattach(id, body.reviewId, body.accepted); status = 202; }
-        else if (action === 'logs' && request.method === 'GET') result = { logs: await manager.logs(id) };
-        else if (action === 'topology' && request.method === 'GET') result = { topology: await manager.topology(id, target.searchParams.get('runId') ?? undefined) };
-        else throw launcherError('NOT_FOUND', 'Unknown Launcher operation.', 404);
+      else if(pathname==='/api/groups'&&get)result=await manager.moduleGroups.list();
+      else if((pathname==='/api/groups'||pathname==='/api/groups/save')&&post){fields(body,['group','expectedRevision'],['group']);result=await manager.moduleGroups.save(body);}
+      else if(/^\/api\/groups\/[a-z0-9][a-z0-9._-]{0,63}\/(remove|start\/preview|start\/apply|stop\/preview|stop\/apply)$/.test(pathname)&&post){
+        const [,id,action]=pathname.match(/^\/api\/groups\/([^\/]+)\/(.+)$/);
+        if(action==='remove'){fields(body,['expectedRevision'],['expectedRevision']);result=await manager.moduleGroups.remove({groupId:id,...body});}
+        else if(action.endsWith('preview')){fields(body,['expectedRevision'],['expectedRevision']);result=await manager.moduleGroups[action.startsWith('start')?'reviewStart':'stopPreview']({groupId:id,...body});}
+        else if(action==='start/apply'){fields(body,['reviewId','accepted'],['reviewId','accepted']);const saved=manager.localPrograms.reviewed(body.reviewId,'startup-plan');if(saved.review.groupId!==id)throw launcherError('MODULE_GROUP_CHANGED','Review belongs to another group.');result=manager.groupStart(body);status=202;}
+        else{fields(body,['reviewId','accepted','programIds'],['reviewId','accepted','programIds']);const saved=manager.localPrograms.reviewed(body.reviewId,'group-stop');if(saved.review.groupId!==id)throw launcherError('MODULE_GROUP_CHANGED','Review belongs to another group.');result=manager.launch('group-stop','$group-stop',()=>manager.moduleGroups.applyStop(body));status=202;}
       }
+      else if(pathname==='/api/paths/known'&&get)result=await manager.paths.known(manager);
+      else if(pathname==='/api/paths/browse'&&post){fields(body,['directory','purpose','offset']);result=await manager.paths.browse(body);}
+      else if(pathname==='/api/paths/check'&&post){fields(body,['path','purpose'],['path']);result=await manager.paths.check(body);}
+      else if(pathname==='/api/paths/remember'&&post){fields(body,['path','purpose'],['path']);result=await manager.paths.remember(body);}
+      else if(pathname==='/api/paths/forget'&&post){fields(body,['path','purpose'],['path','purpose']);result=await manager.paths.forget(body);}
+      else if(pathname==='/api/paths/discover'&&post){fields(body,['directory'],['directory']);result=manager.discoverPaths(body);status=202;}
+      else if(pathname==='/api/paths/native-pick'&&post){fields(body,['purpose','initialPath'],['purpose']);result=await manager.paths.nativePick(body);}
+      else if(pathname==='/api/environment'&&post){fields(body,['nodePath','pythonPath']);result=await manager.detect(body);}
+      else if(pathname==='/api/sources'&&get)result=await manager.sources();
+      else if(pathname==='/api/publisher-trust'&&get)result={trust:await manager.publisherTrustState()};
+      else if(pathname==='/api/publisher-trust/preview'&&post){fields(body,['change'],['change']);result=await manager.publisherTrustPreview(body.change);}
+      else if(pathname==='/api/publisher-trust/apply'&&post){fields(body,['change','reviewDigest','accepted'],['change','reviewDigest','accepted']);result=await manager.publisherTrustApply(body);}
+      else if(pathname==='/api/publisher-evidence/preview'&&post){fields(body,['receiptId','evidencePath','artifactPath','sourceId','source','indexDigest','entryId']);result=await manager.publisherEvidencePreview(body);}
+      else if(pathname==='/api/publisher-evidence/observe'&&post){fields(body,['previewId','accepted'],['previewId','accepted']);result=await manager.publisherEvidenceObserve(body);}
+      else if(['/api/sources','/api/sources/save'].includes(pathname)&&post){fields(body,['id','name','source','enabled','priority','expectedSha256','allowPrivateNetwork','revision'],['name','source']);result=await manager.saveSource(body);}
+      else if(/^\/api\/sources\/[a-z0-9._-]+\/delete$/.test(pathname)&&post){fields(body,[]);result=await manager.deleteSource(pathname.split('/').at(-2));}
+      else if(pathname==='/api/sources/inspect'&&post){fields(body,['source','sourceId','expectedSha256','allowPrivateNetwork']);if(!body.source&&!body.sourceId)throw launcherError('SOURCE_INPUT','Select a source.',400);result=await manager.source(body);}
+      else if(pathname==='/api/sources/fetch'&&post){fields(body,['source','sourceId','receiptId','indexDigest','entryId','allowPrivateNetwork'],['entryId']);if(!body.source&&!body.sourceId)throw launcherError('SOURCE_INPUT','Select a source.',400);result=manager.fetchSource(body);status=202;}
+      else if(pathname==='/api/sources/publish'&&post){fields(body,['directory','destination','kind','nodePath','pythonPath','redistributionAcknowledged'],['directory','destination','kind','redistributionAcknowledged']);result=manager.publishModule(body);status=202;}
+      else if(pathname==='/api/hubs'&&get)result={hubs:await manager.hubs()};
+      else if(/^\/api\/hubs\/default\/(start|stop)$/.test(pathname)&&post){fields(body,[]);result=manager.defaultHub(pathname.split('/').at(-1));status=202;}
+      else if(pathname==='/api/operations'&&get)result=manager.operationList();
+      else if(/^\/api\/operations\/[a-f0-9-]+\/cancel$/.test(pathname)&&post){fields(body,[]);result={operation:await manager.cancelOperation(pathname.split('/').at(-2))};}
+      else if(/^\/api\/operations\/[a-f0-9-]+$/.test(pathname)&&get)result={operation:manager.operation(pathname.split('/').at(-1))};
+      else throw launcherError('NOT_FOUND','Unknown Launcher operation.',404);
       send(response, status, { ok: true, ...result });
     } catch (error) {
-      const reqs = directory ? await requirements(directory) : null;
-      const diagnostic = diagnose(error);
-      send(response, error.status ?? (directory ? 422 : 409), { ok: false, error: { code: error.code ?? (directory ? 'REVIEW_FAILED' : 'LAUNCHER_ERROR'), message: String(error.message).slice(0, 2048),
-        ...(error.compatibility ? { compatibility: error.compatibility } : {}),
-        ...(error.incompleteDestination ? { incompleteDestination: error.incompleteDestination } : {}) }, diagnostic,
-        ...(reqs ? { requirements: reqs, ...(['missing-interpreter', 'dependency', 'compatibility'].includes(diagnostic.kind) ? { guidance: [{
-          zh: '在“环境”中选择与锁要求匹配的已安装解释器和依赖，然后重新检查资源。',
-          en: 'Select installed interpreters and dependencies matching the lock in Environment, then inspect the resource again.'
-        }] } : {}) } : {}) });
+      send(response,error.status??409,{ok:false,error:{code:error.code??'LAUNCHER_ERROR',message:String(error.message).slice(0,2048),
+        ...(error.cleanupIncomplete?{cleanupIncomplete:true}:{}),...(error.incompleteDestination?{incompleteDestination:error.incompleteDestination}:{})},diagnostic:diagnose(error)});
     }
   });
   server.requestTimeout = 15000; server.headersTimeout = 15000; server.keepAliveTimeout = 1000;

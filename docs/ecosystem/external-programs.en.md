@@ -4,15 +4,15 @@
 
 Programs may install dependencies, own state, create windows and manage their own child processes, then connect through module bridges. Electron hosts, browsers, games, database services and existing CLIs are ordinary communication participants from the Hub's perspective. Hub Core does not choose their application shape or business behavior.
 
-The optional Launcher Runtime v1 is a limited deployment profile with `module.json`, `pack.json`, `pack.lock`, supported Node/Python entries and its lifecycle/permission declarations. It is not a prerequisite for Hub access and does not require stateless programs. Adding a manifest alone does not adapt an Electron host's dependencies, windows or lifecycle.
+Launcher optionally manages independent module instances on one Global Hub. A managed module supplies module.json and optional deployment.json defaults. Packs and templates are not current import types. Self-managed Electron hosts, services and other programs retain their own installer, process ownership, windows and business state.
 
 | What you have | What to do |
 | --- | --- |
-| An application source tree, Electron project or executable | Install and run it using its own instructions, configure a Hub connection, identity and permissions; Launcher import is unnecessary |
-| Runtime module source with `module.json` | Select it as an addition/replacement candidate in Creator; compose a pack |
-| A pack root containing `pack.json` and `pack.lock` | Inspect, import, review and authorize the instance in Launcher |
+| Application source, Electron project or executable | Install and run using its own instructions, then configure endpoint, identity and permissions |
+| Module directory or ZIP with module.json | Import into Module Library, register an independent instance and review startup |
+| Historical pack or template | Obtain the current independent modules instead |
 
-Runtime v1 source distribution permits 8 MiB per file, 64 MiB total and 4096 files. Installed `node_modules` or native runtimes may exceed these bounds. Do not silently drop dependencies to create an incomplete package. Prepare a complete supported distribution or use the application's own installer/host. These bounds neither prohibit binaries, GUIs or child processes from connecting to the Hub nor establish OS sandboxing.
+Source delivery is bounded by file count and bytes. Installed dependencies and native runtimes must not be silently omitted to fabricate a runnable module. These deployment limits do not restrict Hub business types and do not establish an OS sandbox.
 
 For a real two-way connection, generate separate private tokens with Node's `crypto.randomBytes`, register both identities and their minimum publish/subscribe rights in a private Hub configuration, then start the Hub and programs separately. Default public configuration does not authorize new applications automatically. The [complete configuration and SDK adapter example](external-programs.md#配置一个真实的双向连接) includes the generation command and uses application-selected IDs and topics; they are examples, not reserved categories or built-in UI protocols.
 

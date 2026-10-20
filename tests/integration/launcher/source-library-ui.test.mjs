@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { element } from './ui-dom.mjs';
 import { createAdvancedUi } from '../../../tools/launcher/public/advanced.mjs';
+import { localizeErrorMessage } from '../../../tools/launcher/public/i18n.mjs';
 
 const buttonByText = (root, text) => root.querySelectorAll('button').find(button => button.textContent === text);
 const storage = entries => {
@@ -9,7 +10,7 @@ const storage = entries => {
   return { values, getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
 };
 
-function scene(kind, { knownFailure = false, saved, hidden = false } = {}) {
+function scene(kind, { knownFailure = false, saved, hidden = false, language = 'en', inspectFailure = false } = {}) {
   const store = saved ?? storage(), session = storage(), body = element('body'), calls = [], visits = [], toasts = [];
   body.append(...['modules-content', 'templates-content', 'sources-content', 'creator-content', 'detail-content', 'packs-asset-tabs', 'modules-asset-tabs', 'templates-asset-tabs', 'nav-count', 'nav-modules-count', 'nav-templates-count', 'environment-results', 'environment-discovery-slot', 'env-isolation-slot', 'env-dependencies-slot'].map(id => element('div', { id })), element('section', { id: 'view-packs' }, element('div', { class: 'page-heading' })), element('form', { id: 'environment-form' }, ['nodePath', 'pythonPath'].map(name => element('input', { name }))));
   globalThis.document = { body, querySelector: selector => body.querySelector(selector), querySelectorAll: selector => body.querySelectorAll(selector) };
@@ -20,7 +21,7 @@ function scene(kind, { knownFailure = false, saved, hidden = false } = {}) {
   const entry = { kind, id: 'demo.project', entryId: 'entry.new', title: 'New official title', version: '2.0.0', sha256: 'b'.repeat(64), license: 'MIT', provides: [], requires: [], platforms: ['win32-x64'], source: { url: 'https://source.example/artifact.json' } };
   const old = { kind, id: entry.id, title: 'Previous selected title', version: '1.0.0', path: '/previous-source' };
   const result = { kind, entry, directory: '/verified-download', cached: false, startsModules: false, requiresExecutionReview: true };
-  const state = { language: 'en', view: kind === 'module' ? 'modules' : 'templates', instances: [{ instanceId: 'existing-run', pack: { id: 'unrelated.pack', version: '1.0.0' }, status: { state: 'running' } }], reviews: new Map(), environmentSelection: {} };
+  const state = { language, view: kind === 'module' ? 'modules' : 'templates', instances: [{ instanceId: 'existing-run', pack: { id: 'unrelated.pack', version: '1.0.0' }, status: { state: 'running' } }], reviews: new Map(), environmentSelection: {} };
   let downloaded = false, ui;
   if (hidden) store.setItem('world-hub.launcher.deleted-objects', JSON.stringify([`${kind}:${entry.id}`]));
   const api = async (path, input) => {
@@ -30,13 +31,13 @@ function scene(kind, { knownFailure = false, saved, hidden = false } = {}) {
       return { objects: [old] }; // Newly fetched metadata must also work before discovery catches up.
     }
     if (path === '/api/sources') return { sources: [source], conflicts: [] };
-    if (path === '/api/sources/inspect') return { sourceId: source.id, receiptId: 'receipt.current', digest: 'a'.repeat(64), index: { entries: [entry] } };
+    if (path === '/api/sources/inspect') { if (inspectFailure) throw Object.assign(new Error('Software source HTTP status 404; redirects are not followed'), { code: 'SOURCE_HTTP' }); return { sourceId: source.id, receiptId: 'receipt.current', digest: 'a'.repeat(64), index: { entries: [entry] } }; }
     if (path === '/api/sources/fetch') { downloaded = true; return { operationId: 'fetch-current' }; }
     if (path === '/api/operations/fetch-current') return { operation: { state: 'succeeded', result } };
     if (path === '/api/operations') return { operations: [] };
     return {};
   };
-  const ctx = { state, api, el: element,
+  const ctx = { state, api, el: element, localizeErrorMessage,
     button: (text, callback, className = 'button', disabled = false) => element('button', { type: 'button', class: className, onclick: callback, disabled }, text),
     pill: text => element('span', {}, text), t: key => key, toast: text => toasts.push(text), date: String, display: String,
     definition: rows => element('dl', {}, rows.flatMap(([name, value]) => [element('dt', {}, name), element('dd', {}, String(value ?? ''))])),
@@ -97,4 +98,30 @@ for (const kind of ['module', 'template']) test(`SOURCE-LIBRARY explicit ${kind}
   assert.ok(rows.some(row => row.path === current.result.directory && row.id === current.entry.id));
   const list = current.body.querySelector(kind === 'module' ? '#modules-list' : '#templates-list');
   assert.ok(list.textContent.includes(current.entry.title));
+});
+
+
+test('SOURCE-CACHE bilingual reload retains entries while the actual source failure and stale observation remain visible without execution reuse', async () => {
+  for (const language of ['en', 'zh']) {
+    const online = scene('module', { language }); online.state.view = 'sources'; online.ui.navigate('sources'); await new Promise(done => setImmediate(done));
+    let root = online.body.querySelector('#sources-content');
+    const browse = root.querySelectorAll('form').find(form => form.elements.source?.tagName === 'select'); await browse.dispatch('submit');
+    assert.ok(root.querySelector('.source-card')); assert.match(root.querySelector('.active-source-status-bar').textContent, language === 'zh' ? /索引已就绪/ : /Index ready/);
+    assert.ok(online.store.getItem('world-hub.launcher.source-indexes'));
+    const offline = scene('module', { language, saved: online.store, inspectFailure: true });
+    offline.state.reviews.set('existing-run', { accepted: true, digest: 'old-running-review' });
+    offline.state.trustReview = { digest: 'old-running-review', accepted: true };
+    const beforeInstances = JSON.stringify(offline.state.instances), beforeReview = structuredClone(offline.state.trustReview);
+    offline.state.view = 'sources'; offline.ui.navigate('sources'); await new Promise(done => setImmediate(done));
+    offline.ui.refreshSources(); await new Promise(done => setImmediate(done)); await new Promise(done => setImmediate(done));
+    root = offline.body.querySelector('#sources-content'); assert.ok(root.querySelector('.source-card')); assert.match(root.textContent, /New official title/);
+    const status = root.querySelector('.active-source-status-bar'); assert.ok(status.querySelector('.status-indicator-error')); assert.equal(status.querySelector('.status-indicator-ready'), null);
+    assert.match(status.textContent, language === 'zh' ? /软件源未找到该资源（HTTP 404）/ : /Software source HTTP status 404/);
+    const stale = root.querySelector('.source-cached-observation'); assert.ok(stale); assert.match(stale.textContent, language === 'zh' ? /上次索引观察.*不会沿用执行授权/ : /last index observation.*execution authorization is not reused/);
+    assert.match(stale.querySelector('.source-cached-failure').textContent, /404/);
+    assert.equal(JSON.stringify(offline.state.instances), beforeInstances); assert.deepEqual(offline.state.trustReview, beforeReview);
+    assert.equal(offline.calls.filter(call => /\/(?:fetch|start|restart)$/.test(call.path)).length, 0);
+    assert.ok(offline.calls.filter(call => call.path === '/api/sources/inspect').every(call => !Object.hasOwn(call.input, 'allowPrivateNetwork')));
+    assert.equal(offline.body.querySelector('#advanced-action-dialog').open, undefined, 'Cached browsing must never open or accept an execution review');
+  }
 });

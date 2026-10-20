@@ -4,6 +4,8 @@
 
 `bridge-kit.mjs` 是供外部程序选用的 Node 桥；`blob-client.mjs` 提供外部文件／流上传与下载。Hub 不加载这些程序接口。运行需要 Node 22.4.0 或以上，没有 npm 依赖。浏览器使用独立的 `src/management/manual-bridge.mjs`，不能直接导入含 Node 文件 API 的模块。
 
+本机受管程序可选用 `lifecycle-client.mjs`（npm 导出 `world-hub/lifecycle`）在调用前唤醒已获授权的按需实例，并在实际任务完成后释放运行租约。普通 `Bridge.call()` 保持原有通讯行为。调用示例、空闲停止及超时保留规则见[生命周期客户端](LIFECYCLE.md)。
+
 独立实现可替换能力模块时，阅读[提供者接入契约](../../docs/modules/provider-contract.md)及其机器契约。它完整规定外部目录登记、业务输入输出和部署方接线；下文完整运行例仅演示通用 echo 通讯，不提供统计业务实现。
 
 最小登记与发布示例见[接入说明](../../docs/onboarding.md)。先登记对应身份和主题 ACL，先监听 `error`／`denied`，再用 try/catch 处理异步 API；诊断事件不能替代 Promise 的拒绝处理。
@@ -19,7 +21,7 @@
 | `release(seqs)`、`releaseBlob(id)` | 仅以自己的提供者身份许可后续回收 |
 | `uploadFile()`、`uploadStream()`、`downloadFile()`、`readAttachment()` | 程序侧路径／流便利层，分块和完整性核对 |
 
-默认有 delivery 消费回调时，SDK 按订阅顺序等待所有回调成功完成、保存配置的文件游标后才 ACK；没有消费者或处理失败不自动 ACK。`autoAck:false` 由程序自行确认。没有自动 release。业务成功、持久幂等和副作用提交仍由程序负责。
+默认有 delivery 消费回调时，SDK 按订阅顺序等待所有回调成功完成、保存配置的文件游标后才 ACK；没有消费者或处理失败不自动 ACK。`autoAck:false` 由程序自行确认。通用 Bridge 不自动 release；可选生命周期客户端仅按其独立契约释放自己的控制记录，不释放业务信息。业务成功、持久幂等和副作用提交仍由程序负责。
 
 裸 wire 的 `from:"now"` 取处理订阅时水位；该 SDK 无保存游标时使用握手 `welcome.lastSeq` 数字快照。`from:"resume"` 是 SDK 本地策略，不是线上游标值。重叠订阅、历史与重连可以重复交付，程序须按自己的业务决定去重和分别 ACK。
 

@@ -1,111 +1,54 @@
 # 构建、分发与迁移
 
-分发包只带明确清单中的现行 Hub、管理界面、通用 SDK、当前文档与小型隔离演示。默认只启动通讯枢纽；完整示例业务、DSH、模型、测试装置和工作流程序不作为必装业务。
+当前分发以一个全局 Hub、模块实例和模块组为产品入口。Hub、通信管理界面、SDK 和本机模块管理辅助层按明确允许清单构建。独立 Launcher 界面、整合包 Runtime、模板生成、旧专用界面与历史阶段资料不进入当前发行。
 
-项目源码与文档按 [MIT 许可](../LICENSE) 分发，各类生成包保留根 `LICENSE`。Windows 便携包另带官方 Node 的 `runtime/LICENSE`，两份许可独立保留。第三方依赖与运行时的归属见[仓库结构](repository.md)。
+## 0.20.0
 
-## 0.19.0：Launcher 操作与装配界面
+- 在同一个 `/manage` 通信管理界面管理独立模块与模块组、接线、启动计划、运行状态和信息流；不再提供独立 Launcher、整合包或模板入口。
+- 工坊按模块与模块组展示发行版本、图标与预览图。已安装实例支持经审阅的升级、降级和回退，保留或重置私有数据需明确选择。
+- 模块和模块组可携带作者默认接线；导入核对本机提供者，缺失或存在多个候选时要求补齐或选择。接线模式可审阅并恢复默认接线。
+- 支持单实例与整组卸载审阅，标明共享成员和消费者依赖；当前卸载注销实例，不删除源码和私有数据。
+- 支持常驻与按需运行、允许唤醒的调用者及空闲停止。作者可用 `deployment.json` 的 `executionDefaults` 提供模式与空闲时间建议；本机授权不随制品发布。
+- 补齐通信管理界面的英文文案和语言切换，保留自定义名称、主题与消息原文。
 
-十九期更新整个 Launcher 的导航、资产管理、装配画布和中英文界面。目录和文件支持选择、已知候选及有界发现；草稿可保存、重新检查和恢复。新增模块可以配置公开 settings、桥槽权限和启动依赖，再生成独立新包；导入与运行授权仍分开。
+Hub 仍只负责通信。运行辅助通过普通模块桥管理本机受管程序，不把业务调度或运行策略加入 Hub Core。真人独立开发、新手使用和实际浏览器验收的状态见[验证范围](verification.md)，不因发行构建通过而视为完成。
 
-任务中心保留本次后台进程的进度、错误和输出结果，导入状态依据实际实例。实例删除要求确认退出和维护所有权；清理中断会保留事务与剩余目录，允许显式重试。模板随 npm 与 ZIP 分发，使用后端返回的实际目录。保护模式、发布者信任、静态合同绑定和运行观察按各自事实呈现。
+## npm 与 ZIP
 
-界面升级不改变 Hub 通信协议或外部程序的业务职责。操作细节见 [Launcher UX](launcher-ux.md)。原生文件窗口人工操作、真人独立开发者和新手验收仍保留待办，自动测试与浏览器验收不替代这些验收。
+npm 提供 `world-hub`、`world-hub-interop` 和独立 `world-hub-workshop` 命令。SDK 保留 `world-hub`／`world-hub/bridge`、`world-hub/blob` 和 `world-hub/lifecycle` 导出；社区保留 `world-hub/workshop`。不公开旧 `world-hub/runtime`，不安装 `world-hub-pack`。
 
-## npm 与 ZIP 分发
-
-npm 包提供 Hub CLI、可选统一 Launcher、外部 `world-hub-pack` Runtime 和 JavaScript、Python、PowerShell 三个 SDK，使用方式见[npm 包](npm.md)。JavaScript SDK 与 Runtime 有 npm 导出入口；另外两个 SDK 仍使用自己的语言环境，不由 Hub 加载。包使用明确的源码文件清单，不携带官方 Node 二进制、个人配置、通讯数据或测试装置。可选文本台创作模板另带自己的基础包源码，不自动生成或执行程序；完整用途演示由独立 ZIP 分发。默认首次 Hub 部署在调用者自己的工作目录初始化配置和存储；升级 npm 安装不会覆盖这份部署数据。
-
-[提供者接入契约](modules/provider-contract.md)、[机器契约](modules/text-statistics.contract.json)和 SDK 文档随 npm、Hub 源码／便携包与用途演示包分发。机器契约采用明确文件清单；打包检查核对其与示例兼容副本的一致性，以及独立接入指南的本地链接。
-
-ZIP 分发适合独立目录部署或 Windows 便携使用。用途演示整合包另含外部业务程序，仍由自己的启动入口运行；它们不由 npm CLI 或默认 Hub 部署自动启动。
-
-npm 和 Hub 源码／便携 ZIP 随带 Launcher 的本机服务与中英文页面、Runtime CLI、实现、三个开放部署 Schema及可选文本台创作模板。其他业务模块由使用者另行取得。选择 Launcher 或 Runtime 不会改变默认 Hub 启动；可直接导入的三程序参考包由下面的独立生态源码 ZIP 分发。
-
-npm、Hub 源码／便携包和生态源码包另带可选的独立 [Workshop](ecosystem/workshop.md) 服务及其页面。它要求部署者自己的私有配置、数据和 HTTPS 代理，不随默认 Hub 或 Launcher 启动，也不执行上传程序。社区私有导出含账号与会话元数据，应单独迁移，不能当作公开整合包上传。
-
-## 从源码构建
-
-轻量源码分发无需下载运行时：
+源码 ZIP 使用本机 Node 22.4.0 或以上。Windows x64 便携 ZIP 携带已核对的官方 Node 22.23.2 与独立许可。业务模块和其依赖另行取得，不自动执行。
 
 ```powershell
-npm run build -- --output dist/world-hub-source
-node scripts/release/verify-package.mjs --root dist/world-hub-source
+npm run build
+node scripts/release/verify-package.mjs --root dist/world-hub-0.20.0-source
 ```
 
-`build` 未给输出时使用 `dist/` 下由当前版本生成的目录；已有目标明确失败，不覆盖现有分发或部署。源码包用本机 Node 22.4.0 或以上运行，构建不意味着其他操作系统已验收。
-
-Windows x64 便携包带固定 Node 22.23.2。先在自己的缓存目录准备官方运行文件与许可，再打包：
+目标目录、ZIP 或校验文件已存在时拒绝覆盖。需要便携运行时：
 
 ```powershell
-New-Item -ItemType Directory -Force .artifacts/runtime
 node scripts/release/prepare-runtime.mjs --download --output .artifacts/runtime/node-win-x64
-npm run build -- --runtime .artifacts/runtime/node-win-x64 --output dist/world-hub-win-x64
-node scripts/release/verify-package.mjs --root dist/world-hub-win-x64
+npm run build -- --runtime .artifacts/runtime/node-win-x64
 ```
 
-缓存目录必须是新目录。也可在 Windows x64 使用 `--node <自己已安装的官方 node.exe>` 代替 `--download`；只有 SHA-256 匹配固定版本的官方 HTTPS 清单后才执行候选程序和复制运行文件。便携包保留完整 Node LICENSE、下载来源、校验表和 provenance，不上传运行时二进制到源码 Git。
+缓存必须是新目录，只有匹配固定版本官方摘要后才复制运行文件。默认目录及 ZIP 名称使用 `package.json` 的版本：本版为 `world-hub-0.20.0-source.zip` 和 `world-hub-0.20.0-win-x64.zip`，每份 ZIP 附 `.zip.sha256` 校验文件。构建不意味着所有平台已经验收。
 
-构建输出目录、ZIP、`.sha256` 与 `.build.json` 都是生成文件，不提交源码仓库。manifest 记录软件版本、wire、原始文件的角色、大小和 SHA-256。源码按显式允许清单复制；文档若链接未携带的源码测试／示例，会在分发副本中标为未携带，不修改源码文档。
+## 运行入口
 
-## 按用途构建演示整合包
+完整解压到可写目录，用 `ui.cmd` 打开通信管理界面，或运行 `node bin/world-hub.mjs --open`。这两种入口默认把配置与数据放在当前工作目录的 `world-hub-data`。`start.cmd` 则使用发行目录中的 `config/hub.json` 参考配置启动相同通信服务并打开管理界面；使用自己的配置可显式传入 `--config`。不要以不同入口同时占用同一监听端口或数据目录。
 
-另外提供 `event-desk`、`modular-assistant`、`digital-world`、`capability-directory` 四个用途演示包，包含独立业务程序与浏览器探索界面。它们用于开发者探索，不改变默认 Hub 部署，也不把模型、harness、能力目录或世界运行放进 Hub。
+`verify.cmd` 检查原始文件；修改配置后可用 `--allow-config-change`，仅允许配置内容变化，不忽略损坏的代码或运行时。SHA-256 清单用于发现损坏，不替代发布者身份验证。
 
-```powershell
-npm run build:demos
-npm run build:demos -- --profile modular-assistant --runtime .artifacts/runtime/node-win-x64 --output-root dist/assistant-portable
-npm run build:demos -- --profile capability-directory --output-root dist/capabilities-source
-```
+## 私有数据与升级
 
-默认构建四个源码包；`--runtime` 选择已按上述方法校验的官方 Node 运行时，生成 Windows x64 便携包。每个包的 `start.cmd` 启动自己的演示，`check.cmd` 只读检查，`verify.cmd` 只校验完整性。输出仍写入 `dist/`，已有目标拒绝覆盖，运行数据只有 `data/**` 可变。完整操作、模块替换和验证边界见[用途演示指南](examples/purpose-demos.md)。
+安装目录、模块制品版本、本机实例配置修订、Hub 发行版本分别管理。升级程序前先停止所属进程，把新发行解压到新目录，保留自己的 Hub 配置、模块管理数据、身份和完整通信数据。不要覆盖正在运行的安装目录。
 
-## 构建跨语言生态源码包
+取消整合包和模板不自动迁移、删除或执行旧实例。保留旧私人数据供自己核对；要重用其中程序，取得当前独立模块再登记到同一个全局 Hub。不通过兼容旧入口重新启动它们。
 
-```powershell
-node scripts/release/build-ecosystem-package.mjs --output dist/world-hub-ecosystem-source
-node scripts/release/verify-package.mjs --root dist/world-hub-ecosystem-source
-```
+读取、ACK、停止和升级不替提供者释放消息。程序自己的业务游标和状态由程序管理。完整数据迁移还包括 Hub 日志、对象和管理状态，见[部署](deployment.md)。
 
-这份独立源码 ZIP 携带 Hub、可选统一 Launcher、Runtime CLI、Schema、当前接入文档，以及[跨语言文本台](../examples/ecosystem-pack/README.md)三个完整锁定模块。builder 使用明确的文件清单，复制前验证 `pack.lock` 和模块完整文件集，拒绝损坏、额外生成文件、路径跳转、链接和已有目标。打包不启动模块或安装依赖；锁定程序文件与桥保持原字节，只有一般文档副本适配未随带的链接。
+## 验证与许可
 
-当前参考锁要求预安装 Node 22.23.2、Python 3.14.0、websockets 15.0.1 和锁定的平台。本包不携带 Node／Python 或第三方库二进制，不是 Python 便携包。导入、启动与版本／平台检查见[外部 Runtime](ecosystem/runtime.md)。实例数据、日志、凭据、依赖缓存、本机反馈与证据都不进入源码 ZIP；导出 Runtime 实例只导出锁定公开包。源码构建、完整性检查和实际解压包运行验收是不同证据。
+`npm run test:distribution` 验证当前文件清单、源码包入口和损坏检测。`npm run test:npm` 在隔离前缀里安装实际 tarball，核对 CLI、SDK 与发行内容；不会发布 npm。
 
-## 启动与检查
-
-完整解压后运行 `start.cmd`，它优先使用包内运行时，以包根 `config/hub.json` 启动并打开管理地址。终端保持运行，Ctrl+C 停止。源码包无自带运行时，使用 PATH 中 Node；Hub 没有 npm 运行依赖。Python、PowerShell 桥的环境由接入程序安排，不是启动 Hub 的前提。
-
-直接使用 `node scripts/launcher.mjs` 不打开浏览器，加 `--open` 显式打开。配置路径与运行文件根据包位置解析，不依赖启动者工作目录；配置中的相对数据路径按配置目录解析。`--port`、`--config` 等部署选项见启动器 `--help`。
-
-Hub 源码／便携包还提供可选 `ui.cmd`，源码或生态包可用 `node bin/world-hub.mjs ui --root ./data/launcher --open` 进入统一 Launcher。便携包可以把 `node` 换成 `runtime/node.exe`。它默认显示“我的整合包”，已有 `start.cmd` 和 `world-hub --open` 继续直接启动 Hub 管理。整合包来源在 UI 中填写本机目录，环境与权限经过审阅后才能明确授权启动。内置模板须先检查和生成新包；生态源码包还可直接选择包内 `examples/ecosystem-pack`。实例根目录包含私人凭据和状态，不能作为公开整合包分享。更多操作见[Launcher](ecosystem/launcher.md)。
-
-`check.cmd` 或 `node scripts/launcher.mjs --check` 只读检查环境、配置、必需文件和数据占用，不启动、不创建数据目录。`verify.cmd` 或验证脚本校验全部原始文件；用户明确选择 `--allow-config-change` 才放过 `config/hub.json` 内容变化，仍检查源码与运行时。新增 `data/**` 不参与原始程序校验，新增程序文件则仍视为清单外；自己的程序放在包外。
-
-清单用于发现损坏，不是发布者数字签名；与清单一起被修改的文件没有真实性保证。验收必须用实际 ZIP 解压的文件，不能以构建源目录代替解压结果。
-
-## 配置、数据与生命周期
-
-参考配置默认监听回环、拒绝未登记身份，预置 `ui.manual` 本机无 token 工作台身份。它不提供来源防伪或多租户隔离。正式接线由部署方设置自己的 token、主体与主题 ACL，保存配置后重启；不自动读取或合并第三方 ACL。动态主题和 `body.kind` 由模块桥／程序决定。
-
-默认持久数据分为 `data/log`、`data/blobs`、`data/management.json`，首次运行才创建。日志包含通讯记录及提供者释放元数据，附件包含字节和分块进度，管理状态含暂停与 N:M 注记。业务状态、上下文、harness home 与消费程序游标由外部程序保存。
-
-启动器在服务打开存储前检查环境和端口，并持有数据目录排他锁；正常退出只释放自己的随机 nonce 锁。异常遗留锁明确拒绝，用户确认无进程使用该数据后再手动移走报错中的锁文件，不删除日志或对象，也不根据可复用 PID 自动杀进程。直接运行原服务不受包级锁保护；锁不是分布式锁或抵御恶意同机写入的机制。
-
-同一程序可以连接多座 Hub，各部署用独立数据目录；Node SDK 文件游标还要按逻辑 Hub 部署和桥实例独立保存，整表写入不提供多实例合并或锁。凭据共享同时共享稳定主体、主题权限、配额和提供者释放归属，是否共享由程序按信任关系选择。详见[接入](onboarding.md)。
-
-升级前先停止旧实例，解压新包到新目录，保留旧包回退，再复制自己的配置和完整持久数据。外部自定义路径由用户迁移，不以新默认配置覆盖自己的接线。启动、停止、搬迁、读取和 ACK 都不是 release。没有对全部历史版本、降级、断电耐久、跨机器或长期高负载的自动保证。
-
-## 分发验收
-
-npm 发布前运行 `npm run test:npm`，以实际 tarball 在中文空格路径中进行独立本地与全局前缀安装，检查命令入口、数据目录、管理界面、JavaScript 导出和真实桥通讯。也可用 `node scripts/release/npm-package-acceptance.mjs` 单独生成并验收 tarball；输出包与报告留在忽略的 `.artifacts/npm/`，该工具不执行发布。
-
-`npm run test:launcher` 另行检查本地管理认证、审阅变化后的授权拒绝、实例启停与异常、精确桥归属、真实跨语言应用调用，以及备份恢复、创作／软件源、有限环境准备与界面实际事件授权。源码／便携 ZIP 的 manifest 和 npm tarball 必须携带 Launcher 全部后端及静态资源（包括 `advanced.mjs` 与图标模块），同时完整携带 Runtime 的维护、创作与软件源依赖。清单核对不能替代从实际安装包／解压包运行 Launcher 的验收，也不等同于人工浏览器体验验收。
-
-`scripts/release/` 提供可重跑的包级工具，输入实际解压目录和新的包外证据目录。例如：
-
-```powershell
-node scripts/release/package-acceptance.mjs --bundle '<实际解压包的绝对目录>' --evidence '<新的包外证据绝对目录>'
-node scripts/release/document-onboarding-check.mjs --bundle '<实际解压包的绝对目录>' --evidence '<另一个新的包外证据绝对目录>'
-```
-
-逐项核对 HTTP 资源、真实 WS 动态主题和原文、N:M 桥、手动 ACK、附件、重启／搬迁保留、暂停与注记、重复启动和损坏配置拒绝。测试副本和证据在本机保存；实际通过项以报告为准，不以压缩成功或清单通过代替程序接入、其他平台或业务结果。源码 Node、DSH 和跨语言范围见[验证](verification.md)。
+构建产物的 manifest 记录路径、大小、SHA-256、文件角色与运行时来源。生成 ZIP、校验与测试报告不是源码文件。项目采用 [MIT](../LICENSE)，第三方运行时保留自己的许可。测试结果只适用于实际执行的场景，见[验证说明](verification.md)。

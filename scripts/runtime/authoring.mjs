@@ -6,6 +6,9 @@ import { inspectPackage, createLock, validatePack, validateModule, validateLock 
 import { ordinaryPath, readBounded, collectFiles, hash, relativePath, privateJson } from './paths.mjs';
 import { doctorModule } from './developer.mjs';
 import { readSourceManifest, collectSourceFiles } from './source-guidance.mjs';
+import { inspectDeployment, deploymentTopics } from './deployment.mjs';
+import { customizePackLineage } from './pack-lineage.mjs';
+import { resolveStartupOrder } from './startup-order.mjs';
 
 const copy = value => JSON.parse(JSON.stringify(value));
 const sha = /^[a-f0-9]{64}$/;
@@ -80,8 +83,10 @@ async function prepareDerivation(original, options) {
   for (const m of used) if (!m.manifest.platforms.includes(`${process.platform}-${process.arch}`)) diagnostics.push({ code: 'PLATFORM_UNSUPPORTED', message: `Replacement platform is unsupported: ${m.manifest.id}`, moduleId: m.manifest.id });
   // The preview and the actual derivation use identical declaration checks.
   for (const c of pack.components) {
-    const m = used.find(v => v.manifest.id === c.module).manifest;
+    const source = used.find(v => v.manifest.id === c.module), m = source.manifest;
     if (m.bridges.length !== Object.keys(c.bridges).length || m.bridges.some(slot => !Object.hasOwn(c.bridges, slot))) diagnostics.push({ code: 'BRIDGE_SLOTS_MISMATCH', message: `Replacement bridge slots do not match: ${c.id}`, componentId: c.id });
+    try { const deployment = await inspectDeployment({directory: source.directory, manifest: m}); deploymentTopics(pack,c,deployment.deployment); }
+    catch (issue) { diagnostics.push({code:'TOPIC_ALIASES_INVALID',message:issue.message,componentId:c.id}); }
     for (const required of m.requires) if (!pack.bindings.some(b => b.to === c.id && b.contract.id === required.id && b.contract.version === required.version)) diagnostics.push({ code: 'CONTRACT_UNBOUND', message: `Unbound required contract: ${c.id}/${required.id}`, componentId: c.id });
   }
   for (const b of pack.bindings) {
@@ -145,16 +150,38 @@ export async function previewAddition(source, options) {
   if (original.pack.components.some(component => component.id === options.componentId)) throw new Error('Addition refers to an existing source component');
   const directory = await ordinaryPath(options.moduleDirectory);
   const manifest = JSON.parse((await readSourceManifest(directory, 'module.json')).toString()); validateModule(manifest);
+  const deploymentReview = await inspectDeployment({ directory, manifest, nodePath: options.nodePath, pythonPath: options.pythonPath }).catch(() => null);
+  const deployment = deploymentReview?.deployment;
+
+  const pack = copy(options.pack ?? original.pack);
+  if (deployment?.topics) {
+    for (const [alias, topic] of Object.entries(deployment.topics)) {
+      if (!pack.topics[alias]) pack.topics[alias] = topic;
+    }
+  }
+
+  const defaultBridges = deployment?.bridges ? copy(deployment.bridges) : Object.fromEntries(manifest.bridges.map(slot => [slot, { publish: [], subscribe: [] }]));
+  const defaultSettings = deployment?.settings ? Object.fromEntries(deployment.settings.map(s => [s.key, s.default])) : {};
+
   const component = copy(options.component ?? {
-    id: options.componentId, module: manifest.id, settings: {}, after: [],
-    bridges: Object.fromEntries(manifest.bridges.map(slot => [slot, { publish: [], subscribe: [] }]))
+    id: options.componentId, module: manifest.id, settings: defaultSettings, after: [],
+    bridges: defaultBridges
   });
   if (component.id !== options.componentId || component.module !== manifest.id) throw new Error('Addition component identity does not match candidate');
-  const pack = copy(options.pack ?? original.pack);
   const index = pack.components.findIndex(row => row.id === component.id);
-  if (index < 0) pack.components.push(component); else pack.components[index] = component;
-  const preview = await previewReplacement(source, { ...options, pack });
-  return { ...preview, addition: true };
+  if (index < 0) {
+    // The candidate is not in the draft yet. Preserve the exact order of every
+    // existing member and append this new member before strict preflight. An
+    // invalid existing list is not repaired or silently topologically sorted.
+    if (Object.hasOwn(pack, 'startupOrder')) {
+      if (pack.startupOrder === undefined) throw Object.assign(new Error('Startup order must list every installed member exactly once.'), { code: 'STARTUP_ORDER_INVALID', status: 409 });
+      resolveStartupOrder(pack.components, pack.startupOrder);
+    }
+    pack.components.push(component);
+    if (Object.hasOwn(pack, 'startupOrder')) pack.startupOrder.push(component.id);
+  } else pack.components[index] = component;
+  const preview = await previewReplacement(source, { ...options, pack, addition: true });
+  return { ...preview, addition: true, pack: copy(pack) };
 }
 export async function derivePackage(source, options) {
   cancelled(options);
@@ -163,6 +190,20 @@ export async function derivePackage(source, options) {
   if (options.expectedRevision !== undefined && options.expectedRevision !== original.revision) throw new Error('Authoring revision conflict: inspect the current package before deriving');
   const { pack, used, diagnostics } = await prepareDerivation(original, options);
   if (diagnostics.length) throw new Error(diagnostics[0].message);
+  // Lineage is generated from the inspected source, never accepted from an
+  // edited draft. Internal instance saves may bind a live snapshot back to its
+  // actual installed baseline; that option is not exposed by the HTTP API.
+  const lineageSource = options.lineageSource ?? { pack: original.pack, revision: original.revision };
+  const withoutLineage = value => { const { lineage, ...declaration } = value; return declaration; };
+  const moduleContents = modules => JSON.stringify(modules.map(module => ({ manifest: module.manifest, files: module.files }))
+    .sort((first, second) => first.manifest.id.localeCompare(second.manifest.id, 'en')));
+  const unchanged = JSON.stringify(withoutLineage(pack)) === JSON.stringify(withoutLineage(original.pack))
+    && moduleContents(used) === moduleContents(original.review.modules);
+  delete pack.lineage;
+  if (unchanged && !options.lineageSource) {
+    if (original.pack.lineage) pack.lineage = copy(original.pack.lineage);
+  } else pack.lineage = customizePackLineage(lineageSource.pack, lineageSource.revision, pack.version, { packId: pack.id });
+  validatePack(pack);
   const destination = await ordinaryPath(options.destination, { allowMissing: true });
   cancelled(options);
   await mkdir(destination, { mode: 0o700 }); // Never overwrite a source or existing package.

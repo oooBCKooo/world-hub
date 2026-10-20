@@ -1,6 +1,8 @@
-export function createTaskUi({ state, api, el, button, toast, date, selectInstance, openImport, openCreator, createIcon }) {
+import { localizeErrorMessage } from './i18n.mjs';
+
+export function createTaskUi({ state, api, el, button, toast, date, selectInstance, openImport, openCreator, createIcon, onPendingChange }) {
   const say = (zh, en) => state.language === 'zh' ? zh : en;
-  let dialog, timer, request = 0, stamp = '', operations = [], loadingEpoch = null, currentFilter = 'all';
+  let dialog, timer, request = 0, stamp = '', operations = [], loadingEpoch = null, currentFilter = 'all', lastPendingStamp = '';
   const READ_STORAGE_KEY = 'world-hub.launcher.read-operations';
   function getReadOperations() {
     try {
@@ -41,6 +43,7 @@ export function createTaskUi({ state, api, el, button, toast, date, selectInstan
     stop: '⏹️',
     delete: '🗑️',
     restart: '🔄',
+    'local-startup-plan': '▶️',
     backup: '💾',
     restore: '⏮️',
     detach: '✂️',
@@ -58,11 +61,63 @@ export function createTaskUi({ state, api, el, button, toast, date, selectInstan
     'import-comments': '💬',
   };
 
+  const DISMISSED_PENDING_KEY = 'world-hub.launcher.dismissed-pending-packs';
+  function getDismissedPendingMap() {
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(DISMISSED_PENDING_KEY) : null;
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+  }
+  function saveDismissedPendingMap(map) {
+    try {
+      if (typeof localStorage === 'undefined') return;
+      localStorage.setItem(DISMISSED_PENDING_KEY, JSON.stringify(map));
+    } catch {}
+  }
+  function isDismissedPending(packPath, operation) {
+    if (!packPath) return false;
+    const map = getDismissedPendingMap();
+    const key = pathKey(packPath);
+    const record = map[key];
+    if (!record) return false;
+    if (record.operationId && operation?.id && record.operationId === operation.id) {
+      return true;
+    }
+    const opTime = Date.parse(operation?.finishedAt ?? operation?.startedAt ?? '');
+    if (record.dismissedAt && Number.isFinite(opTime)) {
+      return opTime <= record.dismissedAt;
+    }
+    return true;
+  }
+  function dismissPendingPack(packPath, opId) {
+    if (!packPath) return;
+    const map = getDismissedPendingMap();
+    const key = pathKey(packPath);
+    map[key] = {
+      dismissedAt: Date.now(),
+      operationId: opId ?? null
+    };
+    saveDismissedPendingMap(map);
+    updateTrigger();
+    onPendingChange?.(getPendingPacks().length);
+  }
+  function undismissPendingPack(packPath) {
+    if (!packPath) return;
+    const map = getDismissedPendingMap();
+    const key = pathKey(packPath);
+    if (map[key]) {
+      delete map[key];
+      saveDismissedPendingMap(map);
+      updateTrigger();
+      onPendingChange?.(getPendingPacks().length);
+    }
+  }
+
   function getPackPath(operation) {
     const result = operation.result ?? {};
     return ['derive', 'export', 'instantiate-template', 'rebuild', 'apply-proposal'].includes(operation.kind)
       ? result.directory ?? result.destination
-      : operation.kind === 'fetch-source' && (result.kind ?? result.entry?.kind) === 'pack'
+      : ['fetch-source', 'fetch'].includes(operation.kind) && (result.kind ?? result.entry?.kind) === 'pack'
         ? result.directory
         : null;
   }
@@ -71,11 +126,36 @@ export function createTaskUi({ state, api, el, button, toast, date, selectInstan
     if (operation.state !== 'succeeded') return false;
     const packPath = getPackPath(operation);
     if (!packPath) return false;
+    if (isDismissedPending(packPath, operation)) return false;
     const result = operation.result ?? {};
     const digest = result.packDigest ?? result.digest;
     if (state.instances.some(row => row.sourceDirectory && pathKey(row.sourceDirectory) === pathKey(packPath)
       && (!digest || row.sourceDigest === digest))) return false;
     return true;
+  }
+
+  function getPendingPacks() {
+    const seen = new Set();
+    const list = [];
+    for (const op of operations) {
+      if (isPackPendingImport(op)) {
+        const packPath = getPackPath(op);
+        const key = packPath && pathKey(packPath);
+        if (key && !seen.has(key)) {
+          seen.add(key);
+          const result = op.result ?? {};
+          const entry = result.entry ?? result;
+          list.push({
+            path: packPath,
+            title: entry.title ?? entry.id ?? entry.entryId ?? say('待审阅导入的整合包', 'Pack Pending Import'),
+            id: entry.id ?? result.id,
+            version: entry.version ?? result.version,
+            operation: op
+          });
+        }
+      }
+    }
+    return list;
   }
 
   const trigger = button('', () => { if (dialog?.open) dialog.close(); else void open(); }, 'button button-quiet');
@@ -109,6 +189,11 @@ export function createTaskUi({ state, api, el, button, toast, date, selectInstan
     }
 
     trigger.replaceChildren(...[icon, say('任务与结果', 'Tasks & results'), badge].filter(Boolean));
+    const currentPendingStamp = JSON.stringify(getPendingPacks().map(p => [p.path, p.title, p.version]));
+    if (currentPendingStamp !== lastPendingStamp) {
+      lastPendingStamp = currentPendingStamp;
+      onPendingChange?.(pendingCount);
+    }
   }
   updateTrigger();
   document.querySelector('.topbar-actions').prepend(trigger);
@@ -119,7 +204,8 @@ export function createTaskUi({ state, api, el, button, toast, date, selectInstan
     'prepare-environment': ['准备依赖环境', 'Prepare dependencies'], detach: ['隔离实例软件', 'Detach instance software'], reattach: ['恢复实例软件', 'Restore instance software'],
     rebuild: ['重建整合包', 'Rebuild pack'], 'create-template': ['制作模板', 'Create template'], proposal: ['生成协作提案', 'Create collaboration proposal'], 'apply-proposal': ['应用协作提案', 'Apply collaboration proposal'],
     comment: ['添加评论', 'Add comment'], 'export-comments': ['导出评论', 'Export comments'], 'import-comments': ['导入评论', 'Import comments'],
-    'staged-upgrade': ['创建候选试用实例', 'Create candidate trial instance'], upgrade: ['升级实例', 'Upgrade instance'], 'rollback-upgrade': ['回退实例升级', 'Roll back instance upgrade'], 'recover-upgrade': ['恢复中断的升级', 'Recover interrupted upgrade']
+    'staged-upgrade': ['创建候选试用实例', 'Create candidate trial instance'], upgrade: ['升级实例', 'Upgrade instance'], 'rollback-upgrade': ['回退实例升级', 'Roll back instance upgrade'], 'recover-upgrade': ['恢复中断的升级', 'Recover interrupted upgrade'],
+    'local-startup-plan': ['执行世界枢纽启动计划', 'Run World Hub startup plan']
   };
   function operationTitle(operation) {
     const baseLabel = labels[operation.kind] ? say(...labels[operation.kind]) : operation.kind;
@@ -164,7 +250,7 @@ export function createTaskUi({ state, api, el, button, toast, date, selectInstan
     btn.dataset.taskAction = `copy-${opId}`;
     return btn;
   }
-  function resultActions(operation, isDuplicate = false) {
+  function resultActions(operation, isDuplicate = false, isPending = false) {
     const result = operation.result ?? {};
     const actions = [];
     const packPath = getPackPath(operation);
@@ -173,6 +259,13 @@ export function createTaskUi({ state, api, el, button, toast, date, selectInstan
         dialog.close();
         openImport(packPath);
       }, isDuplicate ? 'button button-small' : 'button button-small button-primary'));
+      if (isPending) {
+        actions.push(button(say('取消待导入', 'Dismiss import'), () => {
+          dismissPendingPack(packPath, operation.id);
+          render();
+          toast(say('已取消整合包待审阅导入', 'Pending import dismissed'));
+        }, 'button button-small button-danger-quiet'));
+      }
     }
     const instanceId = result.instance?.instanceId ?? result.instanceId;
     if (instanceId && state.instances.some(row => (row.instanceId ?? row.id) === instanceId)) actions.push(button(say('查看实例', 'View instance'), () => { dialog.close(); void selectInstance(instanceId, 'storage'); }, 'button button-small button-primary'));
@@ -199,7 +292,7 @@ export function createTaskUi({ state, api, el, button, toast, date, selectInstan
         || (['fetch-source', 'fetch'].includes(op.kind) && ['module', 'template'].includes(kind));
     }
     if (category === 'lifecycle') {
-      return ['start', 'stop', 'restart', 'backup', 'restore', 'detach', 'reattach', 'prepare-environment', 'discover-paths', 'comment', 'export-comments', 'import-comments', 'proposal'].includes(op.kind);
+      return ['start', 'stop', 'restart', 'local-startup-plan', 'backup', 'restore', 'detach', 'reattach', 'prepare-environment', 'discover-paths', 'comment', 'export-comments', 'import-comments', 'proposal'].includes(op.kind);
     }
     if (category === 'failed') {
       return op.state === 'failed';
@@ -273,7 +366,10 @@ export function createTaskUi({ state, api, el, button, toast, date, selectInstan
     const renderedPendingPacks = new Set();
     root.replaceChildren(...filtered.map(operation => {
       const result = operation.result, path = result?.directory ?? result?.destination ?? result?.backup ?? result?.indexPath;
-      const partial = result?.cancelled || result?.partial, status = operation.state === 'running' ? say('进行中', 'Running') : operation.state === 'failed' ? say('失败', 'Failed') : partial ? say('部分结果', 'Partial result') : say('已完成', 'Completed');
+      const planOperation = operation.kind === 'local-startup-plan';
+      const planResult = planOperation ? result ?? operation.progress : null;
+      const partial = operation.state === 'partial' || result?.cancelled || result?.partial || planResult?.results?.some(row => ['failed', 'blocked', 'cancelled', 'not-started'].includes(row.state));
+      const status = operation.state === 'running' ? say('进行中', 'Running') : operation.state === 'failed' ? say('失败', 'Failed') : operation.state === 'cancelled' || result?.cancelled ? say('已取消', 'Cancelled') : partial ? say('部分完成', 'Partially completed') : say('已完成', 'Completed');
       const packPath = getPackPath(operation) && pathKey(getPackPath(operation));
       const isPendingCandidate = isPackPendingImport(operation);
       const isDuplicatePending = Boolean(isPendingCandidate && packPath && renderedPendingPacks.has(packPath));
@@ -286,14 +382,18 @@ export function createTaskUi({ state, api, el, button, toast, date, selectInstan
       else if (isUnread) badges.push(el('span', { class: 'pill pill-amber pill-new-badge' }, say('新结果', 'New')));
       badges.push(el('span', { class: 'pill' }, status));
 
-      const actions = resultActions(operation, isDuplicatePending);
+      const actions = resultActions(operation, isDuplicatePending, isPending);
       const card = el('article', { class: ['task-card', 'panel', isPending ? 'is-pending-import' : ''].filter(Boolean).join(' '), 'aria-busy': String(operation.state === 'running') }, [
         el('div', { class: 'panel-heading' }, [el('h3', {}, operationTitle(operation)), el('div', { class: 'task-card-badges' }, badges)]),
         el('p', { class: 'subtle' }, `${state.instances.some(row => (row.instanceId ?? row.id) === operation.instanceId) ? operation.instanceId + ' · ' : ''}${date(operation.startedAt)}${operation.finishedAt ? ` → ${date(operation.finishedAt)}` : ''}`),
         isPending ? el('p', { class: 'task-import-hint' }, say('整合包已保存到本机。导入并审阅后可创建实例；运行仍需明确授权。', 'Pack saved locally. Import and review it to create an instance; execution needs explicit authorization.')) : null,
         path ? el('div', { class: 'task-path-row' }, [el('span', { class: 'mono task-path' }, path), copyButton(path, operation.id)]) : null,
-        partial ? el('p', {}, say('任务被取消或达到处理边界；结果不是完整扫描。', 'The task was cancelled or reached a processing limit; discovery is incomplete.')) : null,
-        operation.error ? el('div', { class: 'notice notice-error' }, operation.error.message) : null,
+        partial ? el('p', {}, planOperation ? say('启动计划未全部完成。请检查各成员的失败、受阻或取消结果；计划外模块保持原状态。', 'The startup plan did not complete in full. Check failed, blocked or cancelled members. Programs outside the plan retain their state.') : operation.kind==='discover-paths' ? say('任务被取消或达到处理边界；结果不是完整扫描。', 'The task was cancelled or reached a processing limit; discovery is incomplete.') : say('任务仅部分完成，请检查完整结果。', 'The task completed only partially. Check its full result.')) : null,
+        planResult ? el('div', { class: 'startup-plan-progress' }, (planResult.results ?? []).map(row => el('div', { class: 'startup-plan-progress-row', 'data-startup-state': row.state }, [
+          el('strong', { class: 'mono' }, row.programId), el('span', { class: 'pill' }, ({started:say('已启动','Started'),'already-running':say('原已运行','Already running'),blocked:say('启动前置未就绪','Blocked by prerequisites'),failed:say('启动失败','Start failed'),cancelled:say('已取消','Cancelled'),'not-started':say('尚未启动','Not started'),starting:say('启动中','Starting')})[row.state]??row.state),
+          row.blockedBy?.length ? el('p', { class:'field-help' }, `${say('等待','Waiting for')}: ${row.blockedBy.join(', ')}`) : null, row.error?.message ? el('p', { class:'field-help' }, localizeErrorMessage(row.error.message, state.language)) : null
+        ].filter(Boolean)))) : null,
+        operation.error ? el('div', { class: 'notice notice-error' }, localizeErrorMessage(operation.error.message, state.language)) : null,
         result ? el('details', { class: 'task-result-details' }, [
           el('summary', { class: 'task-result-summary' }, [
             el('span', { class: 'task-result-summary-label' }, [createIcon ? createIcon('inspect', 'task-result-icon') : null, say('查看完整结果', 'Full result')].filter(Boolean)),
@@ -303,7 +403,7 @@ export function createTaskUi({ state, api, el, button, toast, date, selectInstan
         ]) : null,
         actions.length ? el('div', { class: 'task-actions-row' }, actions) : null
       ]);
-      if (operation.state === 'running' && !['stop', 'detach', 'reattach', 'delete'].includes(operation.kind)) { const cancel = button(operation.cancelRequestedAt ? say('已请求取消', 'Cancellation requested') : say('取消任务', 'Cancel task'), async () => { cancel.disabled = true; try { await api(`/api/operations/${encodeURIComponent(operation.id)}/cancel`, {}); await refresh(); } catch (error) { dialog.querySelector('.task-error').textContent = error.message; cancel.disabled = false; } }, 'button button-small', Boolean(operation.cancelRequestedAt)); cancel.dataset.taskAction = `cancel-${operation.id}`; card.append(cancel); }
+      if (operation.state === 'running' && !['stop', 'detach', 'reattach', 'delete'].includes(operation.kind)) { const cancel = button(operation.cancelRequestedAt ? say('已请求取消', 'Cancellation requested') : say('取消任务', 'Cancel task'), async () => { cancel.disabled = true; try { await api(`/api/operations/${encodeURIComponent(operation.id)}/cancel`, {}); await refresh(); } catch (error) { dialog.querySelector('.task-error').textContent = localizeErrorMessage(error.message, state.language); cancel.disabled = false; } }, 'button button-small', Boolean(operation.cancelRequestedAt)); cancel.dataset.taskAction = `cancel-${operation.id}`; card.append(cancel); }
       return card;
     }));
     if (!filtered.length) {
@@ -371,5 +471,21 @@ export function createTaskUi({ state, api, el, button, toast, date, selectInstan
     if (!dialog.open) dialog.showModal();
     await refresh();
   }
-  return { open, check, languageChanged() { updateTrigger(); if (dialog?.open) { dialog.close(); void open(); } } };
+  return {
+    open,
+    check,
+    getPendingPacks,
+    isPendingPack(path) {
+      const key = path && pathKey(path);
+      return Boolean(key && getPendingPacks().some(p => pathKey(p.path) === key));
+    },
+    dismissPendingPack(path, opId) {
+      dismissPendingPack(path, opId);
+    },
+    undismissPendingPack(path) {
+      undismissPendingPack(path);
+    },
+    pathKey,
+    languageChanged() { updateTrigger(); if (dialog?.open) { dialog.close(); void open(); } }
+  };
 }

@@ -1,87 +1,103 @@
-# Open static software sources
+# 开放模块与模块组来源 / Open module and group sources
 
-Launcher additionally persists named source configurations in its own private root. Enable/disable, digest pins, private-network policy and priority are backend decisions. Disabling a registered address also rejects legacy raw-address requests, retaining caches and local instances. Priority only orders candidates; it never silently chooses conflicting bytes or updates running programs. Current and withdrawn entries retain observation times, with explicit same-kind/ID/version conflicts when hashes differ. These are observations, not publisher signatures or revocation of an already running program.
+软件源只分发数据，不运行程序，也不参与 Hub 路由。通信管理界面的工坊读取索引、核对单模块或模块组并取得制品。单模块可以登记为独立实例；模块组把成员登记为同一 Hub 上的独立实例，再用组引用它们。获取或导入不会自动启动程序，执行前仍需审阅。本地模块不依赖任何软件源在线。
 
-Verified fetches produce backend provenance receipts bound to the actual index and artifact digests. Receipts identify content integrity while explicitly leaving publisher identity, code safety and OS isolation unverified. Import and later execution reviews preserve the receipt only while the reviewed content/environment digest remains unchanged. Raw UI input cannot invent this provenance. See the [Launcher guide](launcher.md) and [module author quickstart](developer.en.md).
+## 索引
 
-Software sources are optional distribution inputs. Local package inspection, import, start, stop and export continue to work when every source is unavailable. They have no role in Hub routing or program business logic. Third parties can implement the following formats without an official account, website or GUI.
-
-Pack artifacts and Template base packs must use the current `world-hub.pack-lock/v2`. Obsolete formats are rejected at artifact validation and local execution, without conversion or fallback. `hubVersion` records lock generation; the exact current wire and Runtime configuration contracts determine whether the package can run. A source refresh can withdraw an obsolete listing without modifying a downloaded file or a running instance.
-
-整合包及模板的基础包必须使用当前 `world-hub.pack-lock/v2`。制品校验与本地运行都拒绝旧格式，不转换、不降级。`hubVersion` 只记录生成锁时的发行版本，当前通信与运行配置契约决定能否运行。官方资源更新后，在软件源中刷新并获取当前版本；旧缓存不会自动变成新版，也不会自动更新已启动程序。
-
-## Index version 1
-
-The optional [hosted Workshop](workshop.md) serves the same open index and artifact formats at `https://peros.cn/workshop/index.json`. Community accounts are required for publication and collaboration; reading and fetching this source require no login. Local execution remains a separate review and authorization step.
-
-An index is UTF-8 JSON of at most 4 MiB, with at most 4096 entries. Fields are closed: unknown fields are rejected in this version.
+`world-hub.source-index/v1` 是有界 UTF-8 JSON，最多 4 MiB、4096 条。字段闭合；未知字段、重复路径、危险路径和不一致摘要会被拒绝。
 
 ```json
 {
   "format": "world-hub.source-index/v1",
-  "id": "example.local",
-  "title": "My local and private packages",
+  "id": "author.modules",
+  "title": "Independent modules",
   "entries": [{
-    "entryId": "module.example.stats.1.0.0",
+    "entryId": "module.author.statistics.1.0.0",
     "kind": "module",
-    "id": "example.stats",
+    "id": "author.statistics",
     "version": "1.0.0",
     "title": "Text statistics",
     "license": "MIT",
-    "platforms": ["win32-x64", "linux-x64"],
-    "provides": [{ "id": "text.statistics", "version": "1.0.0" }],
+    "platforms": ["win32-x64"],
+    "provides": [{"id":"text.statistics","version":"1.0.0"}],
     "requires": [],
-    "source": { "path": "artifact.json" },
-    "sha256": "64 lowercase hexadecimal characters"
+    "source": {"path":"artifact.json"},
+    "sha256": "<64 lowercase hexadecimal characters>"
   }]
 }
 ```
 
-`kind` is `module`, `pack` or `template`. IDs use lower-case letters, digits, dots, underscores and hyphens. Object IDs are at most 64 characters; unique `entryId` values are at most 128. Versions are exact semantic versions. `title` is plain display text, at most 256 characters; `license` is the author's license statement, at most 128. Platforms use `os-architecture`. `provides` and `requires` hold capability contract IDs and exact versions; they are discovery metadata, and Runtime independently validates actual module declarations. Pack and Template publication list empty external contract lists and the locked base platform; inspect the artifact for its actual component contracts.
+示例中的摘要需替换为实际 artifact.json 原始字节 SHA-256。语义版本是精确值，身份和版本相同但摘要不同属于冲突，不静默覆盖。能力元数据只用于候选发现，不证明业务兼容。
 
-For local indices, `source.path` is a safe slash-separated path relative to the index directory. Absolute paths, empty or dot segments, traversal, Windows device names, links and case-colliding artifact paths are rejected. For remote entries, replace `source` with `{ "url": "https://publisher.example/artifact.json" }`. Remote indices may only reference remote URLs, never a local filesystem path. Several index files or URLs can be configured and inspected independently, including user-chosen private and local sources. No source is mandatory or privileged.
+`kind` 为 `module` 或 `module-group`，对应单模块或模块组。相同类型和 ID 的不同精确版本属于同一作品。组版本描述配方发布，不取代成员模块自己的版本。
 
-`readSourceIndex(source, { expectedSha256 })` returns the index and its exact-byte `digest`. The optional expected hash can pin an index distributed through another trusted channel. `fetchSourceArtifact(source, reviewedDigest, entryId, { cacheRoot, signal })` rechecks that digest before retrieving the selected entry; changed indices require another inspection. All remote requests require HTTPS on the default port, without embedded credentials or fragments. Redirects are not followed. The reference downloader connects only to public IPv4 addresses: private, loopback, link-local and unsupported ranges are refused; the checked DNS result is used for that exact connection. IPv6-only hosting requires another transport adapter or delivery as local files. Requests have a 15-second timeout and bounded responses. Network credentials, Launcher management tokens and browser session tokens are never attached.
+一个索引可以同时包含同一作品的多个精确版本，每个版本使用独立的 `entryId` 和原制品摘要。消费者按选中的条目取得对应字节，不把旧版请求重定向到最新版。补充较旧发布不会替换更高版本；来源排序也不构成升级指令。发布者应保留仍公开的历史版本，仅通过明确的下架操作移除有问题的条目，不能在同一版本号下偷偷修补制品。
 
-Private sources can be privately distributed local files, or HTTPS hosting reachable without an embedded login credential. An authenticated remote-source adapter is not included. The default `public-ipv4` policy refuses private addresses. A user can explicitly select a trusted private network or DNS proxy with `allowPrivateNetwork: true`, which uses the `trusted-private-ipv4` policy. This additionally permits only RFC 1918 IPv4 ranges (`10/8`, `172.16/12`, `192.168/16`) and the `198.18/15` benchmarking range used by some DNS proxy tools. HTTPS, certificate validation, default port 443, no URL credentials and no redirects remain required. Loopback, unspecified, link-local/cloud-metadata, multicast and all IPv6 addresses remain refused in both policies. Requests never carry local management credentials.
+本地 `source.path` 相对索引目录解析；远程条目使用 `source.url`，只允许明确支持的 HTTPS 来源。远程索引不能引用本机文件。`pack`／`template` 制品不属于当前格式，不做转换或兼容运行。
 
-Some VPNs and proxy tools replace public DNS answers with addresses in a private or benchmarking range. Those answers are rejected by default. After reviewing and choosing that network, use the explicit trusted-network setting, ordinary public DNS, or retrieve the index and artifacts separately as local files. `readSourceIndex` and `fetchSourceArtifact` return the selected `networkPolicy`; a cached index records it and offline retrieval refuses a different policy. A network choice permits bounded downloads only. It is not trust in the downloaded code or authorization to run it. Local sources and previously verified cached artifacts remain usable independently of remote services.
+## 制品封装
 
-## Artifact version 1
+`world-hub.source-artifact/v1` 具有 `format,kind,id,version,files,provenance`。`files` 的每一项包含安全相对路径、原始文件 SHA-256 与 Base64 内容。索引的摘要覆盖整个 `artifact.json` 原始字节，清单摘要覆盖每个源码文件。
 
-`world-hub.source-artifact/v1` is a bounded JSON container rather than an executable installer or shell script:
+单模块 `kind` 为 `module`，必须包含经过验证的 `module.json`、声明入口及实际文件，身份和版本与索引一致。
+
+模块组 `kind` 为 `module-group`，必须包含根目录 `module-group.json` 和所有成员的模块目录。组清单使用 `world-hub.module-group/v1`，结构见 [module-group.schema.json](module-group.schema.json)，字段为：
+
+- `format,id,version,title,license,platforms,provides,requires`：组身份、精确语义版本与公开发现元数据。
+- `modules`：成员数组；每项为 `id,path,moduleId,version,configuration`。`id` 是配方内成员标识，`path` 是成员源码的安全相对目录，`moduleId` 与 `version` 必须匹配该目录的 `module.json`。
+- `configuration`：仅有 `topics,bridges,settings,bindings`，均为可分享的公开配置。每个 binding 为 `{providerId,contract:{id,version}}`，`providerId` 指向配方内的成员标识。
+- `startupPlan`：`members` 为 `{programId,enabled,after}` 数组，引用配方内成员；`onFailure` 为 `continue-independent` 或 `stop-plan`，`startupOrder` 按顺序列出每个成员标识一次，并满足 `after` 依赖。未启用的成员不会随组启动，之后仍可单独启动。
+
+单成员模块组的清单示例（`modules/counter/` 内另附相符的模块清单与源码）：
 
 ```json
 {
-  "format": "world-hub.source-artifact/v1",
-  "kind": "module",
-  "id": "example.stats",
+  "format": "world-hub.module-group/v1",
+  "id": "author.counter-desk",
   "version": "1.0.0",
-  "files": [{ "path": "module.json", "sha256": "...", "base64": "..." }],
-  "provenance": { "redistributionAcknowledged": true }
+  "title": "Counter desk",
+  "license": "MIT",
+  "platforms": ["win32-x64"],
+  "provides": [],
+  "requires": [],
+  "modules": [{
+    "id": "counter",
+    "path": "modules/counter",
+    "moduleId": "author.counter",
+    "version": "1.0.0",
+    "configuration": {
+      "topics": {"events": "example/counter/events"},
+      "bridges": {"main": {"publish": ["events"], "subscribe": []}},
+      "settings": {},
+      "bindings": []
+    }
+  }],
+  "startupPlan": {
+    "members": [{"programId": "counter", "enabled": true, "after": []}],
+    "onFailure": "continue-independent",
+    "startupOrder": ["counter"]
+  }
 }
 ```
 
-The complete artifact's exact bytes must match the index SHA-256. Each file has its own SHA-256 and canonical Base64 encoding. A file is at most 8 MiB; decoded files total at most 64 MiB, with at most 8192 files. The downloaded artifact is at most 96 MiB. Prefix conflicts, duplicate paths, case collisions, traversal and generated/private deployment trees such as `.git`, `.venv`, `.state`, `.hub` and `__pycache__` are rejected before extraction.
+此示例中的成员 ID、版本、平台和桥槽必须由实际模块支持；公开设置还需满足成员 `deployment.json` 的类型与范围。组成员最多 128 个，成员 ID 与源码目录不能重复，源码目录不能互相嵌套。字段闭合，不接受额外的 Hub、运行环境或凭据字段。
 
-A module artifact contains `module.json` and its declared executable entry. A pack artifact contains `pack.json`, `pack.lock` and exactly the files locked under its module sources. A Template artifact contains `template.json`, the complete locked Pack under `base/`, and an optional template `README.md`. Runtime control credentials, running instance directories and unlisted files are excluded. Application code may itself contain secrets, so publishers remain responsible for reviewing their source before sharing. `provenance` is metadata, never an install instruction or permission grant.
+模块组的源码全部包含在同一制品清单内，不能用未锁定的远程路径代替成员。外层摘要与逐文件摘要同时锁定配方、配置及成员源码。组不包含 Hub、凭据、私钥、状态目录或运行数据。导入时配方成员映射成本机实例，组不要求独立 Hub，也不授予执行权。
 
-Downloads are stored by exact artifact digest in a local cache. Cached bytes and the extracted file set are revalidated on every use; tampering is rejected, rather than silently repaired. Reviewed index bytes are also cached under their digest. If the original index becomes unavailable, an already downloaded artifact can be retrieved using that same source identity, reviewed digest and entry ID. An uncached artifact cannot be fetched offline.
+文件数、单文件和总字节数均有上限；链接、路径逃逸、大小写冲突、生成缓存和私人材料被拒绝。验证内容完整性不验证业务正确，也不代替执行审阅。格式属于外部分发层，不是 Hub 握手或业务消息格式。
 
-Preparing an artifact takes an exclusive `wx` lock for that digest and extracts into a separate UUID staging directory. Only fully validated content is published to the digest-named cache directory; concurrent preparation returns `SOURCE_CACHE_BUSY`. Cancellation or failure removes this operation's temporary files and staging directory, after checking that they remain ordinary paths inside the selected cache. If cleanup cannot be confirmed, the error reports `cleanupIncomplete` and `incompleteDestination`; inspect the reported paths before retrying. A process crash can leave a staging directory or download lock: first confirm that its owner has stopped, then remove only that abandoned entry. The tooling never kills a process based on a saved PID, overwrites a completed cached artifact, or changes existing local instances and their data.
+## 来源策略与不可用状态
 
-## Trust and execution
+来源可以命名、启停、调整顺序、固定索引摘要和明确选择网络策略。优先级只排序，不静默升级或解决内容冲突。禁用来源不删除本地模块，也不终止运行实例。
 
-Inspecting an index, downloading an artifact, publishing local files and reading comments execute no module code and create no running instance. Obtaining an artifact returns a local directory. Import and execution use the normal Launcher/Runtime review, which checks actual files, current locks, interpreters and permissions. Replacing a component goes through the same contract checks as any local package edit.
+默认下载器只接受公开 IPv4，HTTPS 默认端口，不携带用户认证、不跟随重定向，校验 DNS 结果并固定本次连接。明确选择的可信私网 IPv4 策略只用于已确认的网络环境，不自动启用，也不包含任意回环地址访问。下载有超时和大小边界。
 
-SHA-256 establishes content identity and integrity relative to a selected index. It does not establish author identity or code safety. Version 1 does not implement publisher signatures; future signatures can identify a publisher but cannot certify that their program is safe. Default trusted-local execution has no OS sandbox; downloaded modules run with the user's operating-system privileges after explicit execution review. The optional [Node headless container profile](isolation.md) requires separate selection and review and supports only its fixed scope. Fetching an artifact selects neither execution mode nor authorization. Remote descriptions, comments and package metadata are plain text in the UI and cannot call the privileged local API.
+刷新失败会显示实际错误与上一次索引观察时间。缓存不是最新在线证据：只能获取后台已验证的制品缓存，不沿用旧执行授权。索引或制品改变后重新审阅。
 
-## Template 分发
+## 来源证据
 
-`kind:"template"` 是独立分发对象。其制品包含 `template.json`、完整 `base/pack.json`／`base/pack.lock` 和锁定模块源码；静态校验不探测解释器，也不执行模板或模块。索引的平台来自锁定基包，`provides`／`requires` 为空；真实组件契约在制品内检查。获取后先检查参数并生成新 Pack，再走独立的导入、环境和执行审阅；缓存或发布都不等于运行授权。完整 Schema 和 API 见[模板](templates.md)。
+后台生成绑定索引摘要、制品摘要和实际路径的来源回执，浏览器不能伪造。该回执记录内容完整性，不证明作者身份、代码安全或 OS 隔离。发布者公共证据见[信任说明](trust.md)。
 
-## 可选发布者证据
+[Workshop](workshop.md) 提供同样的索引入口；公开发现和下载不要求登录，发布与协作按独立社区的账号政策处理。本机通信界面与社区独立部署，社区不调用本机管理接口。
 
-索引条目可带 `publisherEvidence: {source:{path或url},sha256}`，指向独立、最多 256 KiB 的公共签名 JSON。它沿用索引的路径、HTTPS 和地址策略，摘要必须匹配。`attach-publisher-evidence` 给本地发布目录附加 sidecar；原制品字节和摘要不变。来源 sidecar 仅允许绑定该作品的 `artifact` 声明，不能在下载时偷偷应用轮换／撤销／风险控制声明。
-
-获取仍兼容未签名作品；无效、缺失或过期证据会明确显示诊断，不冒充发布者已验证，也不自动授予执行。导入与再次审阅会重新核对实际缓存制品和本机撤销／公告记录，旧 receipt 不能恢复已撤销的公钥。控制声明须在 Launcher 或 CLI 单独预览并明确记录。公钥与恢复策略见[作品信任](trust.md)。
+Workshop 的图标、封面和预览图属于社区展示元数据，独立于本节的索引和源码制品格式。更新图片不会改变制品摘要、源码锁或软件源条目，也不会让消费者选定的版本自动升级。模块导入和 Hub 通信无需依赖这些图片。

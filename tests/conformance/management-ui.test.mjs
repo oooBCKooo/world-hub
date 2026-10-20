@@ -79,7 +79,7 @@ function harness() {
     requestAnimationFrame: callback => { raf.push(callback); return raf.length; }, setTimeout: callback => { timers.push(callback); return timers.length; }, clearTimeout: () => {},
     request: async path => { readRequests.push(path); return state.data; }, animateEvents: events => animations.push(events.map(event => ({ ...event }))), viewMessage: seq => readRequests.push(seq),
   });
-  const names = ['el', 'svgEl', 'shorten', 'bridges', 'selectedBridge', 'selectedProgram', 'label', 'status', 'stateClass', 'endpointBridge', 'endpointName', 'programName', 'translatedErrorParams', 'updateProgramNodeContents', 'applyCanvasLabels',
+  const names = ['el', 'svgEl', 'shorten', 'bridges', 'selectedBridge', 'selectedProgram', 'label', 'status', 'stateClass', 'endpointBridge', 'endpointName', 'programName', 'renderStreamToggleLabel', 'translatedErrorParams', 'updateProgramNodeContents', 'applyCanvasLabels',
     'safeId', 'programKey', 'computeGraphLayout', 'applyHighlightTopology', 'highlightProgram', 'captureDraft', 'openInspector', 'closeInspector', 'selectBridge', 'selectProgram', 'renderInspector',
     'updateBridgeNodeContents', 'eventType', 'eventRoute', 'concernsBridge', 'streamRowKey', 'createStreamRow', 'updateStreamRow', 'renderStream', 'renderRetentionData', 'refresh', 'collectEvents', 'saveAnnotation'];
   vm.runInContext(names.map(name => sourceFunction(name)).join('\n'), context);
@@ -142,6 +142,39 @@ test('language: English dynamic topology and history switch back without changin
   assert.equal(h.dom.get('bridge-name-input').value, '未保存的自定义名称');
   assert.equal(JSON.stringify(h.state.data), savedData); assert.equal(JSON.stringify(h.state.events), savedEvents);
   assert.equal(h.readRequests.length, beforeRequests);
+});
+
+test('language: managed metadata selects the requested language without renaming annotations or rebuilding topology', () => {
+  const h = harness();
+  h.context.window.canvasModes = { data: { programs: [{ programId: 'managed', principal: 'local.managed', title: { zh: '发布者模块', en: 'Publisher module' } }] } };
+  h.state.data.bridges = [h.bridge('local.managed'), h.bridge('external', [{ id: 'annotation', name: '发布者模块' }])];
+  h.context.computeGraphLayout();
+  const managed = h.state.programPositions.get(h.context.programKey('managed'));
+  const annotation = h.state.programPositions.get(h.context.programKey('annotation'));
+  assert.equal(h.context.programName(managed), '发布者模块');
+  assert.equal(h.context.programName(annotation), '发布者模块');
+  h.i18n.setLanguage('en');
+  assert.equal(h.context.programName(managed), 'Publisher module');
+  assert.equal(h.context.programName(annotation), '发布者模块');
+  assert.equal(managed.managedTitle.zh, '发布者模块');
+  h.context.window.canvasModes.data.programs[0].title.en = 'Updated publisher title';
+  assert.equal(h.context.programName(managed), 'Updated publisher title');
+  h.i18n.setLanguage('zh-CN');
+  assert.equal(h.context.programName(managed), '发布者模块');
+  assert.equal(h.state.programPositions.get(h.context.programKey('managed')), managed);
+});
+
+test('language: expanded and collapsed stream actions retain English labels on every toggle', () => {
+  const h = harness(), button = h.add('btn-stream-drawer-toggle', 'button');
+  h.i18n.setLanguage('en'); h.context.renderStreamToggleLabel();
+  assert.equal(button.children[0].textContent, english['📊 信息流水']);
+  assert.equal(button.children[1].id, 'bottom-stream-count-tag');
+  assert.match(button.textContent, /▼$/);
+  h.dom.get('stream-drawer').classList.remove('expanded'); h.context.renderStreamToggleLabel();
+  assert.equal(button.children[0].textContent, english['📊 信息流水']);
+  assert.match(button.textContent, /▲$/);
+  h.i18n.setLanguage('zh-CN'); h.context.renderStreamToggleLabel();
+  assert.equal(button.children[0].textContent, '📊 信息流水');
 });
 
 test('P6: retention view exposes capacity blockers and exact blob bytes without executing provider text', () => {

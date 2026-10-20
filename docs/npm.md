@@ -1,6 +1,6 @@
 # npm 包与 SDK
 
-`world-hub` 提供前台运行的 Hub CLI、可选统一 Launcher、外部 `world-hub-pack` Runtime 和外部程序可选用的 JavaScript、Python、PowerShell 模块桥。Hub CLI、Launcher 与 JavaScript SDK 需要 Node.js 22.4.0 或以上，没有 npm 运行依赖；Node 运行时由使用者安装。Python 和 PowerShell SDK 按各自模块文件路径使用，需要自己的运行环境。npm 安装不会启动业务程序，也不会安装 DSH、模型或 Python 依赖。
+`world-hub` 提供前台运行的 Hub CLI、内置通信管理界面和外部程序可选用的 JavaScript、Python、PowerShell 模块桥。Hub CLI、管理界面服务与 JavaScript SDK 需要 Node.js 22.4.0 或以上，没有 npm 运行依赖；Node 运行时由使用者安装。Python 和 PowerShell SDK 按各自模块文件路径使用，需要自己的运行环境。npm 安装不会启动业务程序，也不会安装 DSH、模型或 Python 依赖。
 
 ## 安装并启动
 
@@ -38,7 +38,7 @@ world-hub --check --config ./hub.local.json --data-dir ./deployment-a
 world-hub --config ./hub.local.json --data-dir ./deployment-a --open
 ```
 
-启动器持有部署数据目录的排他锁；正常停止只释放自己的锁。升级可使用 `npm install --global world-hub@latest`，升级前先停止自己运行的实例。备份与迁移仍需保留完整配置和通讯数据，具体方法见[分发与迁移](releases.md)。启动、升级、停止、读取和 ACK 都不会替提供者释放信息。
+Hub 启动入口持有部署数据目录的排他锁；正常停止只释放自己的锁。升级可使用 `npm install --global world-hub@latest`，升级前先停止自己运行的实例。备份与迁移仍需保留完整配置和通讯数据，具体方法见[分发与迁移](releases.md)。启动、升级、停止、读取和 ACK 都不会替提供者释放信息。
 
 ## 在程序中使用 JavaScript 桥
 
@@ -54,7 +54,7 @@ ESM 命名导出入口：
 | --- | --- |
 | `world-hub` 或 `world-hub/bridge` | `Bridge`、`WIRE_VERSION`、`WIRE_FRAMES`、`defaultCursorPath` |
 | `world-hub/blob` | `uploadFile`、`uploadStream`、`downloadFile`、`readAttachment` |
-| `world-hub/runtime` | 外部 `inspectPackage`、`createLock`、`importPackage`、`startInstance`、`statusInstance`、`logsInstance`、`stopInstance`、`exportInstance` |
+| `world-hub/lifecycle` | 本机受管按需调用的 `callManaged`、`acquireManagedLease`、`withManagedModule`；需本机执行授权，见[生命周期客户端](../sdk/javascript/LIFECYCLE.md) |
 | `world-hub/workshop` | 独立托管社区的 `createWorkshopServer`；需要自己的私有配置、数据目录和 HTTPS 代理 |
 
 可选命令 `world-hub-workshop --config <私有配置>` 启动独立社区，维护命令包括 `--initialize-admin`、`--password-stdin`、`--stop` 和 `--export`。安装包不会自动启动社区。账号、公开软件源和迁移流程见[Workshop](ecosystem/workshop.md)。
@@ -101,39 +101,23 @@ Import-Module './node_modules/world-hub/sdk/powershell/HubBridge.psm1'
 
 Python 程序把 `node_modules/world-hub/sdk/python` 加入模块路径后导入 `hub_bridge`，也可按自己的打包方式携带桥。它需要适用的 Python 和 `websockets==15.0.1`；PowerShell 桥需要 PowerShell 7，通过系统 `Add-Type` 编译包内 C# 辅助类，不需要独立 dotnet SDK。详细接口见[Python SDK](../sdk/python/README.md)与[PowerShell SDK](../sdk/powershell/README.md)。这些 SDK 文档中的 `sdk/...` 示例路径以源码仓库为基准，npm 安装时按自己的安装位置调整。
 
-## 可选外部整合包 Runtime
-
-需要浏览器操作时，全局安装后运行：
+## 同一个界面管理模块
 
 ```powershell
-world-hub ui --open
-world-hub ui --root ./my-pack-instances --port 0 --node '<已安装的 node.exe>' --python '<已安装的 python.exe>' --open
+world-hub --open
+world-hub --data-dir ./my-hub-data --port 0 --open
 ```
 
-两条命令是不同启动方式，选择一条。Launcher 默认进入“我的整合包”，提供本机目录检查、导入实例、明确授权当前审阅内容、启动／停止／重启、四种运行状态、模块权限、日志与公开包导出。环境检测只使用已安装解释器的固定探针。首次浏览器授权使用启动器打开的一次性链接；请保留终端运行，用 Ctrl+C 等待停止完成。原 `world-hub --open` 仍直接进入 Hub 管理界面，原 Runtime CLI 继续可用。
+启动后进入 `/manage` 通信管理界面。所有本机受管实例使用同一个 Hub。在该界面导入模块目录、ZIP 或社区制品，管理模块组，直接调整参数、通道、桥权限和启动计划，经审阅保存并启动。模块组引用已有实例，不创建另一份 Hub 或进程。
 
-每个运行实例的 Hub 拓扑和通信工作台复用原管理界面，并能按本次运行的桥会话返回对应组件日志。业务应用在独立标签页打开；连接、模块自报就绪和健康探针不代表业务成果已完成。Launcher 与 Runtime 位于 Hub 外部；默认 trusted-local 权限是声明，没有 OS 沙箱，其他可选保护模式需按[隔离指南](ecosystem/isolation.md)准备并逐包审阅。环境检测不安装依赖；需要时，用户可先审阅有限的固定 Python venv 准备方案再明确执行，之后重新检查包。
+保留终端运行，Ctrl+C 等待停止。路径支持选择与浏览；工坊下载的模块与模块组可继续导入，下载和启动授权分开。界面提供发行版本选择、升级回退、默认接线恢复、单实例与整组卸载。常驻与按需运行的作者默认值可在本机覆盖；允许自动唤醒的调用者由本机用户选择，不随包授权。声明权限不是 OS 沙箱。见[模块管理](ecosystem/modules.md)与[管理规格](specs/management.md)。
 
-界面还提供私有实例备份／新实例恢复、保留数据卸载与重新关联、静态软件源筛选与验证缓存、可视化组件配置和能力绑定、复制到新目录重建锁或派生、创作者制品发布、纯文本评论和基线冲突检查的提案交换。软件源和创作操作不自动执行模块，发布只生成供分享的本机文件。完整流程、支持范围与管理 API 见[统一 Launcher](ecosystem/launcher.md)。
-
-全局安装后另有 `world-hub-pack` 命令。它按公开 module／pack／lock 声明管理用户主动选择的本地独立程序，Hub 本身不启动它。完整 [CLI 与公开 API](ecosystem/runtime.md)、[部署声明及 Schema](ecosystem/pack-spec.md)随 npm 提供。
-
-```powershell
-$review = world-hub-pack plan ./my-pack | ConvertFrom-Json
-world-hub-pack import ./my-pack --root ./instances --instance one
-world-hub-pack start --root ./instances --instance one --trust $review.digest
-world-hub-pack status --root ./instances --instance one
-world-hub-pack stop --root ./instances --instance one
-```
-
-检查输出包含内容摘要、权限声明和宿主环境；审阅之后才能使用准确摘要启动。解释器可用 `--node <exe>`／`--python <exe>` 选择，不匹配锁或缺依赖时明确拒绝，不自动安装或改写锁。`start` 保持前台监督实例，每实例独立 Hub、凭据、端口与程序状态；进程、自报健康和真实通讯连接分别观察。权限声明不是 OS 沙箱，超时不自动重试业务。
-
-npm 只携带部署工具、Schema 与文档；[三程序文本台包](../examples/ecosystem-pack/README.md)的源码和锁在 GitHub 或独立生态源码 ZIP 取得。它要求自己的 Python／websockets 环境，不会由于安装 npm Hub 自动出现。普通程序可继续只用模块桥，不采用 Runtime 部署协议。
+当前不再提供 `world-hub-pack` 命令或 `world-hub/runtime` 导出。整合包和模板不转换为模块组，不通过隐藏旧入口兼容运行；旧源码和私人数据保留由使用者自行处置。
 
 ## 源码、演示与许可
 
-npm 包包含两个 CLI、可选 Launcher 与外部 Runtime、通讯核心、管理界面、三个语言 SDK、部署 Schema、参考配置和文档。Launcher 的本地管理服务和中英文静态界面随包提供；`examples/ecosystem-pack`、测试、独立业务示例、构建工具、生成 ZIP、官方 Node 二进制与私人部署数据不随 npm 安装。需要开发、运行 `npm test` 或探索用途演示时，克隆 [GitHub 仓库](https://github.com/oooBCKooo/world-hub)，按[开发](development.md)、[验证](verification.md)与[用途演示指南](examples/purpose-demos.md)操作。
+npm 提供 Hub、通信管理界面、本机模块管理辅助、三个语言 SDK、模块声明、参考配置、当前文档和独立 Workshop／互操作工具。仓库测试、构建工具、用途演示、生成 ZIP、官方 Node 二进制与私人部署数据不随 npm 安装；软界面参考模块源码另置于 `examples/soft-ui-modules`，不自动运行。
 
-[提供者接入契约](modules/provider-contract.md)和[统计机器契约](modules/text-statistics.contract.json)在包内 `docs/modules/`，可与 SDK 文档一起用于从零实现遵守相同合同的能力模块。部署方仍需提供自己的 endpoint、身份凭据与权限，并配置外部目录和组装器；这些服务和示例业务实现不由 npm Hub 默认启动。
+[提供者接入契约](modules/provider-contract.md)、[机器契约](modules/text-statistics.contract.json)和 SDK 文档随包提供。部署方仍提供自己的 endpoint、身份凭据与权限。社区、能力目录和业务程序不由默认 Hub 启动。
 
-项目源码和文档采用 [MIT 许可](../LICENSE)，第三方运行时和依赖遵循各自许可。npm 可安装不代表所有平台、跨机器、长期运行或所有第三方桥都已验收；实际验证范围见[验证说明](verification.md)。
+项目源码和文档采用 [MIT](../LICENSE)，第三方依赖保留各自许可。可安装不代表任意平台或第三方桥已经验收，见[验证说明](verification.md)。

@@ -9,6 +9,7 @@ import { validateModuleDirectory } from '../../../scripts/runtime/developer.mjs'
 import { inspectPackage } from '../../../scripts/runtime/package.mjs';
 import { readSourceManifest, collectSourceFiles } from '../../../scripts/runtime/source-guidance.mjs';
 import { diagnose } from '../../../tools/launcher/diagnostics.mjs';
+import { localizeErrorMessage } from '../../../tools/launcher/public/i18n.mjs';
 import { createLauncherServer } from '../../../tools/launcher/server.mjs';
 import { workspace, environment, save, until } from './helpers.mjs';
 
@@ -92,4 +93,29 @@ test('the published independent-program guide establishes real authenticated two
   await until(async () => { try { return JSON.parse(await readFile(snapshot, 'utf8')).text === command.text; } catch { return false; } });
   await until(async () => { try { return (await readFile(join(stateDirectory, 'display.cursor.json'), 'utf8')).length > 0; } catch { return false; } });
   assert.equal(failures.length, 0);
+});
+
+test('software source and runtime error messages are localized into natural Chinese when language is zh', () => {
+  const err404 = new Error('Software source HTTP status 404; redirects are not followed');
+  const d404 = diagnose(err404);
+  assert.equal(d404.kind, 'source-not-found');
+  assert.match(d404.zh, /HTTP 404/);
+
+  assert.equal(localizeErrorMessage(err404.message, 'zh'), '软件源未找到该资源（HTTP 404）；出于安全考虑系统不跟随重定向');
+  assert.equal(localizeErrorMessage(err404.message, 'en'), 'Software source HTTP status 404; redirects are not followed');
+
+  const netErr = 'connect ECONNREFUSED 127.0.0.1:51780';
+  assert.equal(localizeErrorMessage(netErr, 'zh'), '连接目标服务失败：目标拒绝连接 (127.0.0.1:51780)');
+  assert.equal(localizeErrorMessage(netErr, 'en'), netErr);
+
+  const fetchErr = '无法连接本机 Launcher。请确认 Launcher 仍在运行，然后刷新。 fetch failed';
+  assert.equal(localizeErrorMessage(fetchErr, 'zh'), '无法连接本机 Launcher。请确认 Launcher 仍在运行，然后刷新。 网络请求失败 (fetch failed)');
+
+  const bootstrapErr = 'Launch code is invalid. Open a new Launcher session from its owning terminal.';
+  assert.equal(localizeErrorMessage(bootstrapErr, 'zh'), '启动授权码无效或已失效。请从启动该服务的终端重新打开一次新的 Launcher 页面。');
+  assert.equal(localizeErrorMessage(bootstrapErr, 'en'), bootstrapErr);
+
+  const dBootstrap = diagnose(Object.assign(new Error(bootstrapErr), { code: 'BOOTSTRAP_INVALID' }));
+  assert.equal(dBootstrap.kind, 'bootstrap-invalid');
+  assert.match(dBootstrap.zh, /启动授权码/);
 });

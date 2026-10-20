@@ -6,6 +6,7 @@ import { randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual, cre
 import { promisify } from 'node:util';
 import { ordinaryPath, readBounded, hash } from '../../scripts/runtime/paths.mjs';
 import { validateArtifactBytes, validateSourceIndex, validateArtifactPublisherEvidence, maximumPublisherEvidence } from '../../scripts/runtime/sources.mjs';
+import { MAX_MEDIA_BYTES, inspectMedia, validatePresentation, assertPresentation, presentationAssets, mediaExtension, publicPresentation } from './media.mjs';
 
 const scrypt = promisify(scryptCallback);
 const token = () => randomBytes(32).toString('base64url');
@@ -13,6 +14,24 @@ const now = () => new Date().toISOString();
 const shaPattern = /^[a-f0-9]{64}$/;
 const identifier = /^[a-z0-9][a-z0-9._-]{0,127}$/;
 const usernamePattern = /^[a-z0-9][a-z0-9._-]{2,39}$/;
+const distributedKinds = new Set(['module', 'module-group']);
+// Versions share one catalog identity; exact historical versions remain
+// addressable and pinned in the source index. Never infer an upgrade grant.
+function newestVersion(a, b) {
+  const parse = value => { const [core, ...pre] = value.split('-'); return { core: core.split('.').map(BigInt), pre: pre.join('-').split('.').filter(Boolean) }; };
+  const left = parse(a.version), right = parse(b.version);
+  for (let index = 0; index < 3; index++) if (left.core[index] !== right.core[index]) return left.core[index] > right.core[index] ? -1 : 1;
+  if (!left.pre.length || !right.pre.length) return left.pre.length ? 1 : right.pre.length ? -1 : 0;
+  for (let index = 0; index < Math.max(left.pre.length, right.pre.length); index++) {
+    const x = left.pre[index], y = right.pre[index]; if (x === y) continue;
+    if (x === undefined) return 1; if (y === undefined) return -1;
+    const xn = /^\d+$/.test(x), yn = /^\d+$/.test(y);
+    if (xn && yn) { if (BigInt(x) === BigInt(y)) continue; return BigInt(x) > BigInt(y) ? -1 : 1; }
+    if (xn !== yn) return xn ? 1 : -1;
+    return x > y ? -1 : 1;
+  }
+  return 0;
+}
 const MAX_METADATA = 16 * 1024 * 1024;
 export const MAX_UPLOAD = 8 * 1024 * 1024;
 export const publicUser = user => ({ id: user.id, username: user.username, role: user.role, disabled: user.disabled });
@@ -66,12 +85,13 @@ function assertState(state) {
   for (const invitation of state.invitations) requireValue(shaPattern.test(invitation.hash) && users.has(invitation.creatorId) && Number.isFinite(Date.parse(invitation.expiresAt)), 'INVALID_STORE', 'Invalid Workshop invitation metadata.', 500);
   for (const p of state.publications) {
     const key = `${p.kind}:${p.id}`;
-    requireValue(identifier.test(p.entryId) && !publications.has(p.entryId) && users.has(p.ownerId) && ['module', 'pack', 'template'].includes(p.kind)
+    requireValue(identifier.test(p.entryId) && !publications.has(p.entryId) && users.has(p.ownerId) && ['module', 'module-group', 'pack', 'template'].includes(p.kind)
       && shaPattern.test(p.sha256) && typeof p.hidden === 'boolean' && Array.isArray(p.comments) && p.comments.length <= 100
       && Array.isArray(p.proposals) && p.proposals.length <= 32 && (!identities.has(key) || identities.get(key) === p.ownerId), 'INVALID_STORE', 'Invalid Workshop publication metadata.', 500);
     requireValue(!versions.has(`${key}@${p.version}`), 'INVALID_STORE', 'Duplicate immutable publication version.', 500);
     publications.add(p.entryId); versions.add(`${key}@${p.version}`); identities.set(key, p.ownerId);
     requireValue(p.entry?.sha256 === p.sha256 && p.entry.entryId === p.entryId && p.entry.kind === p.kind && p.entry.id === p.id && p.entry.version === p.version, 'INVALID_STORE', 'Publication and source entry disagree.', 500);
+    if (p.presentation !== undefined) { try { assertPresentation(p.presentation); } catch { throw workshopError('INVALID_STORE', 'Invalid Workshop presentation metadata.', 500); } }
     for (const c of p.comments) requireValue(identifier.test(c.id) && users.has(c.authorId) && typeof c.text === 'string' && c.text.length <= 4000, 'INVALID_STORE', 'Invalid comment metadata.', 500);
     for (const q of p.proposals) {
       requireValue(identifier.test(q.id) && users.has(q.authorId) && shaPattern.test(q.sha256) && q.baseSha256 === p.sha256, 'INVALID_STORE', 'Invalid proposal metadata.', 500);
@@ -103,10 +123,11 @@ export class WorkshopStore {
     try {
       store.artifactRoot = join(root, 'artifacts'); await ordinaryPath(store.artifactRoot, { allowMissing: true }); await mkdir(store.artifactRoot, { recursive: true, mode: 0o700 });
       store.publisherRoot = join(root, 'publisher-evidence'); await ordinaryPath(store.publisherRoot, { allowMissing: true }); await mkdir(store.publisherRoot, { recursive: true, mode: 0o700 });
+      store.mediaRoot = join(root, 'media'); await ordinaryPath(store.mediaRoot, { allowMissing: true }); await mkdir(store.mediaRoot, { recursive: true, mode: 0o700 });
       store.metadataPath = join(root, 'metadata.json');
       try { store.state = JSON.parse((await readBounded(store.metadataPath, MAX_METADATA)).toString('utf8')); }
       catch (error) { if (error.code !== 'ENOENT') throw error; store.state = { format: 'world-hub.workshop-state/v1', revision: 0, users: [], sessions: [], invitations: [], publications: [] }; await atomicJson(store.metadataPath, store.state); }
-      assertState(store.state); cleanExpired(store.state); store.totalArtifactBytes = 0; store.artifacts = new Map(); store.publisherEvidence = new Map();
+      assertState(store.state); cleanExpired(store.state); store.totalArtifactBytes = 0; store.artifacts = new Map(); store.publisherEvidence = new Map(); store.media = new Map();
       const files = await readdir(store.artifactRoot);
       requireValue(files.length <= 8192, 'ARTIFACT_QUOTA', 'Too many stored artifacts.', 507);
       for (const name of files) {
@@ -133,7 +154,23 @@ export class WorkshopStore {
         requireValue(hash(bytes) === name.slice(0, 64), 'INVALID_STORE', 'Stored publisher evidence hash mismatch.', 500);
         store.publisherEvidence.set(name.slice(0, 64), bytes.length); store.totalArtifactBytes += bytes.length;
       }
-      requireValue(store.totalArtifactBytes <= store.diskQuota, 'ARTIFACT_QUOTA', 'Stored artifacts exceed the configured disk quota.', 507);
+      const mediaFiles = await readdir(store.mediaRoot); requireValue(mediaFiles.length <= 32768, 'MEDIA_QUOTA', 'Too many stored community images.', 507);
+      for (const name of mediaFiles) {
+        if (/^[a-f0-9]{64}\.[a-f0-9-]{36}\.tmp$/.test(name)) {
+          const temporary = join(store.mediaRoot, name); await ordinaryPath(temporary); const info = await lstat(temporary);
+          requireValue(info.isFile() && info.size <= MAX_MEDIA_BYTES, 'INVALID_STORE', 'Unsafe interrupted image staging file.', 500); await unlink(temporary); continue;
+        }
+        const match = /^([a-f0-9]{64})\.(png|jpg|webp)$/.exec(name); requireValue(match, 'INVALID_STORE', 'Unexpected material in the Workshop image directory.', 500);
+        const bytes = await readBounded(join(store.mediaRoot, name), MAX_MEDIA_BYTES); let descriptor;
+        try { descriptor = inspectMedia(bytes); } catch { throw workshopError('INVALID_STORE', 'Stored community image is malformed.', 500); }
+        requireValue(descriptor.sha256 === match[1] && mediaExtension(descriptor.mimeType) === match[2] && !store.media.has(descriptor.sha256), 'INVALID_STORE', 'Stored community image hash or type mismatch.', 500);
+        store.media.set(descriptor.sha256, descriptor); store.totalArtifactBytes += bytes.length;
+      }
+      requireValue(store.totalArtifactBytes <= store.diskQuota, 'ARTIFACT_QUOTA', 'Stored artifacts, evidence and images exceed the configured disk quota.', 507);
+      for (const p of store.state.publications) for (const asset of presentationAssets(p.presentation)) {
+        const actual = store.media.get(asset.sha256);
+        requireValue(actual && ['sha256', 'mimeType', 'size', 'width', 'height'].every(key => actual[key] === asset[key]), 'INVALID_STORE', 'Publication image is missing or inconsistent.', 500);
+      }
       for (const p of store.state.publications) for (const digest of [p.sha256, ...p.proposals.map(q => q.sha256)]) requireValue(store.artifacts.has(digest), 'INVALID_STORE', 'Publication artifact is missing.', 500);
       for (const p of store.state.publications) for (const record of [p, ...p.proposals]) {
         const reference = record === p ? p.entry.publisherEvidence : record.publisherEvidence;
@@ -231,27 +268,75 @@ export class WorkshopStore {
     const owner = this.state.users.find(v => v.id === p.ownerId);
     return { entryId: p.entryId, kind: p.kind, id: p.id, version: p.version, title: p.title, sha256: p.sha256, license: p.entry.license,
       platforms: p.entry.platforms, provides: p.entry.provides, requires: p.entry.requires, owner: { id: owner.id, username: owner.username },
-      createdAt: p.createdAt, hidden: p.hidden, commentsCount: p.comments.length, proposalsCount: p.proposals.length,
+      createdAt: p.createdAt, hidden: p.hidden, commentsCount: p.comments.length, proposalsCount: p.proposals.length, presentation: publicPresentation(p.presentation),
       ...(p.entry.publisherEvidence ? { publisherEvidence: { sha256: p.entry.publisherEvidence.sha256, status: 'public-evidence-user-verification-required', publisherIdentityVerified: false, codeSafetyVerified: false, grantsExecution: false } } : {}) };
   }
   catalog({ search = '', kind = '', contract = '', offset = 0, limit = 40 } = {}, user = null) {
-    requireValue(typeof search === 'string' && search.length <= 128 && ['', 'module', 'pack', 'template'].includes(kind) && typeof contract === 'string' && contract.length <= 128
+    requireValue(typeof search === 'string' && search.length <= 128 && ['', 'module', 'module-group'].includes(kind) && typeof contract === 'string' && contract.length <= 128
       && Number.isSafeInteger(offset) && offset >= 0 && Number.isSafeInteger(limit) && limit >= 1 && limit <= 100, 'INVALID_INPUT', 'Invalid catalog filter or pagination.');
     const needle = search.toLowerCase();
-    const matches = this.state.publications.filter(p => (!p.hidden || user?.role === 'admin') && (!kind || p.kind === kind)
+    const matches = this.state.publications.filter(p => distributedKinds.has(p.kind) && (!p.hidden || user?.role === 'admin') && (!kind || p.kind === kind)
       && (!needle || `${p.id} ${p.title} ${p.entry.license} ${this.state.users.find(v => v.id === p.ownerId).username}`.toLowerCase().includes(needle))
-      && (!contract || [...p.entry.provides, ...p.entry.requires].some(c => c.id === contract))).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    return { publications: matches.slice(offset, offset + limit).map(p => this.summary(p)), total: matches.length, offset, limit };
+      && (!contract || [...p.entry.provides, ...p.entry.requires].some(c => c.id === contract))).sort(newestVersion);
+    const identities = new Map();
+    for (const publication of matches) {
+      const key = `${publication.kind}:${publication.id}`;
+      const item = identities.get(key);
+      if (item) item.versionCount++;
+      else identities.set(key, { publication, versionCount: 1 });
+    }
+    const works = [...identities.values()].sort((a, b) => b.publication.createdAt.localeCompare(a.publication.createdAt) || a.publication.entryId.localeCompare(b.publication.entryId));
+    return { publications: works.slice(offset, offset + limit).map(({ publication, versionCount }) => ({ ...this.summary(publication), versionCount })), total: works.length, offset, limit };
   }
   publication(entryId, user = null) {
     const p = this.state.publications.find(v => v.entryId === entryId);
-    requireValue(p && (!p.hidden || user?.role === 'admin' || user?.id === p.ownerId), 'NOT_FOUND', 'Publication not found.', 404); return p;
+    requireValue(p && distributedKinds.has(p.kind) && (!p.hidden || user?.role === 'admin' || user?.id === p.ownerId), 'NOT_FOUND', 'Publication not found.', 404); return p;
   }
   commentSummary(c) { const author = this.state.users.find(v => v.id === c.authorId); return { id: c.id, text: c.text, author: { id: author.id, username: author.username }, createdAt: c.createdAt }; }
   proposalSummary(q) { const author = this.state.users.find(v => v.id === q.authorId); return { id: q.id, title: q.title, baseSha256: q.baseSha256, sha256: q.sha256, kind: q.kind, artifactId: q.artifactId, version: q.version, author: { id: author.id, username: author.username }, createdAt: q.createdAt,
     ...(q.publisherEvidence ? { publisherEvidence: { sha256: q.publisherEvidence.sha256, status: 'public-evidence-user-verification-required', publisherIdentityVerified: false, grantsExecution: false } } : {}) }; }
-  detail(entryId, user = null) { const p = this.publication(entryId, user); return { publication: this.summary(p), entry: p.entry, comments: p.comments.map(c => this.commentSummary(c)), proposals: p.proposals.map(q => this.proposalSummary(q)) }; }
-  index(baseURL) { return { format: 'world-hub.source-index/v1', id: 'world-hub-workshop', title: 'World Hub Workshop', entries: this.state.publications.filter(p => !p.hidden).map(p => ({ ...p.entry, source: { url: `${baseURL}/artifacts/${p.sha256}.json` },
+  detail(entryId, user = null) {
+    const p = this.publication(entryId, user);
+    const versions = this.state.publications.filter(v => v.kind === p.kind && v.id === p.id && (!v.hidden || user?.role === 'admin' || user?.id === v.ownerId)).sort(newestVersion).map(v => this.summary(v));
+    return { publication: this.summary(p), entry: p.entry, versions, comments: p.comments.map(c => this.commentSummary(c)), proposals: p.proposals.map(q => this.proposalSummary(q)) };
+  }
+  async groupManifest(entryId, user = null) {
+    const p = this.publication(entryId, user); if (p.kind !== 'module-group') return null;
+    return validateArtifactBytes(await this.artifactBytes(p.sha256)).manifest;
+  }
+  distributionVisible(digest) { return this.state.publications.some(p => distributedKinds.has(p.kind) && !p.hidden && (p.sha256 === digest || p.proposals.some(q => q.sha256 === digest))); }
+  publisherVisible(digest) { return this.state.publications.some(p => distributedKinds.has(p.kind) && !p.hidden && (p.entry.publisherEvidence?.sha256 === digest || p.proposals.some(q => q.publisherEvidence?.sha256 === digest))); }
+  mediaVisible(digest) { return this.state.publications.some(p => distributedKinds.has(p.kind) && !p.hidden && presentationAssets(p.presentation).some(asset => asset.sha256 === digest)); }
+  async mediaBytes(digest, extension = null) {
+    const descriptor = this.media.get(digest); requireValue(shaPattern.test(digest) && descriptor && (!extension || mediaExtension(descriptor.mimeType) === extension), 'NOT_FOUND', 'Community image not found.', 404);
+    const bytes = await readBounded(join(this.mediaRoot, `${digest}.${mediaExtension(descriptor.mimeType)}`), MAX_MEDIA_BYTES);
+    requireValue(bytes.length === descriptor.size && hash(bytes) === digest, 'MEDIA_CORRUPT', 'Stored community image failed integrity verification.', 500); return { bytes, descriptor };
+  }
+  async storeMedia(assets) {
+    for (const [digest, { descriptor, bytes }] of assets) {
+      if (this.media.has(digest)) { requireValue((await this.mediaBytes(digest)).bytes.equals(bytes), 'MEDIA_CORRUPT', 'Stored community image changed.', 500); continue; }
+      requireValue(this.media.size < 32768 && this.totalArtifactBytes + bytes.length <= this.diskQuota, 'MEDIA_QUOTA', 'Workshop image storage quota reached.', 507);
+      const file = join(this.mediaRoot, `${digest}.${mediaExtension(descriptor.mimeType)}`), temporary = join(this.mediaRoot, `${digest}.${randomUUID()}.tmp`);
+      await ordinaryPath(file, { allowMissing: true }); const handle = await open(temporary, 'wx', 0o600);
+      try { await handle.writeFile(bytes); await handle.sync(); await handle.close(); await link(temporary, file); await unlink(temporary); await syncDirectory(this.mediaRoot); }
+      finally { await handle.close(); await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
+      const { alt, ...stored } = descriptor; this.media.set(digest, stored); this.totalArtifactBytes += bytes.length;
+    }
+  }
+  mediaUploadBytes(assets) { return [...assets].reduce((total, [digest, value]) => total + (this.media.has(digest) ? 0 : value.bytes.length), 0); }
+  updatePresentation(user, entryId, presentation) {
+    return this.transaction(async state => {
+      this.requireActive(state, user); const p = state.publications.find(item => item.entryId === entryId && distributedKinds.has(item.kind));
+      requireValue(p, 'NOT_FOUND', 'Publication not found.', 404); requireValue(p.ownerId === user.id || user.role === 'admin', 'OWNER_REQUIRED', 'Only the publisher or an administrator can change presentation images.', 403);
+      const references = new Map(presentationAssets(p.presentation).map(asset => [asset.sha256, asset]));
+      const normalized = validatePresentation(presentation, references);
+      requireValue(this.totalArtifactBytes + this.mediaUploadBytes(normalized.assets) <= this.diskQuota, 'MEDIA_QUOTA', 'Workshop image storage quota reached.', 507);
+      for (const asset of presentationAssets(normalized.presentation)) if (!normalized.assets.has(asset.sha256)) await this.mediaBytes(asset.sha256);
+      await this.storeMedia(normalized.assets); p.presentation = normalized.presentation;
+      return { publication: this.summary(p) };
+    });
+  }
+  index(baseURL) { return { format: 'world-hub.source-index/v1', id: 'world-hub-workshop', title: 'World Hub Workshop', entries: this.state.publications.filter(p => !p.hidden && distributedKinds.has(p.kind)).map(p => ({ ...p.entry, source: { url: `${baseURL}/artifacts/${p.sha256}.json` },
     ...(p.entry.publisherEvidence ? { publisherEvidence: { source: { url: `${baseURL}/publisher-evidence/${p.entry.publisherEvidence.sha256}.json` }, sha256: p.entry.publisherEvidence.sha256 } } : {}) })) }; }
   async publisherBytes(digest) {
     requireValue(shaPattern.test(digest) && this.publisherEvidence.has(digest), 'NOT_FOUND', 'Publisher evidence not found.', 404);
@@ -306,8 +391,9 @@ export class WorkshopStore {
     let validated; try { validated = validateArtifactBytes(bytes); } catch { throw workshopError('INVALID_ARTIFACT', 'Artifact manifest, file set, contract or digest validation failed.'); }
     return { bytes, validated, digest: hash(bytes) };
   }
-  publish(user, { artifact, redistributionAcknowledged, title, publisherEvidence }) {
-    const { bytes, validated, digest } = this.validatedArtifact(artifact, redistributionAcknowledged); const publicEvidence = this.validatePublisherUpload(publisherEvidence, validated); const displayTitle = textInput(title ?? artifact.id, 256, 'publication title');
+  publish(user, { artifact, redistributionAcknowledged, title, publisherEvidence, presentation }) {
+    const { bytes, validated, digest } = this.validatedArtifact(artifact, redistributionAcknowledged); const publicEvidence = this.validatePublisherUpload(publisherEvidence, validated); const displayTitle = textInput(title ?? validated.manifest.title ?? artifact.id, 256, 'publication title');
+    const images = validatePresentation(presentation ?? {});
     return this.transaction(async state => {
       requireValue(state.users.some(v => v.id === user.id && !v.disabled), 'AUTH_REQUIRED', 'Active account required.', 401);
       const identity = state.publications.find(p => p.kind === artifact.kind && p.id === artifact.id);
@@ -315,20 +401,22 @@ export class WorkshopStore {
       const existing = state.publications.find(p => p.kind === artifact.kind && p.id === artifact.id && p.version === artifact.version);
       if (existing) { requireValue(existing.sha256 === digest, 'IMMUTABLE_VERSION', 'A published version cannot be overwritten. Publish a new version.', 409);
         requireValue((existing.entry.publisherEvidence?.sha256 ?? null) === (publicEvidence?.sha256 ?? null), 'IMMUTABLE_EVIDENCE', 'Published version evidence cannot be replaced. Keep the original sidecar or publish a new version.', 409);
+        requireValue(presentation === undefined || JSON.stringify(existing.presentation ?? {}) === JSON.stringify(images.presentation), 'PRESENTATION_UPDATE_REQUIRED', 'Use this publication’s presentation endpoint to edit existing images.', 409);
         return { publication: this.summary(existing), entry: existing.entry, duplicate: true }; }
       requireValue(state.publications.length < 4096 && state.publications.filter(p => p.ownerId === user.id).length < 256, 'PUBLICATION_QUOTA', 'Publication quota reached.', 429);
       const newBytes = (this.artifacts.has(digest) ? 0 : bytes.length) + (publicEvidence && !this.publisherEvidence.has(publicEvidence.sha256) ? publicEvidence.bytes.length : 0);
-      requireValue(this.totalArtifactBytes + newBytes <= this.diskQuota, 'ARTIFACT_QUOTA', 'Workshop artifact and public evidence storage quota reached.', 507);
+      requireValue(this.totalArtifactBytes + newBytes + this.mediaUploadBytes(images.assets) <= this.diskQuota, 'ARTIFACT_QUOTA', 'Workshop artifact, public evidence and image storage quota reached.', 507);
       await this.storeArtifact(bytes); const entryId = `pub.${digest.slice(0, 40)}`; const entry = { ...validated.entry, entryId, title: displayTitle, sha256: digest, source: { path: `artifacts/${digest}.json` } };
       if (publicEvidence) { await this.storePublisherEvidence(publicEvidence); entry.publisherEvidence = { source: { path: `publisher-evidence/${publicEvidence.sha256}.json` }, sha256: publicEvidence.sha256 }; }
-      const p = { entryId, kind: artifact.kind, id: artifact.id, version: artifact.version, title: displayTitle, sha256: digest, ownerId: user.id, createdAt: now(), hidden: false, entry, comments: [], proposals: [] }; state.publications.push(p);
+      await this.storeMedia(images.assets);
+      const p = { entryId, kind: artifact.kind, id: artifact.id, version: artifact.version, title: displayTitle, sha256: digest, ownerId: user.id, createdAt: now(), hidden: false, entry, comments: [], proposals: [], presentation: images.presentation }; state.publications.push(p);
       return { publication: this.summary(p), entry, duplicate: false };
     });
   }
   comment(user, entryId, text) {
     text = textInput(text, 4000, 'comment'); return this.transaction(state => {
       this.requireActive(state, user);
-      const p = state.publications.find(v => v.entryId === entryId && !v.hidden); requireValue(p, 'NOT_FOUND', 'Publication not found.', 404);
+      const p = state.publications.find(v => v.entryId === entryId && !v.hidden && distributedKinds.has(v.kind)); requireValue(p, 'NOT_FOUND', 'Publication not found.', 404);
       requireValue(p.comments.length < 100, 'COMMENT_QUOTA', 'This publication has reached its comment quota.', 429);
       const c = { id: randomUUID(), text, authorId: user.id, createdAt: now() }; p.comments.push(c); return { comment: this.commentSummary(c) };
     });
@@ -337,7 +425,7 @@ export class WorkshopStore {
     const { bytes, validated, digest } = this.validatedArtifact(artifact, redistributionAcknowledged); const publicEvidence = this.validatePublisherUpload(publisherEvidence, validated); const displayTitle = textInput(title ?? `Proposal for ${artifact.id}`, 256, 'proposal title');
     return this.transaction(async state => {
       this.requireActive(state, user);
-      const p = state.publications.find(v => v.entryId === entryId && !v.hidden); requireValue(p, 'NOT_FOUND', 'Publication not found.', 404);
+      const p = state.publications.find(v => v.entryId === entryId && !v.hidden && distributedKinds.has(v.kind)); requireValue(p, 'NOT_FOUND', 'Publication not found.', 404);
       requireValue(baseSha256 === p.sha256, 'BASELINE_CHANGED', 'Proposal must identify the exact immutable baseline digest.', 409);
       requireValue(artifact.kind === p.kind, 'PROPOSAL_KIND', 'Proposal and baseline must have the same artifact kind.');
       requireValue(artifact.id === p.id, 'PROPOSAL_IDENTITY', 'A proposal must preserve its baseline package identity. Publish a fork as a new publication.');
@@ -357,11 +445,12 @@ export class WorkshopStore {
   async exportTo(destination) {
     await this.queue; const target = await ordinaryPath(resolve(destination), { allowMissing: true });
     requireValue(target !== this.root && !target.startsWith(this.root + '/') && !target.startsWith(this.root + '\\'), 'INVALID_EXPORT', 'Export destination must be outside the data root.');
-    await mkdir(target, { mode: 0o700 }); await mkdir(join(target, 'artifacts'), { mode: 0o700 }); await mkdir(join(target, 'publisher-evidence'), { mode: 0o700 });
+    await mkdir(target, { mode: 0o700 }); await mkdir(join(target, 'artifacts'), { mode: 0o700 }); await mkdir(join(target, 'publisher-evidence'), { mode: 0o700 }); await mkdir(join(target, 'media'), { mode: 0o700 });
     await atomicJson(join(target, 'metadata.json'), this.state);
     for (const digest of this.artifacts.keys()) { const bytes = await this.artifactBytes(digest); const handle = await open(join(target, 'artifacts', `${digest}.json`), 'wx', 0o600); try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); } }
     for (const digest of this.publisherEvidence.keys()) { const bytes = await this.publisherBytes(digest); const handle = await open(join(target, 'publisher-evidence', `${digest}.json`), 'wx', 0o600); try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); } }
-    return { format: 'world-hub.workshop-export/v1', artifacts: this.artifacts.size, publisherEvidence: this.publisherEvidence.size, bytes: this.totalArtifactBytes, revision: this.state.revision, containsCredentials: true };
+    for (const [digest, descriptor] of this.media) { const { bytes } = await this.mediaBytes(digest); const handle = await open(join(target, 'media', `${digest}.${mediaExtension(descriptor.mimeType)}`), 'wx', 0o600); try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); } }
+    return { format: 'world-hub.workshop-export/v1', artifacts: this.artifacts.size, publisherEvidence: this.publisherEvidence.size, media: this.media.size, bytes: this.totalArtifactBytes, revision: this.state.revision, containsCredentials: true };
   }
   async close() {
     if (this.closed) return; this.closed = true; await this.authQueue; await this.queue;

@@ -7,6 +7,8 @@ export { initModule, validateModuleDirectory, doctorModule } from './developer.m
 export { inspectTemplate, previewTemplate, instantiateTemplate, createTemplate } from './template.mjs';
 export { previewUpgrade, upgradeInstance, inspectUpgradeHistory, previewRollback, rollbackUpgrade, recoverUpgrade } from './upgrade.mjs';
 export { previewStagedUpgrade, createStagedUpgrade } from './staged-upgrade.mjs';
+export { previewAssemblySave, applyAssemblySave } from './assembly-save.mjs';
+export { effectivePackType, effectiveLifecyclePolicy, componentAutostarts, summarizePack } from './pack-paradigms.mjs';
 export { ISOLATION_PROFILES, probeIsolation, reviewIsolationPackage, planIsolation, ownIsolatedProcess } from './isolation.mjs';
 export { parsePublisherEvidence, parsePublisherJson, canonicalPublisherPayload, publisherKeyId, generatePublisherKey, signPublisherEvidence, verifyPublisherEvidence } from './publisher-trust.mjs';
 export { readPublisherTrust, previewPublisherTrustChange, applyPublisherTrustChange, verifyStoredPublisherEvidence } from './publisher-store.mjs';

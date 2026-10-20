@@ -217,8 +217,21 @@ const iconDefinitions = {
     svgNode('line', { x1: '14', y1: '11', x2: '14', y2: '17', stroke: 'currentColor', 'stroke-width': '1.8' }),
   ],
   settings: () => [
-    svgNode('circle', { cx: '12', cy: '12', r: '3', stroke: 'currentColor', 'stroke-width': '2' }),
     svgNode('path', { d: 'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z', stroke: 'currentColor', 'stroke-width': '1.8' }),
+  ],
+  python: () => [
+    svgNode('path', { d: 'M11.92 2.05c-3.1 0-2.88 1.34-2.88 1.34l.03 1.39h2.95v.42H6.46S4 4.86 4 8.04c0 3.19 1.45 3.09 1.45 3.09h.87v-1.35s-.05-1.55 1.55-1.55h3.09s1.45.03 1.45-1.44V3.46s.38-1.41-1.49-1.41z', fill: '#38bdf8' }),
+    svgNode('circle', { cx: '7.5', cy: '6', r: '.75', fill: '#ffffff' }),
+    svgNode('path', { d: 'M12.08 21.95c3.1 0 2.88-1.34 2.88-1.34l-.03-1.39h-2.95v-.42h5.56S20 19.14 20 15.96c0-3.19-1.45-3.09-1.45-3.09h-.87v1.35s.05 1.55-1.55 1.55h-3.09s-1.45-.03-1.45 1.44v3.33s-.38 1.41 1.49 1.41z', fill: '#fbbf24' }),
+    svgNode('circle', { cx: '16.5', cy: '18', r: '.75', fill: '#ffffff' }),
+  ],
+  node: () => [
+    svgNode('path', { d: 'M12 2l8.5 4.9v9.8L12 21.6 3.5 16.7V6.9L12 2z', stroke: '#22c55e', 'stroke-width': '1.8', fill: 'none' }),
+    svgNode('path', { d: 'M12 7l4.3 2.5v5L12 17l-4.3-2.5v-5L12 7z', fill: '#22c55e', opacity: '0.2' }),
+    svgNode('circle', { cx: '12', cy: '12', r: '2.5', fill: '#22c55e' }),
+  ],
+  chevronDown: () => [
+    svgNode('polyline', { points: '6 9 12 15 18 9', stroke: 'currentColor', 'stroke-width': '2' }),
   ],
 };
 
@@ -288,4 +301,55 @@ export function renderSquareArt({ icon, fallbackIcon = 'packs', tone = 'cyan', a
   }
 
   return art;
+}
+
+export function createModuleAvatar(moduleOrProgram, size = 36) {
+  const manifest = moduleOrProgram?.manifest ?? moduleOrProgram ?? {};
+  const runtimeKind = manifest.runtime?.kind ?? moduleOrProgram?.runtime?.kind ?? 'node';
+  const isPython = runtimeKind === 'python';
+  const iconUrl = manifest.icon ?? moduleOrProgram?.icon;
+
+  let avatar;
+  if (typeof document?.createElement === 'function') {
+    avatar = document.createElement('div');
+  } else if (typeof document?.body?.constructor === 'function') {
+    avatar = new document.body.constructor('div');
+  } else {
+    avatar = { tagName: 'div', attributes: {}, className: '', children: [], setAttribute(k, v) { this.attributes[k] = v; }, append(...items) { this.children.push(...items); } };
+  }
+
+  const kindClass = isPython ? 'module-avatar-python' : runtimeKind === 'node' ? 'module-avatar-node' : 'module-avatar-generic';
+  avatar.className = `module-avatar ${kindClass}`;
+  if (typeof avatar.setAttribute === 'function') {
+    avatar.setAttribute('class', `module-avatar ${kindClass}`);
+    avatar.setAttribute('aria-hidden', 'true');
+  }
+  if (size !== 36 && avatar.style) {
+    avatar.style.width = `${size}px`;
+    avatar.style.height = `${size}px`;
+  }
+
+  function makeFallback() {
+    return createIcon(isPython ? 'python' : runtimeKind === 'node' ? 'node' : 'modules');
+  }
+
+  if (iconUrl && typeof iconUrl === 'string' && iconUrl.trim()) {
+    if (typeof document?.createElement === 'function') {
+      const img = document.createElement('img');
+      img.className = 'module-avatar-img';
+      img.src = iconUrl;
+      img.alt = '';
+      img.loading = 'lazy';
+      img.onerror = () => {
+        if (typeof avatar.replaceChildren === 'function') avatar.replaceChildren(makeFallback());
+      };
+      avatar.append(img);
+    } else {
+      avatar.append(makeFallback());
+    }
+  } else {
+    avatar.append(makeFallback());
+  }
+
+  return avatar;
 }

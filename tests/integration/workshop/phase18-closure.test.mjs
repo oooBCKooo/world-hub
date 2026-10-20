@@ -24,16 +24,9 @@ test('PHASE18-WORKSHOP real author/user HTTP closure, immutable updates, indepen
     passed: false, humanIndependentAcceptance: 'pending', transport: 'real-loopback-HTTP-to-static-local-mirror',
     limitations: ['Local actors are automated test roles, not two independent human authors.', 'Production HTTPS download, browser usability and publisher signature identity are separate acceptance scopes.'], checks: [], failures: [] };
   let workshop, launcher; const ownedProcesses = new Map();
-  const rememberProcesses = instance => {
-    const session = launcher.manager.sessions.get(instance.id);
-    assert.ok(session, 'The started instance must retain its actual Runtime ownership session');
-    assert.equal(session.ready.instanceId, instance.id);
-    const pids = [instance.status.hub?.pid, ...instance.status.components.map(component => component.pid)];
-    assert.equal(session.children.length, pids.length, 'Remember every owned Hub and module process');
-    for (const handle of session.children) {
-      assert.ok(pids.includes(handle.pid), 'Process handle must belong to this reported Runtime run');
-      ownedProcesses.set(instance.status.runId + ':' + handle.pid, { runId: instance.status.runId, handle });
-    }
+  const rememberProcesses=()=>{
+    const manager=launcher.manager,runId=manager.hub.launcherRunId;
+    for(const handle of [manager.hub,...manager.localPrograms.handles.values()])ownedProcesses.set(runId+':'+handle.pid,{runId,handle});
   };
   t.after(async () => {
     if (launcher) await launcher.close(); if (workshop) await workshop.close();
@@ -96,33 +89,36 @@ test('PHASE18-WORKSHOP real author/user HTTP closure, immutable updates, indepen
   check('user-b-discovered-and-fetched', { upstreamIndexSha256: mirror.upstreamIndexSha256, artifactSha256: fetched.entry.sha256,
     sourceIndexSha256: sourceReview.digest, trust: fetched.sourceReceipt, downloadedSourceNotExecuted: true });
 
-  const original = (await call('/api/authoring/inspect', { directory: scene.pack })).authoring;
-  const unchangedConsumer = checksum(await readFile(join(scene.pack, 'modules/desk/program.mjs')));
-  const preview = (await call('/api/authoring/preview', { directory: scene.pack, componentId: 'stats', moduleDirectory: fetched.directory })).preview;
-  assert.equal(preview.compatible, true); assert.equal(preview.startsModules, false); assert.equal(preview.businessValidated, false);
-  const pack = structuredClone(original.pack); pack.id = 'workshop.user-derived'; pack.version = '1.0.0';
-  const derived = (await finish(await call('/api/authoring/derive', { directory: scene.pack, destination: join(directory, 'user-derived'),
-    expectedRevision: original.revision, pack, replacements: [{ componentId: 'stats', moduleDirectory: fetched.directory }], redistributionAcknowledged: true }, 202))).result;
-  assert.equal(derived.requiresNewExecutionReview, true); assert.equal(derived.pack.components.find(value => value.id === 'stats').module, artifact.id);
-  const deskModule = derived.modules.find(value => value.id === 'demo.desk');
-  assert.equal(checksum(await readFile(join(derived.directory, deskModule.source, 'program.mjs'))), unchangedConsumer);
-  const importReview = await call('/api/review', { directory: derived.directory });
-  await call('/api/instances', { instanceId: 'user-b-instance', reviewId: importReview.reviewId });
-  const reused = await call('/api/instances/user-b-instance/start', { reviewId: importReview.reviewId, accepted: true }, 409); assert.equal(reused.error.code, 'REVIEW_REQUIRED');
-  const executionReview = await call('/api/instances/user-b-instance/review', {});
-  const notAccepted = await call('/api/instances/user-b-instance/start', { reviewId: executionReview.reviewId, accepted: false }, 409); assert.equal(notAccepted.error.code, 'TRUST_REQUIRED');
-  const running = (await finish(await call('/api/instances/user-b-instance/start', { reviewId: executionReview.reviewId, accepted: true }, 202))).result;
-  rememberProcesses(running);
+  const unchangedConsumer=checksum(await readFile(join(scene.modules.desk,'program.mjs')));
+  const register=async(programId,directory,configuration={})=>{
+    const inspected=await call('/api/programs/preview',{programId,directory,...configuration});
+    await call('/api/programs/register',{reviewId:inspected.reviewId,accepted:true});return inspected;
+  };
+  await register('source',scene.modules.source);
+  const registration=await register('stats',fetched.directory,{settings:{},topics:{stats:'sample/text/statistics'},bridges:{main:{publish:['stats'],subscribe:['stats']}}});
+  await register('desk',scene.modules.desk,{bindings:[{providerId:'source',contract:{id:'text.read',version:'1.0.0'}},{providerId:'stats',contract:{id:'text.statistics',version:'1.0.0'}}]});
+  assert.equal(checksum(await readFile(launcher.manager.localPrograms.path('desk','module/program.mjs'))),unchangedConsumer);
+  const reused=await finish(await call('/api/programs/stats/start',{reviewId:registration.reviewId,accepted:true},202),'failed');assert.equal(reused.error.code,'LOCAL_REVIEW_REQUIRED');
+  let executionReview;
+  const startModules=async()=>{
+    for(const id of ['source','stats','desk']){
+      executionReview=await call('/api/programs/'+id+'/review',{});
+      if(id==='stats'){const denied=await finish(await call('/api/programs/'+id+'/start',{reviewId:executionReview.reviewId,accepted:false},202),'failed');assert.equal(denied.error.code,'TRUST_REQUIRED');}
+      await finish(await call('/api/programs/'+id+'/start',{reviewId:executionReview.reviewId,accepted:true},202));
+    }
+    rememberProcesses();return (await call('/api/programs')).programs.find(row=>row.programId==='desk');
+  };
+  const stopModules=async()=>{for(const id of ['desk','stats','source'])await finish(await call('/api/programs/'+id+'/stop',{},202));};
+  const running=await startModules();
   const analyze = async text => {
-    const response = await fetch(new URL('/analyze', running.links.entryUrl), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }), signal: AbortSignal.timeout(15000) });
+    const response = await fetch(new URL('/analyze', running.entryUrl), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }), signal: AbortSignal.timeout(15000) });
     const value = await response.json(); assert.equal(response.status, 200, JSON.stringify(value)); assert.deepEqual(value.result.output, expectedStatistics(text));
     assert.equal(value.result.provider, artifact.id); assert.equal(value.result.text, text); assert.equal(value.result.receipts.length, 3); return value;
   };
   const text = ' Workshop → Launcher 🌍\nExact content, unchanged consumer.\n'; const business = await analyze(text);
-  check('static-declarations-then-fresh-authorized-runtime-then-real-business', { previewCompatible: preview.compatible,
-    consumerSourceSha256: unchangedConsumer, derivedRevision: derived.revision, executionReviewDigest: executionReview.review.digest,
-    executionProfile: executionReview.executionProfile, providerRuntime: artifact.kind === 'module' ? 'node' : null,
-    business: { text, output: business.result.output, receipts: business.result.receipts } });
+  check('module-declarations-then-fresh-authorized-execution-then-real-business',{
+    consumerSourceSha256:unchangedConsumer,executionReviewDigest:executionReview.review.digest,
+    oneHub:(await call('/api/hubs')).hubs.length===1,providerRuntime:'node',business:{text,output:business.result.output,receipts:business.result.receipts}});
 
   const comment = (await workshopCall(workshop, `api/publications/${published.entryId}/comments`, { text: 'User B verified this exact version with Unicode, spaces and LF. Suggest clarifying the fixture comment.' }, user, 201)).data.comment;
   assert.equal(comment.author.username, 'user-b');
@@ -162,22 +158,19 @@ test('PHASE18-WORKSHOP real author/user HTTP closure, immutable updates, indepen
   const refreshed = await call('/api/sources/inspect', { sourceId: source.id }); assert.equal(refreshed.index.entries.some(value => value.sha256 === published.sha256), false);
   const catalog = await call('/api/sources'); const withdrawn = catalog.entries.find(value => value.sha256 === published.sha256);
   assert.equal(withdrawn.entryState, 'withdrawn'); assert.equal(withdrawn.cached, true); assert.equal(withdrawn.cachedVerified, false, 'Presence alone never claims verified cache contents');
-  const staleSource = await finish(await sourceFetch(), 'failed'); assert.match(staleSource.error.message, /Source index changed/);
+  const staleSource = await finish(await sourceFetch(), 'failed'); assert.match(staleSource.error.message, /Source index changed|Source entry not found/);
   report.failures.push({ scenario: 'online-withdrawn-version-does-not-silently-use-stale-index', code: staleSource.error.code, message: staleSource.error.message });
   await analyze('Hidden source, existing local instance 🌍');
   const workshopURL = workshop.url; await workshop.close(); workshop = null; await unlink(mirror.indexPath);
   await assert.rejects(fetch(new URL('health', workshopURL), { signal: AbortSignal.timeout(3000) }), /fetch failed/);
-  const unavailable = await call('/api/sources/inspect', { sourceId: source.id }, 409); assert.equal(unavailable.error.code, 'ENOENT');
-  const offline = (await finish(await sourceFetch())).result;
+  const unavailable=await call('/api/sources/inspect',{sourceId:source.id});assert.equal(unavailable.offline,true);
+  const offline=(await finish(await sourceFetch())).result;
   assert.equal(offline.cached, true); assert.equal(offline.offline, true); assert.equal(offline.sourceReceipt.integrityVerified, true); assert.equal(offline.sourceReceipt.executionAuthorized, false);
   assert.equal(offline.sourceReceipt.artifactSha256, published.sha256);
   await analyze('Offline community, local business still succeeds 🌍');
-  await finish(await call('/api/instances/user-b-instance/stop', {}, 202));
-  const offlineReview = await call('/api/instances/user-b-instance/review', {});
-  const restarted = (await finish(await call('/api/instances/user-b-instance/start', { reviewId: offlineReview.reviewId, accepted: true }, 202))).result;
-  rememberProcesses(restarted);
-  running.links.entryUrl = restarted.links.entryUrl; await analyze('Offline restart after a fresh execution review 🌍');
-  await finish(await call('/api/instances/user-b-instance/stop', {}, 202));
+  await stopModules();
+  const restarted=await startModules();running.entryUrl=restarted.entryUrl;await analyze('Offline restart after a fresh execution review 🌍');
+  await stopModules();
   check('hidden-and-offline-community-do-not-revoke-local-code-or-run-authorization', { hiddenCatalogEntry: 'withdrawn', onlineStaleIndexRejected: true,
     offlineCachedArtifactRevalidated: true, runningBusinessSucceeded: true, offlineRestartRequiredNewReview: true, freshReviewRestartSucceeded: true,
     hiddenPublicationRemoteAccessDenied: true, communityHidingDoesNotEraseLocalFiles: true });

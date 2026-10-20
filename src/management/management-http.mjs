@@ -4,6 +4,7 @@ import { isValidBridgeId } from '../hub/lib/acl.mjs';
 import { safeEqual } from '../hub/lib/store.mjs';
 import { stringifyEnvelope } from '../hub/lib/wire-json.mjs';
 import { ManagementState, validateAnnotation } from './management-state.mjs';
+import { ManagementModules } from './management-modules.mjs';
 
 const fail = (status, code, message) => Object.assign(new Error(message), { status, code });
 const json = (res, status, value) => {
@@ -15,6 +16,8 @@ const principalOf = bridge => bridge.bridgeId.includes(':') ? bridge.bridgeId.sp
 export async function createManagementHttp(hub, config) {
   const state = await ManagementState.open(config.management.stateFile, config.management.annotations);
   hub.setPausedPrincipals(state.value.paused);
+  const modules = new ManagementModules({ hub, config });
+  await modules.initialize();
   const csrfToken = randomBytes(32).toString('base64url');
   // Validate the bundled page at startup; request-time reads can fail independently.
   await readFile(new URL('./console.html', import.meta.url), 'utf8');
@@ -33,10 +36,28 @@ export async function createManagementHttp(hub, config) {
         connectionId: live.connections.find(connection => connection.bridgeId === bridge.bridgeId)?.connectionId }));
       const entry = config.acl.bridges[key] ?? config.acl.credentials[key];
       const annotation = settings.annotations[key];
+      let programs = annotation?.programs ?? [];
+      let label = annotation?.bridgeName || instances[0]?.displayName || key;
+      if (programs.length === 0 && modules?.localPrograms?.records) {
+        for (const [progId, prog] of modules.localPrograms.records) {
+          if (prog.principal === key || key === 'local.' + progId || key.startsWith('local.' + progId + '.')) {
+            const pub = modules.localPrograms.public ? modules.localPrograms.public(prog) : null;
+            const titleObj = pub?.title || prog.title;
+            const progTitle = typeof titleObj === 'object'
+              ? (titleObj.zh || titleObj.en || progId)
+              : (titleObj || progId);
+            programs = [{ id: progId, name: progTitle, managed: true }];
+            if (!annotation?.bridgeName && (!instances[0]?.displayName || instances[0]?.displayName === key)) {
+              label = `${progTitle} 桥`;
+            }
+            break;
+          }
+        }
+      }
       return { key, kind: Object.hasOwn(config.acl.credentials, key) ? 'credential' : Object.hasOwn(config.acl.bridges, key) ? 'bridge' : 'observed',
         paused: settings.paused.includes(key), manageable: manageableKeys.has(key),
-        label: annotation?.bridgeName || instances[0]?.displayName || key,
-        programs: annotation?.programs ?? [], instances,
+        label,
+        programs, instances,
         allow: entry?.allow ?? { publish: config.acl.allowUnlistedBridges ? ['#'] : [], subscribe: config.acl.allowUnlistedBridges ? ['#'] : [] } };
     });
     return { csrfToken, transport: { path: config.transport.path }, hub: live, bridges, events: live.recent, blobs: live.storage.blobs,
@@ -56,10 +77,12 @@ export async function createManagementHttp(hub, config) {
     if (!['127.0.0.1', 'localhost', '[::1]'].includes(host.hostname) || (host.port || '80') !== expectedPort
       || host.username || host.password || host.pathname !== '/') throw fail(403, 'HOST_REJECTED', '管理服务仅接受本机地址');
     if (req.headers.origin && req.headers.origin !== host.origin) throw fail(403, 'ORIGIN_REJECTED', '管理请求必须来自当前界面');
-    if (req.headers['sec-fetch-site'] === 'cross-site') throw fail(403, 'ORIGIN_REJECTED', '跨站管理请求被拒绝');
+    const entryNavigation = req.method === 'GET' && /^\/manage\/?(?:\?|$)/.test(req.url ?? '')
+      && req.headers['sec-fetch-mode'] === 'navigate' && req.headers['sec-fetch-dest'] === 'document' && !req.headers.origin;
+    if (req.headers['sec-fetch-site'] === 'cross-site' && !entryNavigation) throw fail(403, 'ORIGIN_REJECTED', '跨站管理请求被拒绝');
     if (req.method === 'POST' && !safeEqual(csrfToken, req.headers['x-management-token'] ?? '')) throw fail(403, 'MANAGEMENT_TOKEN_REQUIRED', '需要当前管理界面的操作令牌');
   }
-  async function body(req) {
+  async function body(req, maxBytes = 16 * 1024) {
     if (!String(req.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) throw fail(415, 'CONTENT_TYPE_REJECTED', '管理操作需要application/json');
     let length = 0; const chunks = [];
     await new Promise((resolveRead, rejectRead) => {
@@ -68,7 +91,7 @@ export async function createManagementHttp(hub, config) {
       req.on('data', chunk => {
         if (done) return;
         length += chunk.length;
-        if (length > 16 * 1024) { settle(fail(413, 'MANAGEMENT_BODY_TOO_LARGE', '管理请求过大')); return; }
+        if (length > maxBytes) { settle(fail(413, 'MANAGEMENT_BODY_TOO_LARGE', '管理请求过大')); return; }
         chunks.push(chunk);
       });
       req.once('end', () => settle()); req.once('error', settle);
@@ -79,7 +102,7 @@ export async function createManagementHttp(hub, config) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw fail(400, 'MANAGEMENT_BODY_INVALID', '需要JSON对象');
     return value;
   }
-  return { state, snapshot, async handle(req, res, url) {
+  return { state, modules, snapshot, async handle(req, res, url) {
     if (!(url.pathname === '/manage' || url.pathname.startsWith('/manage/') || url.pathname === '/ui/language.mjs')) return false;
     try {
       access(req);
@@ -91,6 +114,7 @@ export async function createManagementHttp(hub, config) {
         '/manage/manual-console.mjs': ['./manual-console.mjs', 'text/javascript; charset=utf-8'],
         '/manage/manual-experience-state.mjs': ['./manual-experience-state.mjs', 'text/javascript; charset=utf-8'],
         '/manage/launcher-link.mjs': ['./launcher-link.mjs', 'text/javascript; charset=utf-8'],
+        '/manage/canvas-modes.mjs': ['./canvas-modes.mjs', 'text/javascript; charset=utf-8'],
         '/manage/manual-console.css': ['./manual-console.css', 'text/css; charset=utf-8'],
       }[url.pathname];
       if (req.method === 'GET' && asset) {
@@ -102,7 +126,7 @@ export async function createManagementHttp(hub, config) {
         // Finish fallible file I/O before committing a successful response header.
         const latestPage = await readFile(new URL('./console.html', import.meta.url), 'utf8');
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
-          'content-security-policy': `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://${req.headers.host}; frame-ancestors 'none'; base-uri 'none'; form-action 'self'` });
+          'content-security-policy': `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ws://${req.headers.host}; frame-ancestors 'none'; base-uri 'none'; form-action 'self'` });
         res.end(latestPage); return true;
       }
       if (req.method === 'GET' && url.pathname === '/manage/api/state') { json(res, 200, snapshot()); return true; }
@@ -141,6 +165,23 @@ export async function createManagementHttp(hub, config) {
         await state.update(next => { next.annotations[value.key] = annotation; });
         hub.managementNote({ kind: 'management.annotation', principal: value.key });
         json(res, 200, { ok: true }); return true;
+      }
+      if (url.pathname.startsWith('/manage/api/programs') ||
+          url.pathname.startsWith('/manage/api/versions') ||
+          url.pathname.startsWith('/manage/api/uninstall') ||
+          url.pathname.startsWith('/manage/api/wiring') ||
+          url.pathname.startsWith('/manage/api/execution') ||
+          url.pathname.startsWith('/manage/api/groups') ||
+          url.pathname.startsWith('/manage/api/layout') ||
+          url.pathname.startsWith('/manage/api/paths') ||
+          url.pathname.startsWith('/manage/api/environment') ||
+          url.pathname.startsWith('/manage/api/external') ||
+          url.pathname.startsWith('/manage/api/creator') ||
+          url.pathname.startsWith('/manage/api/workshop') ||
+          url.pathname.startsWith('/manage/api/artifacts')) {
+        const payload = req.method === 'POST' ? await body(req, 1024 * 1024) : null;
+        const handled = await modules.handle(req, res, url, payload);
+        if (handled) return true;
       }
       if (!['GET', 'POST'].includes(req.method)) throw fail(405, 'METHOD_NOT_ALLOWED', '管理接口不支持此方法');
       throw fail(404, 'MANAGEMENT_ROUTE_UNKNOWN', '管理接口不存在');

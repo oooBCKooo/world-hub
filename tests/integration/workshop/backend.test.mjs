@@ -6,6 +6,7 @@ import { request } from 'node:http';
 import { hash } from '../../../scripts/runtime/paths.mjs';
 import { validateSourceIndex, validateArtifactBytes } from '../../../scripts/runtime/sources.mjs';
 import { WorkshopStore, initializeAdmin, MAX_UPLOAD } from '../../../tools/workshop/store.mjs';
+import { MAX_PUBLICATION_REQUEST } from '../../../tools/workshop/media.mjs';
 import { createWorkshopServer } from '../../../tools/workshop/server.mjs';
 import { main as workshopMain } from '../../../tools/workshop/cli.mjs';
 
@@ -66,7 +67,7 @@ test('invite-only accounts, hashed credentials, secure session semantics and exa
   assert.equal(metadata.includes(password), false); assert.equal(metadata.includes(developer.invitation), false); assert.equal(metadata.includes(admin.cookie.split('=')[1]), false); assert.equal(metadata.includes(admin.csrfToken), false);
 });
 
-test('immutable module/pack publications produce a valid static source and verified anonymous distribution', async t => {
+test('immutable module publications produce a valid static source and verified anonymous distribution', async t => {
   const { root, service } = await fixture(); t.after(() => service.close()); const admin = await login(service), developer = await member(service, admin);
   const artifact = moduleArtifact();
   const published = await call(service, 'api/publications', { artifact, redistributionAcknowledged: true, title: 'Echo widget' }, developer); assert.equal(published.status, 201, JSON.stringify(published.body));
@@ -76,9 +77,9 @@ test('immutable module/pack publications produce a valid static source and verif
   assert.equal((await call(service, 'api/publications', { artifact: moduleArtifact('test.widget', '2.0.0'), redistributionAcknowledged: true }, admin)).body.error.code, 'IDENTITY_OWNED');
   assert.equal((await call(service, 'api/publications', { artifact, redistributionAcknowledged: 'true' }, developer)).status, 400);
   const corrupted = structuredClone(artifact); corrupted.files[1].base64 = Buffer.from('bad').toString('base64'); assert.equal((await call(service, 'api/publications', { artifact: corrupted, redistributionAcknowledged: true }, developer)).body.error.code, 'INVALID_ARTIFACT');
-  const pack = await samplePackArtifact(); assert.equal((await call(service, 'api/publications', { artifact: pack, redistributionAcknowledged: true }, developer)).status, 201);
+  const pack = await samplePackArtifact(); assert.equal((await call(service, 'api/publications', { artifact: pack, redistributionAcknowledged: true }, developer)).status, 400);
   const catalog = await call(service, 'api/catalog?kind=module&contract=test.echo&search=widget'); assert.equal(catalog.body.total, 1); assert.equal(catalog.body.publications[0].entryId, entryId);
-  const index = (await call(service, 'index.json')).body; assert.equal(index.entries.length, 2);
+  const index = (await call(service, 'index.json')).body; assert.equal(index.entries.length, 1);
   // Local tests use HTTP only; the production index has the fixed HTTPS URL.
   validateSourceIndex({ ...index, entries: index.entries.map(e => ({ ...e, source: { url: `https://workshop.example.test/workshop/artifacts/${e.sha256}.json` } })) });
   for (const entry of index.entries) {
@@ -121,7 +122,7 @@ test('bounded uploads are authenticated before reading, fixed hosts, JSON and qu
   async function declaredHuge(actor) {
     const target = new URL('api/publications', service.url);
     return new Promise((resolveResponse, reject) => {
-      const req = request(target, { method: 'POST', headers: { origin: service.origin, 'content-type': 'application/json', 'content-length': MAX_UPLOAD + 1, ...(actor ? { cookie: actor.cookie, 'x-csrf-token': actor.csrfToken } : {}) } }, response => { response.resume(); response.on('end', () => resolveResponse(response.statusCode)); });
+      const req = request(target, { method: 'POST', headers: { origin: service.origin, 'content-type': 'application/json', 'content-length': MAX_PUBLICATION_REQUEST + 1, ...(actor ? { cookie: actor.cookie, 'x-csrf-token': actor.csrfToken } : {}) } }, response => { response.resume(); response.on('end', () => resolveResponse(response.statusCode)); });
       req.on('error', reject); req.end('{');
     });
   }
@@ -189,38 +190,15 @@ test('private nonce stop requests gracefully release the current generation; for
   const restart = await createWorkshopServer({ root, baseURL: 'http://127.0.0.1:0/workshop', port: 0, allowInsecureLoopback: true, secureCookie: false }); try { assert.equal((await call(restart, 'health')).status, 200); } finally { await restart.close(); }
 });
 
-test('pure pack validation and HTTP publication reject an undeclared Python runtime despite valid file hashes', async t => {
-  const { root, service } = await fixture(); t.after(() => service.close()); const admin = await login(service), artifact = await samplePackArtifact();
-  assert.equal(validateArtifactBytes(Buffer.from(JSON.stringify(artifact))).artifact.kind, 'pack');
-  const lock = artifactJson(artifact, 'pack.lock'); assert.ok(lock.runtimes.python); delete lock.runtimes.python;
-  replaceArtifactJson(artifact, 'pack.lock', lock);
-  // The distribution bytes and each file digest are internally valid. The
-  // rejection must concern the runtime promised by a module and omitted by lock.
-  for (const file of artifact.files) assert.equal(hash(Buffer.from(file.base64, 'base64')), file.sha256);
-  assert.throws(() => validateArtifactBytes(Buffer.from(JSON.stringify(artifact))), /module runtime is not locked/i);
-  const metadataBefore = await readFile(join(root, 'metadata.json'), 'utf8');
-  const response = await call(service, 'api/publications', { artifact, redistributionAcknowledged: true }, admin);
-  assert.equal(response.status, 400); assert.equal(response.body.error.code, 'INVALID_ARTIFACT');
-  assert.equal(await readFile(join(root, 'metadata.json'), 'utf8'), metadataBefore); assert.deepEqual(await readdir(join(root, 'artifacts')), []);
-  assert.equal((await call(service, 'api/catalog')).body.total, 0);
-});
-
-test('pure pack validation and HTTP publication reject a module incompatible with the locked platform', async t => {
-  const { root, service } = await fixture(); t.after(() => service.close()); const admin = await login(service), artifact = await samplePackArtifact();
-  assert.equal(validateArtifactBytes(Buffer.from(JSON.stringify(artifact))).artifact.kind, 'pack');
-  const lock = artifactJson(artifact, 'pack.lock'), module = lock.modules.find(m => m.id === 'demo.stats'); assert.ok(module);
-  const manifestPath = `${module.source}/module.json`, manifest = artifactJson(artifact, manifestPath); manifest.platforms = ['haiku-x64'];
-  assert.notEqual(`${lock.platform.os}-${lock.platform.arch}`, 'haiku-x64');
-  const manifestSha = replaceArtifactJson(artifact, manifestPath, manifest);
-  const lockedManifest = module.files.find(f => f.path === 'module.json'); assert.ok(lockedManifest); lockedManifest.sha256 = manifestSha;
-  replaceArtifactJson(artifact, 'pack.lock', lock);
-  for (const file of artifact.files) assert.equal(hash(Buffer.from(file.base64, 'base64')), file.sha256);
-  assert.throws(() => validateArtifactBytes(Buffer.from(JSON.stringify(artifact))), /module does not support the locked platform/i);
-  const metadataBefore = await readFile(join(root, 'metadata.json'), 'utf8');
-  const response = await call(service, 'api/publications', { artifact, redistributionAcknowledged: true }, admin);
-  assert.equal(response.status, 400); assert.equal(response.body.error.code, 'INVALID_ARTIFACT');
-  assert.equal(await readFile(join(root, 'metadata.json'), 'utf8'), metadataBefore); assert.deepEqual(await readdir(join(root, 'artifacts')), []);
-  assert.equal((await call(service, 'api/catalog')).body.total, 0);
+for(const kind of ['pack','template'])test('retired '+kind+' artifacts are rejected without metadata or artifact writes',async t=>{
+  const {root,service}=await fixture();t.after(()=>service.close());const admin=await login(service);
+  const artifact=await samplePackArtifact();artifact.kind=kind;
+  assert.throws(()=>validateArtifactBytes(Buffer.from(JSON.stringify(artifact))),/Invalid distribution artifact/);
+  const before=await readFile(join(root,'metadata.json'),'utf8');
+  const response=await call(service,'api/publications',{artifact,redistributionAcknowledged:true},admin);
+  assert.equal(response.status,400);assert.equal(response.body.error.code,'INVALID_ARTIFACT');
+  assert.equal(await readFile(join(root,'metadata.json'),'utf8'),before);assert.deepEqual(await readdir(join(root,'artifacts')),[]);
+  assert.equal((await call(service,'api/catalog')).body.total,0);
 });
 
 test('numeric registration usernames are rejected without consuming an invitation or changing metadata', async t => {

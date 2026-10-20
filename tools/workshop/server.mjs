@@ -4,6 +4,7 @@ import { unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readBounded } from '../../scripts/runtime/paths.mjs';
 import { WorkshopStore, workshopError, MAX_UPLOAD } from './store.mjs';
+import { MAX_PUBLICATION_REQUEST, MAX_PRESENTATION_REQUEST } from './media.mjs';
 import { validateSourceIndex } from '../../scripts/runtime/sources.mjs';
 import { pipeline } from 'node:stream/promises';
 
@@ -81,7 +82,7 @@ export async function createWorkshopServer(options = {}) {
       const artifactMatch = /^\/workshop\/artifacts\/([a-f0-9]{64})\.json$/.exec(path);
       if (request.method === 'GET' && artifactMatch) {
         const digest = artifactMatch[1];
-        const visible = store.state.publications.some(p => !p.hidden && (p.sha256 === digest || p.proposals.some(q => q.sha256 === digest)));
+        const visible = store.distributionVisible(digest);
         if (!visible) throw workshopError('NOT_FOUND', 'Artifact not found.', 404);
         if (downloads >= 8) throw workshopError('DOWNLOAD_BUSY', 'Download capacity reached; retry shortly.', 503);
         downloads++; let handle;
@@ -96,7 +97,7 @@ export async function createWorkshopServer(options = {}) {
       const publisherMatch = /^\/workshop\/publisher-evidence\/([a-f0-9]{64})\.json$/.exec(path);
       if (request.method === 'GET' && publisherMatch) {
         const digest = publisherMatch[1];
-        const visible = store.state.publications.some(p => !p.hidden && (p.entry.publisherEvidence?.sha256 === digest || p.proposals.some(q => q.publisherEvidence?.sha256 === digest)));
+        const visible = store.publisherVisible(digest);
         if (!visible) throw workshopError('NOT_FOUND', 'Publisher evidence not found.', 404);
         if (downloads >= 8) throw workshopError('DOWNLOAD_BUSY', 'Download capacity reached; retry shortly.', 503);
         downloads++;
@@ -107,13 +108,30 @@ export async function createWorkshopServer(options = {}) {
         } finally { downloads--; }
         return;
       }
+      const mediaMatch = /^\/workshop\/media\/([a-f0-9]{64})\.(png|jpg|webp)$/.exec(path);
+      if (['GET', 'HEAD'].includes(request.method) && mediaMatch) {
+        const [, digest, extension] = mediaMatch;
+        if (!store.mediaVisible(digest)) throw workshopError('NOT_FOUND', 'Community image not found.', 404);
+        if (downloads >= 8) throw workshopError('DOWNLOAD_BUSY', 'Download capacity reached; retry shortly.', 503);
+        downloads++;
+        try {
+          const { bytes, descriptor } = await store.mediaBytes(digest, extension);
+          response.writeHead(200, { ...securityHeaders, 'content-type': descriptor.mimeType, 'content-length': bytes.length, etag: `"${digest}"`, 'cache-control': 'public, max-age=31536000, immutable' });
+          response.end(request.method === 'HEAD' ? undefined : bytes);
+        } finally { downloads--; }
+        return;
+      }
       if (request.method === 'GET' && path === '/workshop/api/me') { send(response, 200, { user, ...(user ? { csrfToken: store.csrfForSession(rawToken) } : {}) }); return; }
       if (request.method === 'GET' && path === '/workshop/api/catalog') {
         const parameters = Object.fromEntries(target.searchParams); for (const field of ['offset', 'limit']) if (Object.hasOwn(parameters, field)) { if (!/^\d+$/.test(parameters[field])) throw workshopError('INVALID_INPUT', 'Invalid pagination.'); parameters[field] = Number(parameters[field]); }
         send(response, 200, store.catalog(parameters, user)); return;
       }
-      const publicationMatch = /^\/workshop\/api\/publications\/([a-z0-9][a-z0-9._-]{0,127})(?:\/(comments|proposals|visibility)(?:\/([a-z0-9][a-z0-9._-]{0,127}))?)?$/.exec(path);
-      if (request.method === 'GET' && publicationMatch && !publicationMatch[2]) { send(response, 200, store.detail(publicationMatch[1], user)); return; }
+      const publicationMatch = /^\/workshop\/api\/publications\/([a-z0-9][a-z0-9._-]{0,127})(?:\/(comments|proposals|visibility|presentation)(?:\/([a-z0-9][a-z0-9._-]{0,127}))?)?$/.exec(path);
+      if (request.method === 'GET' && publicationMatch && !publicationMatch[2]) {
+        const detail = store.detail(publicationMatch[1], user);
+        if (detail.publication.kind === 'module-group') detail.moduleGroup = await store.groupManifest(publicationMatch[1], user);
+        send(response, 200, detail); return;
+      }
       if (request.method === 'GET' && publicationMatch?.[2] === 'proposals' && publicationMatch[3]) { send(response, 200, await store.proposal(publicationMatch[1], publicationMatch[3], user)); return; }
       if (request.method === 'GET' && path === '/workshop/api/users') { if (!user) throw workshopError('AUTH_REQUIRED', 'Sign in first.', 401); send(response, 200, store.users(user)); return; }
       if (request.method !== 'POST') throw workshopError('NOT_FOUND', 'Route not found.', 404);
@@ -125,15 +143,18 @@ export async function createWorkshopServer(options = {}) {
         if (!store.csrfValid(rawToken, request.headers['x-csrf-token'])) throw workshopError('CSRF_REQUIRED', 'Valid Workshop CSRF token required.', 403);
         rate(`mutation:${user.id}`, 60);
       }
-      const upload = path === '/workshop/api/publications' || (publicationMatch?.[2] === 'proposals' && !publicationMatch[3]);
+      const presentationUpload = publicationMatch?.[2] === 'presentation' && !publicationMatch[3];
+      const publicationUpload = path === '/workshop/api/publications';
+      const upload = publicationUpload || presentationUpload || (publicationMatch?.[2] === 'proposals' && !publicationMatch[3]);
       if (upload) { if (uploadBusy) throw workshopError('UPLOAD_BUSY', 'Another upload is being validated; retry shortly.', 503); uploadBusy = true; uploadOwned = true; rate(`upload:${user.id}`, 10); }
       if (authentication) rate('global-auth', 24);
-      const body = await readJson(request, upload ? MAX_UPLOAD : 16384); let result, status = 200, headers = {};
+      const body = await readJson(request, publicationUpload ? MAX_PUBLICATION_REQUEST : presentationUpload ? MAX_PRESENTATION_REQUEST : upload ? MAX_UPLOAD : 16384); let result, status = 200, headers = {};
       if (path === '/workshop/api/login') { fields(body, ['username', 'password'], ['username', 'password']); rate(`login:${String(body.username).slice(0, 40)}`, 8); result = await store.login(body.username, body.password); }
       else if (path === '/workshop/api/register') { fields(body, ['username', 'password', 'invitation'], ['username', 'password', 'invitation']); result = await store.register(body.username, body.password, body.invitation); status = 201; }
       else if (path === '/workshop/api/logout') { fields(body, []); result = await store.logout(rawToken); headers['set-cookie'] = cookie('', true); }
       else if (path === '/workshop/api/invitations') { fields(body, []); result = await store.invite(user); status = 201; }
-      else if (path === '/workshop/api/publications') { fields(body, ['artifact', 'redistributionAcknowledged', 'title', 'publisherEvidence'], ['artifact', 'redistributionAcknowledged']); result = await store.publish(user, body); status = result.duplicate ? 200 : 201; }
+      else if (path === '/workshop/api/publications') { fields(body, ['artifact', 'redistributionAcknowledged', 'title', 'publisherEvidence', 'presentation'], ['artifact', 'redistributionAcknowledged']); result = await store.publish(user, body); status = result.duplicate ? 200 : 201; }
+      else if (presentationUpload) { fields(body, ['presentation'], ['presentation']); result = await store.updatePresentation(user, publicationMatch[1], body.presentation); }
       else if (publicationMatch?.[2] === 'comments' && !publicationMatch[3]) { fields(body, ['text'], ['text']); rate(`comment:${user.id}`, 20); result = await store.comment(user, publicationMatch[1], body.text); status = 201; }
       else if (publicationMatch?.[2] === 'proposals' && !publicationMatch[3]) { fields(body, ['artifact', 'baseSha256', 'redistributionAcknowledged', 'title', 'publisherEvidence'], ['artifact', 'baseSha256', 'redistributionAcknowledged']); result = await store.propose(user, publicationMatch[1], body); status = 201; }
       else if (publicationMatch?.[2] === 'visibility' && !publicationMatch[3]) { fields(body, ['hidden'], ['hidden']); result = await store.visibility(user, publicationMatch[1], body.hidden); }

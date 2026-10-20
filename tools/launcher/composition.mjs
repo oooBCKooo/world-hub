@@ -12,7 +12,13 @@ const error=message=>Object.assign(new Error(message),{code:'COMPOSITION_INVALID
 export async function previewComposition(input) {
   if(!Array.isArray(input.modules)||input.modules.length<1||input.modules.length>32) throw error('Add at least one module to the composition');
   safeId(input.id,'composition ID');
-  const pack={format:'world-hub.pack/v1',id:input.id,version:input.version??'0.1.0',title:input.title??input.id,license:input.license??'MIT',topics:{},components:[],bindings:[],entry:{component:input.entry??input.modules[0].componentId},startupTimeoutMs:60000,healthTimeoutMs:10000,stopTimeoutMs:10000};
+  const pack={format:'world-hub.pack/v1',id:input.id,version:input.version??'0.1.0',title:input.title??input.id,license:input.license??'MIT',lineage:{format:'world-hub.pack-lineage/v1',kind:'self-created'},topics:{},components:[],bindings:[],entry:{component:input.entry??input.modules[0].componentId},startupTimeoutMs:60000,healthTimeoutMs:10000,stopTimeoutMs:10000};
+  // Internal snapshots preserve their declared provenance; an unmarked global
+  // composition is not reclassified as a newly authored standalone package.
+  if (input.lineage === null) delete pack.lineage;
+  else if (input.lineage !== undefined) pack.lineage = structuredClone(input.lineage);
+  if (input.startupOrder !== undefined) pack.startupOrder = structuredClone(input.startupOrder);
+  for (const key of ['packType','lifecyclePolicy']) if(Object.hasOwn(input,key))pack[key]=input[key];
   const sources=[];
   for(const selected of input.modules) {
     safeId(selected.componentId,'component ID');const directory=await ordinaryPath(selected.directory);
@@ -23,7 +29,7 @@ export async function previewComposition(input) {
     if(!declaredTopics || !defaults?.bridges&&!selected.bridges) throw error('Module author must supply deployment defaults, or configure its topics and bridge slots');
     const aliases={};
     for(const [alias,topic] of Object.entries(declaredTopics)) {
-      const existing=Object.keys(pack.topics).find(key=>pack.topics[key]===topic),key=existing??`${selected.componentId}.${alias}`;
+      const existing=Object.keys(pack.topics).find(key=>pack.topics[key]===topic),key=existing??`t${Object.keys(pack.topics).length}`;
       safeId(key,'combined topic alias');aliases[alias]=key;pack.topics[key]=topic;
     }
     const declaredBridges=selected.bridges??defaults.bridges,bridges={};
@@ -32,7 +38,8 @@ export async function previewComposition(input) {
     validateDeploymentSettings(defaults,settings,{publicSource:true});
     // Keep per-program alias names as a public input without dictating how an
     // application interprets them; its adapter can use topicAliases directly.
-    pack.components.push({id:selected.componentId,module:manifest.id,after:selected.after??[],settings,bridges});
+    pack.components.push({id:selected.componentId,module:manifest.id,after:selected.after??[],settings,bridges,topicAliases:aliases,
+      ...(Object.hasOwn(selected,'autostart')?{autostart:selected.autostart}:{}),...(Object.hasOwn(selected,'critical')?{critical:selected.critical}:{})});
     const existing=sources.find(source=>source.manifest.id===manifest.id);
     if(existing && (existing.manifest.version!==manifest.version || JSON.stringify(existing.files)!==JSON.stringify(files))) throw error('One composition must select one exact version/content per module ID');
     if(!existing) sources.push({directory,manifest,files,deploymentReview});

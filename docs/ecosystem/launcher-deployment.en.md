@@ -1,33 +1,37 @@
-# Install, compose and connect independent programs with Launcher
+# Module import, connection and direct composition
 
-[简体中文](launcher-deployment.md)
+[简体中文](launcher-deployment.md) · [Launcher](launcher.en.md)
 
-Launcher is an optional deployment service. Programs own their business, state, windows and internal children; the Hub handles module bridge communications. An ordinary source project is not automatically treated as an installable module.
+## Import a module
 
-In My Modules, select Import Local Module, choose a ZIP or distribution folder, then Inspect and Import. This validates the distribution without running its code. A source folder missing its declaration produces an error rather than a success card.
+Choose an author's module directory or ZIP in Module Library. It includes `module.json`; optional `deployment.json` supplies public settings, topic aliases and bridge permissions. Arbitrary projects, installed runtimes, packs and templates are not the current module format. Do not guess by omitting files.
 
-To build a pack, select Create Composition on a module card or Create Pack in Workbench. Add modules, choose exact versions and capability providers, enter public program settings, then review and create/import the pack. Select Start on its card and review execution and dependency preparation. No configuration-file editing is required; a runnable pack must have complete wiring.
+Import checks and registers source without executing it. Versions share a project selection. Conflicting bytes for an identical ID/version require an explicit choice. Removing a library version does not stop or delete a registered instance.
 
-To share the local Hub without creating a pack, select Connect to Local Hub. Register the provider, then register its consumers and choose their provider in the form. Register all collaborators before reviewing their starts in Manage Local Independent Programs. Programs have separate private identities, permissions and state directories. Stopping one preserves the shared Hub and other programs. Stopping the local Hub cancels active preparation and queued program starts, waits for cleanup, stops its owned programs, then stops the Hub. New starts are blocked until stopping finishes.
+## Register with the shared Hub
 
-Verified module and template downloads automatically appear in My Modules or My Templates, with the downloaded version selected. The resource library persists under the private Launcher root across restarts. Path-history limits and opportunistic cache scans do not displace registered resources. Downloading does not start code or update running instances.
+Select a version and create an independent instance. Review its name, interpreter, settings, concrete topics and bridge publish/subscribe rules. If the author omitted defaults, use its documentation; the Hub does not guess application channels. Multiple instances use distinct identities and state directories.
 
-The official cross-language demo also works without a pack: download the text source, statistics provider and desk interface as separate modules. Register the two providers first, then the interface and select its `text.read` and `text.statistics` providers. Register all collaborators before reviewing and starting them. Instance names are arbitrary and initial text supports multiple lines. If a provider started before a consumer was registered, review and restart that provider to refresh its explicitly authorized consumer snapshot.
+Review current source and interpreters before starting. Resolve missing dependencies and content changes, then inspect again. Registration is separate from execution approval.
 
-Provider configuration is a reviewed startup snapshot. If a new consumer needs its identity accepted by an already running provider, review and restart that provider. The Hub accepts new bridges but does not change application business authorization. Launcher never adopts unknown processes or kills a process using a saved PID.
+## Save directly in Workbench
 
-Packs, modules, templates and downloaded artifacts are grouped by stable project ID. Select an exact version, source, directory or instance within its card. Refreshing or discovering a newer release preserves the selection. A disappeared selection requires explicit reselection. Runtime instances, state and stop operations remain independent. Removing a module/template library option hides that selected directory; it does not delete source files.
+Select connected instances and edit settings, topics, bridge permissions and required capability providers. Bind exact provider instances and contracts; matching labels do not establish application compatibility.
 
-## Author declaration
+Review the current configuration revision, changes and affected scope. Save the chosen instances directly. Stop affected instances when required; unrelated instances keep running. Stale reviews cannot overwrite concurrent changes. Changing settings does not change the Hub release or module artifact version.
 
-`module.json` retains `world-hub.module/v1`. Optional `deployment.json` uses `world-hub.deployment/v1`; see its [schema](deployment.schema.json) and [desktop example](../../examples/soft-ui-modules/desktop/deployment.json). It provides bilingual names, default topics and bridge permissions, plus public setting fields. Capability semantics remain application-owned.
+Workbench no longer generates packs or instantiates templates. Credentials and business data are not public settings.
 
-`world-hub.run/v1` now includes `bindings`, the selected exact capability edges, and optional `deployment.directory`, the private prepared code/dependency directory. Topic aliases map declaration defaults to actual bridge wiring. Programs resolve collaborators through `peers` and `bindings` rather than fixed instance IDs. The existing `--runtime-config`, `module-ready`, `module-health` and cooperative stop lifecycle remains in use.
+## Groups and startup plans
 
-The `npm-lock` dependency recipe requires package manifests, a complete v3 lock, exact direct versions, official npm registry URLs and SHA-512 integrity. Preparation follows explicit execution review, runs no module-defined or dependency installation hooks, and uses no global npm account/configuration. The prepared source and dependency inventory is checked before reuse; changed source, locks or installed files require a new review or are rejected.
+Groups reference existing instances. Two groups referencing one instance share its settings and process. Plans select members, exact order and prerequisites; unselected members can start manually later.
 
-The optional Electron recipe currently supports pinned Electron 44.7.1 through its official installer and release checksums, requiring Node 22.12.0 or later. The first installation can download a large runtime. Completed, verified environments can be reused.
+Review affected groups and consumers before stopping or editing a shared member. Deleting a group preserves instances. Instance removal and data cleanup are separate actions. Resetting a plan changes the draft and retains the current member set; saving requires review.
 
-Node modules may declare `permissions.processes: "owned-children"` for reviewed local native hosting. Windows uses a current-owner Job; Linux uses a current live supervisor's process group. Cooperative stop is followed by owned-tree retirement when necessary. Other platforms refuse this deployment profile before installation. Linux descendants deliberately escaping the group are outside its guarantee. This is lifecycle ownership, not an OS sandbox. Existing `none` modules remain compatible; container profiles still require no declared child processes.
+## Sources and unavailable choices
 
-The separate demonstration distributions are `world-hub-soft-ui-desktop-0.3.0.zip` and `world-hub-soft-ui-counter-0.3.0.zip`. Their source is in [examples/soft-ui-modules](../../examples/soft-ui-modules/README.md). Windows and counter business state remain outside the Hub.
+Successfully acquired modules enter the local library. Fetching does not authorize execution. An unavailable source shows its error and previous index observation; only backend-verified artifacts can be used from cache.
+
+Available choices stay selected. A missing choice falls back within the same project, preferably to the same instance, directory or source artifact, with a visible notice. It does not download, upgrade, start or reuse an old review.
+
+Self-managed Electron applications, services and existing software can [connect directly](external-programs.en.md) to the same Hub. Launcher does not take ownership of their windows or unknown processes.

@@ -36,7 +36,8 @@ function refreshLanguage() {
     if (element.isConnected === false) { attributeBindings.delete(element); continue; }
     for (const [name, source] of attributes) element.setAttribute(name, t(source));
   }
-  $('language').value = i18n.language;
+  const langSel = $('language');
+  if (langSel) langSel.value = i18n.language;
   dialog.lang = i18n.language;
 }
 function pruneBindings() {
@@ -57,7 +58,7 @@ dialog.className = 'mc-dialog';
 dialog.setAttribute('aria-labelledby', 'mc-title');
 dialog.innerHTML = `
   <div class="mc-shell">
-    <header class="mc-header"><div class="mc-title-icon">${icon}</div><div><p class="mc-eyebrow">WORLD HUB · MANUAL MODULE BRIDGE</p><h2 id="mc-title" data-i18n="手动通讯工作台">手动通讯工作台</h2></div><label class="mc-language"><span data-i18n="界面语言">界面语言</span><select id="mc-language" aria-label="界面语言" data-i18n-aria-label="界面语言"><option value="zh-CN">中文</option><option value="en">English</option></select></label><span id="mc-status" class="mc-badge"><span data-i18n="未连接">未连接</span></span><button type="button" class="mc-close" id="mc-close" aria-label="关闭工作台" data-i18n-aria-label="关闭工作台" title="关闭工作台；已连接的桥继续在后台通讯" data-i18n-title="关闭工作台；已连接的桥继续在后台通讯">×</button></header>
+    <header class="mc-header"><div class="mc-title-icon">${icon}</div><div><p class="mc-eyebrow">WORLD HUB · MANUAL MODULE BRIDGE</p><h2 id="mc-title" data-i18n="手动通讯工作台">手动通讯工作台</h2></div><span id="mc-status" class="mc-badge"><span data-i18n="未连接">未连接</span></span><button type="button" class="mc-close" id="mc-close" aria-label="关闭工作台" data-i18n-aria-label="关闭工作台" title="关闭工作台；已连接的桥继续在后台通讯" data-i18n-title="关闭工作台；已连接的桥继续在后台通讯">×</button></header>
     <div class="mc-scroll">
       <section class="mc-connection" aria-label="自己的模块桥连接" data-i18n-aria-label="自己的模块桥连接">
         <div class="mc-section-heading"><div><h3 data-i18n="以自己的模块桥接入">以自己的模块桥接入</h3><p data-i18n="通过当前枢纽通讯。管理画布仍能看到这条桥的真实信息流。">通过当前枢纽通讯。管理画布仍能看到这条桥的真实信息流。</p></div><button id="mc-disconnect" type="button" class="mc-button mc-subtle" disabled data-i18n="断开连接">断开连接</button></div>
@@ -570,6 +571,12 @@ document.querySelector('#btn-manual-console')?.addEventListener('click', async (
 updateControls();
 const launcher = document.querySelector('#btn-manual-console');
 if (launcher) { uiText(launcher, '↗ 通讯工作台'); uiAttribute(launcher, 'title', '用界面自己的模块桥手动操作通讯'); }
-$('language').addEventListener('change', () => i18n.setLanguage($('language').value));
+$('language')?.addEventListener('change', () => i18n.setLanguage($('language').value));
+const canvasLang = document.getElementById('canvas-language');
+if (canvasLang) {
+  // Both instances already resolve the URL and saved preference. The canvas
+  // select still has its HTML default before its owning module initializes.
+  canvasLang.addEventListener('change', () => i18n.setLanguage(canvasLang.value));
+}
 i18n.onChange(refreshLanguage);
 refreshLanguage();

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { localizeErrorMessage } from '../../../tools/launcher/public/i18n.mjs';
 
 const source = await readFile(new URL('../../../tools/launcher/public/app.mjs', import.meta.url), 'utf8');
 function storage(entries = {}) {
@@ -15,18 +16,22 @@ function bootScene({ hash = '#launch=one-use-code', api } = {}) {
   const sessionStorage = storage(), location = { hash, pathname: '/', search: '' }, notices = [], calls = [];
   const fields = { elements: { nodePath: {}, pythonPath: {} } }, version = {};
   const state = { language: 'en', auth: null };
-  const context = { state, sessionKey, localStorage, sessionStorage, location, URLSearchParams,
+  const context = { state, sessionKey, localStorage, sessionStorage, location, URLSearchParams, localizeErrorMessage,
     document: { documentElement: { dataset: {} } },
     history: { replaceState(_state, _title, url) { location.hash = url.includes('#') ? url.slice(url.indexOf('#')) : ''; } },
     api: async (path, body) => { calls.push({ path, body }); return api(path, body); },
     $: selector => selector === '#environment-form' ? fields : version,
     t: key => key, showNotice: (_node, text) => notices.push(text), updateConnectionState() {},
-    createAdvancedUi: () => ({ sessionReady() {} }), createPathUi: () => ({ sessionReady() {} }), createTaskUi: () => ({}),
+    createAdvancedUi: () => ({ sessionReady() {} }), createPathUi: () => ({ sessionReady() {} }), createTaskUi: () => ({}), createGlobalDynamicModulesUi: () => ({}),
     initializeEvents() {}, languageChanged() {}, navigate() {}, resolveReturnHint: async () => false,
-    setInterval() {}, refresh: async () => {},
+    setInterval() {}, refresh: async () => {}, stopInstance() {},
   };
   for (const name of ['el','button','pill','toast','definition','display','date','guidance','errorContents','current','idOf','endpoint','operationFor','exitUnconfirmed','renderDetail','changeTab','selectInstance','openImport','replaceInstance','reviewView','createIcon','renderSquareArt','setEnvironmentTab','confirmDialog']) context[name] = () => {};
   const sandbox = vm.createContext(context);
+  vm.runInContext(source.slice(source.indexOf('const localizeMsg ='), source.indexOf('const packVersionSelection')), sandbox);
+  // boot passes the production freshness predicate to the advanced UI. Keep
+  // its real observation dependencies instead of substituting a permissive stub.
+  vm.runInContext(source.slice(source.indexOf('const observationMaxAgeMs'), source.indexOf('const operationFor')), sandbox);
   vm.runInContext(source.slice(source.indexOf('async function boot()'), source.lastIndexOf('void boot();')), sandbox);
   return { sandbox, state, localStorage, sessionStorage, location, notices, calls };
 }

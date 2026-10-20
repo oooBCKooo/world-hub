@@ -3,6 +3,8 @@
 import { join } from 'node:path';
 import { readBounded, hash, relativePath } from './paths.mjs';
 import { assertHostedPlatform } from './host-profile.mjs';
+import { validateDefaultConnections } from './default-connections.mjs';
+import { validateExecutionDefaults } from './execution-defaults.mjs';
 
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 const id = /^[a-z0-9][a-z0-9._-]{0,63}$/;
@@ -16,6 +18,22 @@ export function validateDeploymentSettings(deployment,settings,{publicSource=fal
   return settings;
 }
 export function deploymentTopics(pack,component,deployment) {
+  // An explicit component map preserves a program's own aliases independently
+  // of pack-wide names and the author's initial bridge permission defaults.
+  // This maps names only; effective access remains the selected bridge ACL.
+  if (Object.hasOwn(component, 'topicAliases')) {
+    const aliases=component.topicAliases;
+    if(!object(aliases)||!Object.keys(aliases).length||Object.keys(aliases).length>64)throw bad('Invalid explicit program topic aliases');
+    const topics={};
+    for(const [alias,key] of Object.entries(aliases)) {
+      if(!id.test(alias)||typeof key!=='string'||!Object.hasOwn(pack.topics,key))throw bad('Program topic alias refers to an unknown pack topic');
+      topics[alias]=pack.topics[key];
+    }
+    if(new Set(Object.values(aliases)).size!==Object.keys(aliases).length)throw bad('Program topic aliases must name distinct topics');
+    for(const rules of Object.values(component.bridges))for(const action of ['publish','subscribe'])
+      if(rules[action].some(key=>!Object.values(aliases).includes(key)))throw bad('Bridge permissions must refer to the program topic map');
+    return topics;
+  }
   const topics={...pack.topics};if(!deployment)return topics;
   for(const [slot,rules] of Object.entries(deployment.bridges)) for(const action of ['publish','subscribe']) {
     const aliases=rules[action],bindings=component.bridges[slot]?.[action];
@@ -29,8 +47,13 @@ export async function readDeployment(directory, manifest) {
   try { bytes = await readBounded(join(directory, 'deployment.json')); }
   catch (error) { if (error.code === 'ENOENT') return null; throw error; }
   let value; try { value = JSON.parse(bytes); } catch { throw bad('Invalid deployment.json'); }
+  return validateDeployment(value, manifest);
+}
+// Public distribution validation shares the same author-default checks without
+// probing a runtime, extracting files or executing uploaded code.
+export function validateDeployment(value, manifest) {
   if (!object(value) || value.format !== 'world-hub.deployment/v1'
-      || Object.keys(value).some(key => !['format','title','description','topics','bridges','settings','dependencies'].includes(key))) throw bad('Unsupported deployment fields');
+      || Object.keys(value).some(key => !['format','title','description','topics','bridges','settings','dependencies','connections','executionDefaults'].includes(key))) throw bad('Unsupported deployment fields');
   for (const key of ['title','description']) if (!object(value[key]) || Object.keys(value[key]).some(language => !['zh','en'].includes(language))
       || Object.values(value[key]).some(text => typeof text !== 'string' || !text || text.length > 2048)) throw bad(`Invalid deployment ${key}`);
   if (!object(value.topics) || Object.keys(value.topics).length > 64 || !Object.keys(value.topics).length) throw bad('Declare communication topic defaults');
@@ -54,6 +77,8 @@ export async function readDeployment(directory, manifest) {
         || dep.recipes.length > 1 || dep.recipes.some(recipe => recipe !== 'electron')) throw bad('Unsupported dependency installation recipe');
     relativePath(dep.manifest); relativePath(dep.lock);
   }
+  if (Object.hasOwn(value, 'connections')) validateDefaultConnections(value.connections, manifest, value);
+  if (Object.hasOwn(value, 'executionDefaults')) validateExecutionDefaults(value.executionDefaults);
   return value;
 }
 export async function inspectDeployment({directory,manifest}) {

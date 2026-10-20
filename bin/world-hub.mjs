@@ -14,23 +14,20 @@ export const HELP = `世界枢纽 npm 命令（前台运行）
 
   world-hub [--config <path>] [--data-dir <path>] [--port <n>] [--open]
   world-hub --check [--config <path>] [--data-dir <path>] [--port <n>]
-  world-hub ui [--open] [--root <path>] [--port <n>] [--node <exe>] [--python <exe>]
-  world-hub ui [--inspect-lock | --clean-lock] [--root <path>]
 
   --config, -c <path>  使用自己的配置；相对路径以当前工作目录为基准
   --data-dir <path>    明确指定通讯日志、大对象与管理状态的数据根
   --port, -p <n>       本次覆盖监听端口；0 至 65535，0 为系统分配
   --check             只读检查；不会创建配置、数据或运行锁，也不启动服务
   --open              就绪后打开本机管理界面
-  ui --inspect-lock   只读检查 Launcher 根目录的所有者锁
-  ui --clean-lock     仅清理已明确退出的本机所有者锁；不杀进程
   --help, -h          显示帮助
 
 未指定配置时，首次启动会在当前目录 world-hub-data/hub.json 写入参考配置，
-默认数据也在 world-hub-data 内。已存在的配置会继续使用，不会被模板覆盖。
+默认数据也在 world-hub-data 内。已存在的配置会继续使用，不会被参考配置覆盖。
 指定 --data-dir 时三类数据都放在该根；原 --config 文件保持不变。
 安装目录不保存运行配置和数据。启动后使用 Ctrl+C 等待 stopped 行再关闭终端。
-枢纽只提供通讯；外部程序由自己的 模块桥接入。
+通信管理界面在同一个本机 Hub 中管理独立模块实例和模块组。
+枢纽只提供通讯；外部程序由自己的模块桥接入。
 `;
 
 export function parseNpmArgs(argv) {
@@ -92,7 +89,6 @@ export async function planNpmInvocation(args, { cwd = process.cwd(), packageRoot
 }
 
 export async function runNpmCli(argv = process.argv.slice(2), options = {}) {
-  if (argv[0] === 'ui') { const { runUiCli } = await import('../tools/launcher/cli.mjs'); return runUiCli(argv.slice(1)); }
   const args = parseNpmArgs(argv);
   if (args.help) { process.stdout.write(HELP); return; }
   const plan = await planNpmInvocation(args, options);

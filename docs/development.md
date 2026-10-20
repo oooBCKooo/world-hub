@@ -2,7 +2,7 @@
 
 从仓库根目录执行命令。Hub、管理界面与 Node 桥使用 Node.js 22.4.0 或以上；本项目固定分发运行时为 22.23.2。Hub 没有 npm 运行依赖。
 
-全局 npm 安装提供 `world-hub` CLI、可选外部 `world-hub-pack` Runtime 与三个语言 SDK，不带这里的测试和业务示例。JavaScript SDK 使用 npm 命名导出，Python 和 PowerShell SDK 按文件路径使用并自行准备运行环境。需要修改代码、运行完整回归或构建用途整合包时，克隆 [GitHub 源码仓库](https://github.com/oooBCKooo/world-hub)；CLI 与 SDK 用法见[npm 包](npm.md)。源码采用 [MIT 许可](../LICENSE)，分发时保留许可文本。
+全局 npm 安装提供 `world-hub` CLI、通信管理界面与三个语言 SDK，不带这里的测试和业务示例。JavaScript SDK 使用 npm 命名导出，Python 和 PowerShell SDK 按文件路径使用并自行准备运行环境。需要修改代码、运行完整回归或构建当前分发时，克隆 [GitHub 源码仓库](https://github.com/oooBCKooo/world-hub)；CLI 与 SDK 用法见[npm 包](npm.md)。源码采用 [MIT 许可](../LICENSE)，分发时保留许可文本。
 
 ```powershell
 npm run check
@@ -13,17 +13,17 @@ npm start
 
 管理工作台是普通浏览器模块桥。管理 API 只处理本机接入与观察；修改数据面功能必须同时维护其协议实现、桥行为与回归，不把管理 API 变成代发业务消息的捷径。
 
-统一 Launcher 是 `tools/launcher/` 中的可选外部工具，复用 `scripts/runtime/` 与现有 Hub 管理页面。源码启动如下，`npm start` 仍按原方式启动 Hub：
+当前模块管理直接位于 Hub 的 `/manage` 页面。源码也可使用 npm CLI 入口，选择数据目录并打开界面：
 
 ```powershell
-node bin/world-hub.mjs ui --open
-node bin/world-hub.mjs ui --root .artifacts/my-launcher --port 0 --open
+node bin/world-hub.mjs --open
+node bin/world-hub.mjs --data-dir .artifacts/my-hub --port 0 --open
 npm run test:launcher
 ```
 
-选择一个启动命令，使用终端输出的一次性浏览器授权入口。Launcher 不导入业务模块到服务进程；审阅和启动都重新校验当前代码与所选环境。修改界面或控制接口时，维护当前审阅的明确授权、精确实例／运行／桥会话归属、停止的实际进程退出确认、文本渲染和同源管理边界。测试覆盖由服务驱动的真实跨语言交互及异常、安全场景；浏览器外观检查与 API 回归是不同证据。[Launcher 流程与接口](ecosystem/launcher.md)说明界面职责。
+选择一个启动命令，使用终端输出的本机管理地址。管理器以独立进程运行受管模块；审阅和启动都重新校验当前代码与所选环境。修改界面或控制接口时，维护当前审阅的明确授权、精确实例／运行／桥会话归属、停止的实际进程退出确认、文本渲染和同源管理边界。测试覆盖由服务驱动的真实跨语言交互及异常、安全场景；浏览器外观检查与 API 回归是不同证据。[通信管理指南](ecosystem/launcher.md)说明界面职责。
 
-可选界面的维护、软件源和创作流程位于 `tools/launcher/public/advanced.mjs`；它调用外部 Runtime 的维护／创作／分发接口。环境准备只执行经审阅的有限固定依赖方案，派生和重建锁只写新目录，评论写独立 journal。相应 HTTP 回归检查真实文件和版本冲突，界面事件测试检查未确认时不发管理请求、模态操作取消、当前摘要与基线版本绑定，以及第三方内容的文本呈现。不要把这些入口改成任意 shell、静默运行或 OS 沙箱承诺。
+界面入口为 `src/management/console.html` 与 `canvas-modes.mjs`，模块管理由 `management-modules.mjs` 提供。独立 Launcher 页面、服务、整包生成与每包 Runtime 不进入当前发行。`tools/launcher/` 和 `scripts/runtime/` 中实际被管理界面依赖的校验、路径、来源和进程辅助继续分发；保留的内部目录名不代表另有独立应用或公开旧整包 API。审阅必须绑定精确内容和配置修订，不能静默执行第三方程序。
 
 ```powershell
 npm test
@@ -39,14 +39,6 @@ npm run demo:workflow
 
 Hub 自己的诊断字段登记在 `tests/conformance/diagnostic-contract.mjs`，新增字段需登记用途、值规则和对应行为测试。登记不限制业务正文、模块桥主题或外部程序形态，也不能替代职责审查。
 
-可选外部部署工具在 `scripts/runtime/`，CLI 在 `bin/world-hub-pack.mjs`，开放部署规范与 JSON Schema 在 `docs/ecosystem/`。修改它不会给 Hub 增加模块加载、业务调度或社区功能。[跨语言文本台](../examples/ecosystem-pack/README.md)的三个模块各自携带桥，业务源码不从 Runtime 导入。
-
-```powershell
-node bin/world-hub-pack.mjs plan examples/ecosystem-pack
-npm run test:ecosystem
-node scripts/release/build-ecosystem-package.mjs --output dist/ecosystem-source
-```
-
-该样例锁要求 Node 22.23.2、Python 3.14.0、websockets 15.0.1。测试可通过 `WORLD_HUB_RUNTIME_TEST_PYTHON` 选择预安装的 Python 可执行文件；运行工具用 `--node`／`--python` 明确选择解释器。锁生成是作者的显式动作，修改源码／接线或选择新环境后使用 `world-hub-pack lock`，再检查新的审阅摘要。不要通过重锁跳过未知文件、依赖或权限变化。开放声明、应用合同和 Hub 通讯契约分别维护；普通桥接程序不必使用这个部署 profile。
+模块声明见[模块格式](ecosystem/modules.md)，本机实例和分组指南见[通信管理](ecosystem/launcher.md)。通信管理回归包括 `tests/conformance/management-*.test.mjs`；`npm run test:launcher` 运行单 Hub 管理辅助的集成场景。旧 pack/template 路由测试仅为历史源码资料，不继续定义产品要求。模块替换须验证真实消费者行为，声明匹配不能替代业务兼容验收。
 
 测试证据写入 `.artifacts/`，构建默认写入 `dist/` 或调用者指定的新目录，运行数据由配置决定。不要提交生成文件、私人 home、模型配置、凭据、下载的运行时或旧历史包。发布流程见[分发](releases.md)。

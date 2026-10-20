@@ -15,6 +15,16 @@ export function diagnose(error) {
   if (code === 'SOURCE_REVIEW_REQUIRED' || /inspect.*source|source.*receipt/i.test(message)) return { code, kind: 'source-review-required', action: { view: 'sources' },
     zh: '软件源审阅已过期（超过 10 分钟）或软件源配置已变更。请在“下载 / 软件源”中重新点击浏览或检查，刷新凭据后再获取制品。',
     en: 'The software source review has expired (10-minute limit) or its configuration changed. Inspect the source again to refresh credentials before fetching.' };
+  if (code === 'BOOTSTRAP_INVALID' || /Launch code is invalid/i.test(message)) return {
+    code: 'BOOTSTRAP_INVALID', kind: 'bootstrap-invalid',
+    zh: 'Launcher 启动授权码无效或已失效。请从运行界面的终端重新打开启动链接。',
+    en: 'Launch code is invalid or expired. Open a new Launcher session from its owning terminal.'
+  };
+  if (code === 'AUTH_REQUIRED' || code === 'SESSION_EXPIRED' || /authorization required|session expired/i.test(message)) return {
+    code: 'AUTH_REQUIRED', kind: 'auth-required',
+    zh: 'Launcher 本地会话已过期或未授权。请刷新页面或使用终端输出的最新授权链接访问。',
+    en: 'Launcher session is unauthorized or expired. Refresh or visit the latest launch URL from your terminal.'
+  };
   let kind = 'action-failed';
   if (/cleanup|exits.*unconfirmed/i.test(message) || error.cleanupIncomplete) kind = 'cleanup-unconfirmed';
   else if (/stale|supervisor.*unavailable|different.*run|ended.*run/i.test(message)) kind = 'stale-run';
@@ -26,9 +36,19 @@ export function diagnose(error) {
   else if (/version|platform|architecture|incompatible.*environment/i.test(message)) kind = 'compatibility';
   else if (/EADDRINUSE|address.*use|port.*conflict/i.test(message)) kind = 'port-conflict';
   else if (/timeout|deadline|ready.*timed/i.test(message)) kind = 'timeout';
+  else if (/Software source HTTP status 404|source.*404/i.test(message)) kind = 'source-not-found';
+  else if (/Software source HTTP status|redirects are not followed/i.test(message)) kind = 'source-http-error';
+  else if (/Software source|Remote source/i.test(message)) kind = 'source-unavailable';
+  else if (/connect ECONNREFUSED|connect ETIMEDOUT|getaddrinfo ENOTFOUND|fetch failed/i.test(message)) kind = 'network-error';
+  else if (/ENOENT|EACCES|EPERM|EBUSY/i.test(message)) kind = 'filesystem-error';
   else if (/exited|crash|tool.*failed|process.*failed/i.test(message)) kind = 'process-failed';
   const guidance = {
     'action-failed': ['检查下方具体原因及目标目录，再重新执行此操作。当前内容没有获得运行授权。', 'Read the concrete cause and check the destination before retrying. This operation grants no execution permission.'],
+    'source-not-found': ['所选软件源地址未找到对应资源（HTTP 404）。请检查软件源 URL 是否正确，或该资源是否已在远端发布上线。', 'The selected software source URL returned not found (HTTP 404). Check if the source URL is correct or if the resource is published remotely.'],
+    'source-http-error': ['软件源服务器返回了非正常的 HTTP 响应。出于安全考虑，系统不会跟随重定向或解析非 200 内容，请确认源服务器可用。', 'The software source server returned an abnormal HTTP response. For security, redirects are not followed. Verify server availability.'],
+    'source-unavailable': ['无法连接或访问软件源。请检查网络连接、HTTPS 地址及私有网络访问策略。', 'Cannot reach or access the software source. Check network connectivity, HTTPS URL, and private network policy.'],
+    'network-error': ['网络连接失败或目标服务不可达。请检查网络连接、本地代理配置或目标服务是否在线。', 'Network connection failed or destination is unreachable. Check network connectivity, proxy settings, or verify that target service is running.'],
+    'filesystem-error': ['文件访问或权限受限。请检查目标路径是否存在、是否具有读写权限，以及是否有安全防护软件拦截。', 'Filesystem access or permission denied. Check if the path exists, permissions, or security restrictions.'],
     'cleanup-unconfirmed': ['所属进程退出尚未确认。重试停止并查看日志；确认前不要备份、卸载或新建同一实例的运行。', 'Owned process exits are unconfirmed. Retry Stop and inspect logs. Wait for confirmation before backup, detach or another run.'],
     'stale-run': ['这份记录不证明程序仍在线。刷新当前实例；若监督者已丢失，保留数据并检查原终端及锁的所有权。', 'This record does not prove the program is online. Refresh the instance. If its supervisor is lost, retain data and inspect the owning terminal and lock.'],
     'owned-instance': ['联系原监督者停止当前运行。锁中的 PID 仅供诊断，不能据此结束其他进程或自动删除锁。', 'Stop the current run through its owning supervisor. A stored PID is diagnostic information, not authority to kill another process or delete its lock.'],

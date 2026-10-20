@@ -1,3 +1,5 @@
+> 历史资料：已退出当前产品。整合包、模板及每包独立 Hub 的使用路径已取消；本页保留原设计和证据，不代表当前支持，也不提供旧版兼容入口。当前使用请看[单 Hub Launcher](launcher.md)。
+
 # 外部程序整合包声明 v1
 
 可选的作者部署默认值、锁定依赖准备和本机 Node 所属子进程 profile 见[部署扩展](launcher-deployment.md)与 [deployment.schema.json](deployment.schema.json)。Hub 不读取这些文件；原有 `processes: none` 模块继续兼容。
@@ -115,13 +117,25 @@ text-desk/
 
 `components[].id` 是这个组合中的部署实例名，`module` 引用锁中的部署包 ID。同一模块可以部署成多个组件；同一个组件也可以有多座桥。组件的 `bridges` 必须准确覆盖模块声明的桥槽。每座桥的 `publish`、`subscribe` 引用 `topics` 中的别名，Runtime 转换成通讯 ACL；主题值必须满足 Hub 的具体主题语法。这个部署 profile 只接受具体主题，不接受通配符。
 
+可选的 `components[].topicAliases` 明确映射“程序自己的主题别名 → 包级主题键”，例如 `{"request":"t0","reply":"t1"}`。提供此映射时，程序配置中的 `topics` 仅包含这些别名及对应的具体主题；各桥 ACL 仍引用包级键，且必须落在该程序的映射范围内。映射不会增加权限，也不要求 ACL 的数量或顺序与作者初始默认值相同。Launcher 从本机 Hub 静态装配时使用此字段，完整保留独立程序的别名、未授予桥的主题和自定义桥权限；模块源码保持原样。
+
 主体现有权限仍由 Hub 校验。通道须由模块自己的模块桥握手后声明／订阅；Runtime 不代替模块在 Hub 中注册业务通道，也不把 pack 主题表加入 Hub 的业务类别。程序主动新增的信息种类仍由其桥和双方的应用契约安排。
 
 当前部署模型每组件分配一个 principal／credential，多桥使用同一主体，并按桥槽分配独立 bridgeId 和连接额度。组件中各桥声明的 ACL 汇总为该主体的通讯授权上限；它不是同一主体内部每座桥之间的安全隔离。需要互不信任的桥身份时，应使用不同组件／主体，或扩展外部部署工具。Hub 本身的 N:M 注记与多身份接入能力不因此改变。
 
 `after` 是部署启动依赖，必须引用已有组件并构成无环图。它表示前置组件达到本次启动条件后再启动当前组件；不会使 Hub 执行业务工作流，也不保证前置程序永远健康。`bindings` 表明 `from` 提供与 `to` 需要的精确契约均存在；每个 required 契约必须具备绑定。Runtime 只校验声明，程序仍负责授权、请求、语义和结果验证。它不会依据能力 ID 自动选择提供者，不重写载荷，也不猜测可替换算法。
 
+可选 `startupOrder` 列出全部当前组件 ID 各一次，包括手动启动的成员。例如 `["stats","source","desk"]` 使两个无前置的提供者按 stats → source 启动，再启动 desk。该列表必须满足全部显式 `after`，不能遗漏、重复或包含未知 ID；冲突明确拒绝。实际初始执行再按 `autostart` 筛选，不隐式启动计划外前置。省略字段时按原声明生成稳定拓扑顺序。动态增删与工作台快照同步维护列表，能力绑定不推导顺序。
+
 `entry.component` 选择整合包入口程序。入口 URL 由该程序启动后提供；参考 Runtime 只接受其声明过的 loopback HTTP 服务地址。URL 可用不证明完整业务成功。`settings` 是程序自己的公开配置，Runtime 不解释其业务含义。不要把密码、API key 或私人正文放入可分享的 settings；导出会保留 pack 配置。
+
+可选 `packType` 选择部署启动预设，省略为 `"atomic"`，也可明确选择 `"mesh"`。两型都按组件可选布尔值 `autostart`（缺省 true）选择初始计划成员。Atomic 要求本次选中集合全部启动成功，任一选中成员失败或受阻时清理整组；Mesh 采用 independent 时非关键成员实际启动失败可保留 Hub 和无关成员。`autostart:false` 不会被依赖方暗中改成启动；前置未就绪显示 `blockedBy`。全部手动时，两型都允许仅 Hub 运行而入口 URL 为空，其他成员之后可单独审阅启动。
+
+可选 `lifecyclePolicy` 选择意外故障策略，显式值优先；省略时 Atomic 使用 `"fail-fast"`，Mesh 使用 `"independent"`。两种模式都允许高级覆盖，不从独立故障策略推断包类型。Mesh 显式采用 fail-fast 时，实际非关键初始启动失败也会停止整组；Atomic 初始全成约束始终保留。组件可选布尔值 `critical`（缺省 false）表示关键启动／运行保护：被请求启动的关键成员失败或关键成员意外失联、退出、健康失败时停止全组，即使采用 independent。尚未请求的手动关键成员不算失败，主动停止也不等于意外故障。
+
+两个预设均保留经审阅的动态装配能力，既不是 Hub 业务类型，也不是应用安全等级或业务事务原子性保证。能力绑定不强加隐式启动顺序；需要前置就绪时明确声明 `after`。本次还可审阅选择 `startupMode:"hub-only"`，不改保存的计划。全部锁定源码和解释器仍须预检，取消、Hub 故障或清理未确认等部署错误不因“非关键”被忽略。详见[Atomic／Mesh 部署预设](../specs/dual-pack-paradigms-atomic-and-mesh-spec.md)与[启动计划](../specs/startup-plans-spec.md)。
+
+当前 trusted-local Runtime 支持[运行中动态装配](../specs/dynamic-pack-assembly-spec.md)：经过审阅后添加受管模块、单独启停、调整停止组件的配置、移除，以及接纳自管外部程序。运行修改属于当前 run，不会悄悄改写 `pack.json` 或锁；工作台可将实际组合固化为更高版本。程序读到的配置仍是其启动快照，并非自动热更新。动态操作使用当前格式；不增加旧锁或旧协议兼容。
 
 ## pack.lock：完整源码、通信契约和环境
 
@@ -162,6 +176,8 @@ OS／架构、解释器版本及 Python 库版本仍是精确要求。Python `pa
 **English — current compatibility contract.** Only `world-hub.pack-lock/v2` is accepted. `hubVersion` records the product release used to generate the lock; it does not require that release at import or start. `hubCompatibility` must exactly match the current wire protocol (`0.1`) and module run-configuration API (`world-hub.run/v1`). Missing, obsolete or unknown lock formats and unsupported contracts are rejected, without fallback. OS, architecture, interpreter and Python dependency versions remain exact requirements. The source hashes and full file set are still verified. Matching communications contracts do not establish compatibility of existing application or Hub persistent data; backup restore retains its separate actual-Hub-release checks.
 
 ## 标识、状态与留存
+
+整合包可使用锁定的 `lineage` 声明来源基线与本地改装次数；当前部署版本始终是 `pack.version`。工作台空白创建的包标为自建，派生包保留首次来源。来源声明与摘要不是官方身份或安全证明。工作台可在停止后直接审阅保存至原实例，自动创建私有快照；详见[改装与版本恢复](../specs/pack-customization-spec.md)。
 
 module ID 和版本属于可分发程序；component ID 属于部署组合；桥槽是本地接线名；principal／credential／bridgeId 是当前通讯身份配置；session 是 Hub 握手分配的当前连接地址。实例 ID 隔离整合包状态，不能代替认证身份。程序不能以业务正文中的这些字符串替代可信通讯信封。
 

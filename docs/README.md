@@ -1,31 +1,24 @@
 # 文档入口
 
-世界枢纽只负责程序间通讯。接入者可以采用自己的程序、模块桥形态、主题和信息种类；系统提示词、模型、harness、工作流和业务状态由外部程序管理。
+世界枢纽只负责程序间通信。程序选择自己的模块桥、主题、信息种类、上下文和业务。运行 `world-hub --open`，在通信管理界面管理同一个本机 Hub 上的模块实例、模块组、接线和启动计划。
 
 | 阅读目标 | 入口 |
 | --- | --- |
-| 启动、配置、数据与容量 | [部署](deployment.md) |
-| 通过 npm 安装 CLI、取得三个语言 SDK | [npm 包](npm.md) |
-| 从浏览器导入、审阅和运行本地整合包 | [统一 Launcher](ecosystem/launcher.md) |
-| 备份私有实例、派生组合、浏览软件源与交换创作提案 | [Launcher 维护与创作](ecosystem/launcher.md#私有实例备份恢复与维护) |
-| 部署可选社区、发布软件及交换评论和提案 | [托管 Workshop](ecosystem/workshop.md) |
-| 用自己的程序接入 | [模块桥接入](onboarding.md) |
-| 当前规范 | [规范索引](specs/index.md) |
-| 理解源码目录与组件责任 | [仓库结构](repository.md) |
-| 修改代码和维护合同 | [开发](development.md) |
-| 选择测试与解释结果 | [验证](verification.md) |
-| 构建、检查、迁移分发包 | [分发](releases.md) |
-| 按用途探索事件面板、模块化助手、数字世界和能力替换 | [用途演示整合包](examples/purpose-demos.md) |
-| 独立编写可替换的能力提供者 | [提供者接入契约](modules/provider-contract.md)、[机器契约](modules/text-statistics.contract.json)、[JS SDK](../sdk/javascript/README.md) |
-| 生成 Node / Python 模块、诊断环境并验证真实替换结果 | [模块作者快速开始](ecosystem/developer.md)、[English](ecosystem/developer.en.md) |
-| 接入 Electron 桌面宿主、原有软件或自行管理的程序 | [独立程序接入](ecosystem/external-programs.md)、[English](ecosystem/external-programs.en.md) |
-| 用公开 CLI 验证自己的能力契约结果 | [互操作基准](ecosystem/interop.md)、[第十八期范围](ecosystem/phase18.md) |
-| 社区到本地的跨角色验收、来源与执行信任 | [Workshop E2E](ecosystem/phase18-workshop.md)、[信任边界](ecosystem/trust.md) |
-| 外部能力目录、公开合同与独立处理器替换 | [能力目录示例](examples/capability-directory.md) |
-| 把本地独立程序部署成可重建整合包 | [开放部署声明](ecosystem/pack-spec.md)、[外部 Runtime](ecosystem/runtime.md)、[跨语言文本台](../examples/ecosystem-pack/README.md) |
-| 多来源系统提示词、对话与 harness 示例 | [分布式上下文](examples/distributed-context.md) |
-| 多轮、每轮多程序的工作流示例 | [工作流](examples/workflows.md) |
+| 导入模块、登记实例、分组与运行 | [入门流程](../README.md#从模块开始)、[English](../README.en.md#start-with-modules) |
+| 单模块、可分享模块组、公开配置与启动计划 | [模块声明](ecosystem/modules.md)、[来源格式](ecosystem/sources.md) |
+| 交付通信管理界面可导入的模块 | [模块声明](ecosystem/modules.md)、[作者指南](ecosystem/developer.md)、[English](ecosystem/developer.en.md) |
+| 自行运行的桌面宿主、服务和已有软件 | [独立程序接入](ecosystem/external-programs.md)、[English](ecosystem/external-programs.en.md) |
+| 直接启动 Hub、配置、数据与容量 | [部署](deployment.md) |
+| npm CLI 与三个语言 SDK | [npm 包](npm.md)、[模块桥接入](onboarding.md) |
+| 通信边界、协议和可靠性 | [现行规格](specs/index.md) |
+| 独立编写可替换提供者 | [提供者契约](modules/provider-contract.md)、[机器契约](modules/text-statistics.contract.json)、[互操作基准](ecosystem/interop.md) |
+| 获取模块与检查来源 | [软件来源](ecosystem/sources.md)、[信任边界](ecosystem/trust.md) |
+| 独立部署社区服务 | [Workshop](ecosystem/workshop.md) |
+| 多来源系统提示、对话和 harness | [分布式上下文](examples/distributed-context.md) |
+| 多轮、每轮多程序的业务流程 | [工作流](examples/workflows.md) |
+| 外部能力目录和处理器替换 | [能力目录](examples/capability-directory.md) |
+| 源码结构、开发、验证与构建 | [仓库结构](repository.md)、[开发](development.md)、[验证](verification.md)、[分发](releases.md) |
 
-规范描述当前通讯行为及其限制。验证文档列出可运行的测试集合与环境要求，测试报告记录实际执行的范围和结果。
+独立 Launcher、整合包与模板已退出当前产品，历史运行和生成指南不再进入当前导航或发行文档。旧源码和用户数据不因取消这些对象而自动删除。当前通信规范与 SDK 不依赖这些部署对象。
 
-项目源码与文档采用 [MIT 许可](../LICENSE)。第三方运行时和依赖保留各自的许可；许可范围与发布边界见[仓库结构](repository.md)。
+源码与文档采用 [MIT](../LICENSE) 许可，第三方运行时保留自己的许可。

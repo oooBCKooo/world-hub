@@ -49,9 +49,24 @@ test('CREATOR-CLI-01 public commands derive, exchange and apply a proposal while
   assert.equal(derived.pack.version, edited.version); assert.equal(derived.pack.title, edited.title);
   assert.equal(derived.requiresNewExecutionReview, true); assert.equal(derived.startsModules, false);
   const proposal = await cli(['proposal', app.directory, '--destination', join(app.directory, 'proposal'), ...options]);
+  const proposalArtifact = await cli(['authoring', proposal.artifact, ...nodeArgs]);
   const applied = await cli(['apply-proposal', app.directory, '--proposal', proposal.directory,
     '--destination', join(app.directory, 'applied'), ...licenses, ...nodeArgs]);
-  assert.equal(applied.revision, derived.revision); assert.equal(applied.proposalId, proposal.proposalId);
+  // The independent derive and proposal commands record their own creation
+  // times. Applying a proposal must preserve that exact proposal artifact.
+  assert.equal(proposalArtifact.revision, proposal.artifactRevision);
+  assert.equal(applied.revision, proposalArtifact.revision); assert.equal(applied.proposalId, proposal.proposalId);
+  assert.deepEqual(applied.pack, proposalArtifact.pack);
+  const { lineage: appliedLineage, ...appliedDeclaration } = applied.pack;
+  assert.deepEqual(appliedDeclaration, edited, 'The applied declaration and public settings must equal the reviewed edit');
+  const moduleContents = review => review.modules.map(module => ({ manifest: module.manifest, files: module.files }));
+  assert.deepEqual(moduleContents(applied.review), moduleContents(proposalArtifact.review));
+  assert.deepEqual(moduleContents(applied.review), moduleContents(model.review), 'Changing the pack must preserve actual locked module code and manifests');
+  for (const lineage of [derived.pack.lineage, proposalArtifact.pack.lineage, appliedLineage]) {
+    assert.equal(lineage.format, 'world-hub.pack-lineage/v1'); assert.equal(lineage.kind, 'customized'); assert.equal(lineage.revision, 1);
+    assert.deepEqual(lineage.base, { id: model.pack.id, version: model.pack.version, sourceDigest: model.revision });
+    assert.equal(new Date(lineage.customizedAt).toISOString(), lineage.customizedAt);
+  }
   assert.deepEqual(await readFile(join(app.directory, 'pack.json')), originalManifest);
   assert.deepEqual(await readFile(join(app.directory, 'pack.lock')), originalLock);
   const denied = join(app.directory, 'not-authorized');
@@ -61,7 +76,8 @@ test('CREATOR-CLI-01 public commands derive, exchange and apply a proposal while
   await refuses(['derive', app.directory, '--destination', conflicting, '--manifest', manifest,
     '--revision', '0'.repeat(64), ...licenses, ...nodeArgs], /revision conflict/);
   assert.equal(await present(conflicting), false);
-  app.record('real-cli-derive-proposal-apply', { revision: derived.revision, proposalId: proposal.proposalId, sourceUnchanged: true, modulesExecuted: false });
+  app.record('real-cli-derive-proposal-apply', { revision: applied.revision, derivedRevision: derived.revision, proposalArtifactRevision: proposalArtifact.revision,
+    proposalId: proposal.proposalId, sourceUnchanged: true, modulesExecuted: false });
 });
 
 test('CREATOR-CLI-02 explicit current-format environment relock produces a new package and preserves source', timeout, async t => {

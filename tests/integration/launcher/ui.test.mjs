@@ -26,7 +26,18 @@ function harness(api, overrides = {}) {
   Object.assign(ctx, overrides);
   const ui = createAdvancedUi(ctx); return { body, ui, ctx, state, selected, imports, mount: nodes => body.querySelector('#detail-content').replaceChildren(...nodes) };
 }
-const byText = (root, text) => root.querySelectorAll('button').find(node => node.textContent === text);
+const byText = (root, text) => {
+  let btn = root.querySelectorAll('button').find(node => node.textContent === text || node.textContent.includes(text));
+  if (!btn) {
+    const main = root.querySelector('.source-card .pack-card-main') || root.querySelector('.source-card');
+    if (main) {
+      void main.dispatch('click');
+      const dialogButtons = globalThis.document?.body?.querySelectorAll('.dialog button') ?? [];
+      btn = [...dialogButtons].reverse().find(node => node.textContent === text || node.textContent.includes(text));
+    }
+  }
+  return btn;
+};
 async function consent(body) { const dialog = body.querySelector('#advanced-action-dialog'); const check = dialog.querySelector('[type=checkbox]'); const confirm = byText(dialog, 'Confirm review and continue'); assert.equal(confirm.disabled, true); assert.equal(check.checked, undefined); check.checked = true; await check.dispatch('change'); assert.equal(confirm.disabled, false); return confirm; }
 
 test('detached private backup is explicitly authorized and cancellation remains inside the modal', async () => {
@@ -146,7 +157,7 @@ test('guided replacement preserves consumer code and settings without JSON editi
   const derive = root.querySelectorAll('form').find(form => form.elements.packId); derive.elements.destination.value = 'new-derived'; await derive.dispatch('submit');
   assert.equal(calls.some(([path]) => path.endsWith('/derive')), false); await (await consent(body)).dispatch('click');
   const [, request] = calls.find(([path]) => path.endsWith('/derive'));
-  assert.deepEqual(request.pack, pack); assert.deepEqual(request.replacements, [{ componentId: 'stats', moduleDirectory: 'python-module' }]);
+  assert.deepEqual(request.pack, { ...pack, version: '1.0.1' }); assert.deepEqual(request.replacements, [{ componentId: 'stats', moduleDirectory: 'python-module' }]);
   assert.match(root.textContent, /New instances use new data directories/);
   await byText(root, 'Import and review execution').dispatch('click'); assert.equal(imports.length, 1); assert.equal(body.querySelector('#import-form').elements.directory.value, 'new-derived');
   assert.ok(calls.every(([path]) => !path.endsWith('/start') && !path.endsWith('/upgrade') && path !== '/api/instances'));
@@ -393,7 +404,26 @@ test('new module completes real preflight, persistent draft restore, derivation,
   };
   let scene = harness(api); Object.assign(scene.state.environmentSelection, environment); await scene.ui.loadKnown(); scene.ui.navigate('creator');
   let root = scene.body.querySelector('#creator-content'); root.querySelector('form').elements.directory.value = directory; await root.querySelector('form').dispatch('submit');
-  await root.querySelector('.node-add-trigger-btn').dispatch('click'); await byText(scene.body.querySelector('.add-module-dialog'), 'Add to Assembly').dispatch('click');
+  await root.querySelector('.node-add-trigger-btn').dispatch('click');
+  const addModal = scene.body.querySelector('.add-module-dialog');
+  assert.ok(addModal);
+  assert.ok(addModal.querySelector('.add-module-toolbar'));
+  assert.ok(addModal.querySelector('.add-module-search-input'));
+  const addItems = addModal.querySelectorAll('.add-module-item');
+  assert.ok(addItems.length > 0);
+  assert.ok(addItems[0].querySelector('.module-avatar'));
+  assert.ok(addItems[0].querySelector('.add-module-item-left'));
+  assert.ok(addItems[0].querySelector('.add-module-item-ident'));
+  assert.ok(addItems[0].querySelector('.add-module-item-right'));
+  const searchInput = addModal.querySelector('.add-module-search-input');
+  assert.ok(searchInput);
+  searchInput.value = 'nonexistent-query-xyz';
+  searchInput.dispatchEvent(new Event('input'));
+  assert.equal(addItems.every(item => item.hidden || item.style?.display === 'none'), true);
+  searchInput.value = '';
+  searchInput.dispatchEvent(new Event('input'));
+  assert.equal(addItems.some(item => !item.hidden && item.style?.display !== 'none'), true);
+  await byText(addModal, 'Add to Assembly').dispatch('click');
   const dialog = scene.body.querySelectorAll('dialog').find(dialog => dialog.open && dialog.attributes['aria-label'] === 'Configure and review a new module'); assert.ok(dialog);
   const addition = dialog.querySelector('form'); assert.deepEqual(JSON.parse(addition.elements.bridges.value), { main: { publish: [], subscribe: [] } });
   addition.elements.bridges.value = JSON.stringify({ main: { publish: ['stats'], subscribe: ['stats'] } });

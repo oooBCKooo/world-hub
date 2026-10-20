@@ -1,6 +1,8 @@
+> 历史资料：已退出当前产品。整合包、模板及每包独立 Hub 的使用路径已取消；本页保留原设计和证据，不代表当前支持，也不提供旧版兼容入口。当前使用请看[单 Hub Launcher](launcher.md)。
+
 # 可选外部整合包 Runtime v1
 
-Node 原生宿主的 `owned-children` 生命周期与依赖准备，以及无需整合包的 Launcher 本机接入，见[部署扩展](launcher-deployment.md)。本文的“每实例 Hub”指整合包 Runtime；独立程序可以使用 Launcher 的共享本机 Hub。原有 `none` 和容器 profile 的限制不变。
+Node 原生宿主的 `owned-children` 生命周期与依赖准备，以及无需整合包的 Launcher 全局 Hub 接入，见[部署扩展](launcher-deployment.md)。本文的“每实例 Hub”指整合包 Runtime；独立程序可以使用 Launcher 的共享全局 Hub。原有 `none` 和容器 profile 的限制不变。
 
 参考 Runtime 是独立部署工具，负责本地整合包检查、实例目录、进程启停和日志。它与 Hub 的通讯内核分离，使用[开放整合包声明](pack-spec.md)。Hub 不加载 Runtime、不读取 module／pack、不执行外部程序。其他 Launcher 或 Runtime 可以实现同样声明，也可以直接按现有桥协议连接 Hub。
 
@@ -26,7 +28,7 @@ world-hub-pack start --root F:\hub-instances --instance desk-one --trust $review
 
 作者在修改源码或明确选择另一个环境后，使用 `world-hub-pack lock <pack-directory> --node <node-executable> --python <python-executable>` 显式重建 `pack.lock`。这个动作改变后续审阅摘要，不能替代用户检查新内容；不在 import／start 中自动执行。
 
-启动顺序为：校验与 trust 核对 → 获取实例排他所有权 → 准备私有本次运行配置和独立 Hub → 按部署 DAG 启动模块 → 验证启动条件 → 提供入口。启动阶段失败时，监督者停止本次已经启动的所属进程并记录失败；不遗留半套组合。
+启动顺序为：校验与 trust 核对 → 获取实例排他所有权 → 准备私有本次运行配置和独立 Hub → 按初始计划及 DAG 选择模块 → 验证启动条件 → 提供可用入口。Atomic 本次选中成员任一失败时清理本次所属进程；Mesh 可保留未启动、被阻塞或实际失败的非关键成员，并继续无关项。状态明确区分这些结果，不能把部署就绪当作全部业务可用。关键失败、Hub 故障、取消及清理未确认仍严格收敛，见[双预设语义](../specs/dual-pack-paradigms-atomic-and-mesh-spec.md)。
 
 ## 实例与管理命令
 
@@ -180,6 +182,8 @@ console.log(await session.closed);
 | `logsInstance({root,instanceId})` | runtime-logs：`format:"world-hub.runtime-logs/v1"`、`instanceId`、`logs`；每个组件及 `$hub` 含 `pid`、`stdout`、`stderr`、`truncated` |
 | `stopInstance({root,instanceId})` | 请求停止并返回确认过的终态；完成 deadline 有限 |
 | `exportInstance({root,instanceId,destination,nodePath?,pythonPath?})` | `{destination,digest,includesRuntimeState:false}`；目标必须尚不存在 |
+| `previewAssemblySave({root,instanceId,candidate,origin,statePolicies,nodePath?,pythonPath?})` | 审阅已停止原实例的下一组合版本，绑定实际运行、源码和不透明程序数据摘要；不写基线或启动模块 |
+| `applyAssemblySave({...options,expectedDigest,accepted:true})` | 重新核对审阅后保存原实例的新基线；返回实际 package 的 `plan`、恢复目录与事务 ID；不自动启动 |
 
 `modules` 的条目为 `{manifest,source,files}`；`environment` 的 Node／Python条目含 `executable`、`version`、`packages`、`sha256`。review 的 `hubVersion` 是当前实际安装版本，锁中的同名字段是生成版本记录；`hubCompatibility` 给出所需与当前契约、两份版本记录及检查结果。`permissions` 条目包含 module ID、`declared` 和 `enforced:false`。review digest 绑定当前安装版本、环境与内容，不绑定导入目录，因此完整复制后可以保持同一审阅摘要。Hub 发布版本升级后，即使契约相同也需要新的执行审阅，旧授权不自动沿用。
 
@@ -196,8 +200,27 @@ console.log(await session.closed);
 | `GET /status` | 200，当前 runtime-status 对象本身 |
 | `GET /logs` | 200，当前 runtime-logs 对象本身 |
 | `POST /stop` | 202，`{"ok":true,"accepted":true,"state":"stopping"}`，启动停止过程 |
+| `GET /assembly` | 200，当前 run 的组合、版本修订号与实际源码声明；不含凭据 |
+| `POST /assembly/preview` | `{runId,revision,operation}`；返回有限期审阅摘要与受影响程序，尚不执行 |
+| `POST /assembly/apply` | `{runId,revision,digest,accepted:true}`；精确匹配当前 run、修订号和已保存审阅后执行 |
 
 认证／Host／Origin 检查失败返回 401 `{"ok":false,"error":{"code":"UNAUTHORIZED","message":"..."}}`。未知路径或不支持的方法返回 404，code 为 `NOT_FOUND`；每个响应采用 JSON 并禁止缓存。POST stop 的 accepted 不代表进程已退出。监督者完成后会关闭控制服务，CLI 从该实例的持久状态确认同一 runId 的终态和 stoppedAt。
+
+### 运行中装配与版本保存
+
+动态装配仅在当前受信任本机 profile 开放；隔离 profile 明确拒绝不支持的修改。受管模块先核对源码、平台、解释器和依赖声明，再审阅添加；添加与启动分开。配置变更要求涉及的受管程序停止，再明确启动以取得新快照。可独立停止和移除组件；移除不删除其不透明状态，不允许在同一 run 中用被移除的组件 ID 接管其他程序的数据。`set-policy` 可审阅选择 `independent` 或 `fail-fast`，业务失败和重试仍归程序。
+
+`packType` 是启动预设，`lifecyclePolicy` 是独立可覆盖的运行故障策略。两型均保留动态控制及状态行审阅操作；`autostart:false` 在两型中都表示不加入初始启动计划。Atomic 仅要求本次选中集合全成；未选成员以后单独审阅启动。`critical:true` 的实际关键故障可覆盖 independent 并停止全组。`after` 必须就绪，能力绑定仅验证精确声明，不构成隐式启动前置；预览发现条件不满足时只读拒绝，不会为此停止程序。当前 Mesh、部分启动与仅 Hub 模式仅在 trusted-local 开放，不支持的隔离组合提前拒绝，不降级。
+
+`startInstance` 可选 `startupMode:"plan"|"hub-only"`，缺省 plan。hub-only 只运行 Hub，不改变保存的 autostart 与 after；实际状态及 ready 响应分别记录本次 startupMode。Launcher 在执行审阅中绑定此选择，启动请求不能替换已接受的模式。两型全手动也可只运行 Hub，入口暂为空。详见[启动计划](../specs/startup-plans-spec.md)。
+
+这些进程生命周期标志适用于 Runtime 受管成员。外部授权接入只建立通信身份，外部程序自行管理进程、健康与启动；Runtime 不为其提供相同的关键进程故障保护。
+
+外部程序接纳分配限定身份、桥槽和 ACL，外部程序自行启动与退出。撤销会退役通信凭据和连接，不按 PID 管理外部进程。只有明确接纳的响应包含私人连接材料；不得把它放入公开状态、整合包、日志或草稿。所有动态控制操作与整包停止串行协调，只有确认所属进程实际退出后才能维护实例。
+
+运行中组合与原始锁定基线分开。工作台载入实际组合后，可以导出独立新版本，也可以在整个原实例确认停止后更新同一实例。更新要求相同 pack ID、更高版本、来源 runId／修订号／基线摘要及逐程序显式数据策略：已有数据必须声明提供者认可的格式并选择保留；无数据的新组件选择 fresh；被移除组件的数据移至私人恢复目录。格式声明是提供者／操作者的接受声明，不是 Runtime 已验证业务数据兼容；此流程不执行数据迁移脚本。
+
+保存重新锁定源码，保留先前源码和移除的数据，撤销旧执行审阅，不自动重新启动。非终结事务会阻止后续启动；发生不可自动回滚的中断时需根据事务记录检查恢复，当前没有一键恢复向导。外部程序没有受管源码；若剩余组合的入口、部署依赖或能力绑定要求该外部成员，拒绝导出伪完整的独立包。详情、字段和验收范围见[动态装配规格](../specs/dynamic-pack-assembly-spec.md)。
 
 启动前就创建本次 starting 状态与控制服务，`POST /stop` 在启动过程中同样可取消后续启动并清理当前所属进程。控制客户端核对 control.runId 与当前状态，拒绝旧运行的控制记录。清理无法确认时保留控制通路与排他所有权，可再次明确请求停止；实际安全恢复边界仍见状态诊断。
 

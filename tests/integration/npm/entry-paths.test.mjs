@@ -31,11 +31,11 @@ const checks = [
   { entry: 'bin/world-hub.mjs', args: ['--check', '--port', '0'], check: output => {
     const value = JSON.parse(output); assert.equal(value.persisted, false); assert.equal(value.transport.port, 0);
   } },
-  { entry: 'bin/world-hub.mjs', args: ['ui', '--help'], check: output => assert.match(output, /world-hub ui/) },
-  { entry: 'bin/world-hub-pack.mjs', args: ['--version'], check: output => assert.equal(output.trim(), packageInfo.version) },
+  { entry: 'bin/world-hub.mjs', args: ['--help'], check: output => {
+    assert.match(output, /world-hub \[--config/); assert.doesNotMatch(output, /world-hub ui/);
+  } },
   { entry: 'bin/world-hub-interop.mjs', args: ['--help'], check: output => assert.match(output, /world-hub-interop verify/) },
   { entry: 'tools/workshop/cli.mjs', args: ['--help'], check: output => assert.match(output, /World Hub Workshop/) },
-  { entry: 'tools/launcher/cli.mjs', args: ['--help'], check: output => assert.match(output, /world-hub ui/) },
   { entry: 'scripts/launcher.mjs', args: ['--check'], check: output => assert.equal(JSON.parse(output).persisted, false) },
 ];
 for (const variant of ['direct', 'directory link', 'preserved main link']) {
@@ -54,7 +54,7 @@ test('entry identification handles missing entries, unrelated modules and both a
   assert.equal(isDirectExecution(pathToFileURL(alias), main), true);
   assert.equal(isDirectExecution(pathToFileURL(alias), alias), true);
   assert.equal(isDirectExecution(pathToFileURL(main), join(evidence, 'absent.mjs')), false);
-  assert.equal(isDirectExecution(pathToFileURL(main), join(repository, 'bin/world-hub-pack.mjs')), false);
+  assert.equal(isDirectExecution(pathToFileURL(main), join(repository, 'bin/world-hub-interop.mjs')), false);
   assert.equal(isDirectExecution(pathToFileURL(main), ''), false);
   assert.equal(isDirectExecution('https://example.invalid/script.mjs', main), false);
   if (process.platform === 'win32') {

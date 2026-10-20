@@ -178,6 +178,7 @@ async function main() {
     httpServer.listen(config.transport.port, config.transport.host, resolve_);
   });
   const addr = httpServer.address();
+  management.modules.setListeningPort(addr.port);
 
   log(args.quiet, {
     event: 'ready',
@@ -203,6 +204,7 @@ async function main() {
     if (stopping) return;
     stopping = true;
     log(args.quiet, { event: 'stopping', signal });
+    await management.modules.close();
     wss.closeAll(CLOSE.GOING_AWAY, 'hub shutting down');
     await new Promise((r) => httpServer.close(r));
     await hub.stop();

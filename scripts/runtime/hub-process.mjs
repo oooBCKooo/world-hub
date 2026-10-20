@@ -21,7 +21,7 @@ input.on('line', line => {
     if (!server?.ownedHub || typeof frame.id !== 'string' || frame.id.length>64) throw new Error('Owned Hub control is not ready');
     const change=frame.change, current=server.ownedHub.config;
     if (!change || typeof change!=='object' || !Array.isArray(change.remove) || change.remove.length>128 || !change.credentials || typeof change.credentials!=='object' || Array.isArray(change.credentials)
-        || Object.keys(change.credentials).length>128 || [...Object.keys(change.credentials),...change.remove].some(id=>typeof id!=='string'||!/^local\.[a-z0-9._-]{1,58}$/.test(id))) throw new Error('Invalid owned program credential change');
+        || Object.keys(change.credentials).length>128 || [...Object.keys(change.credentials),...change.remove].some(id=>typeof id!=='string'||!/^(?:(?:local|runtime)\.[a-z0-9._-]{1,58}|external\.[a-z0-9._-]{1,55})$/.test(id))) throw new Error('Invalid owned program credential change');
     const entries={...current.acl.credentials,...change.credentials};for(const id of change.remove) delete entries[id];
     const checked=normalizeConfig({...current,acl:{...current.acl,credentials:entries}},null);
     // Credential changes revoke current sessions first; no stale authenticated

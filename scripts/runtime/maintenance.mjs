@@ -4,6 +4,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { instancePath, inspectPackage, repository, safeId, validateModule, validatePack, validateLock } from './package.mjs';
 import { ordinaryPath, privateJson, readBounded, relativePath } from './paths.mjs';
+import { summarizePack } from './pack-paradigms.mjs';
 
 const MAGIC = Buffer.from('WORLD-HUB-INSTANCE-BACKUP/1\n', 'ascii');
 const FORMAT = 'world-hub.instance-backup/v1';
@@ -48,7 +49,11 @@ export async function confirmedStopped(directory, instanceId) {
   if (status.format !== 'world-hub.runtime-status/v1' || status.instanceId !== instanceId
       || !['stopped', 'failed'].includes(status.state) || !status.stoppedAt || status.cleanupIncomplete
       || typeof status.runId !== 'string' || !Array.isArray(status.components)
-      || status.components.some(c => !['exited', 'failed'].includes(c.process) || !c.exit)) {
+      || status.components.some(c => {
+        if(c.ownership==='external')return c.process!=='unmanaged'||c.pid!==null;
+        if(c.ownership==='managed'&&c.neverStarted===true)return c.process!=='stopped'||c.pid!==null;
+        return !['exited','failed'].includes(c.process)||!c.exit;
+      })) {
     throw fault('INSTANCE_NOT_STOPPED', 'Stop this instance and confirm every owned process has exited before maintenance; stale or failed status alone is insufficient');
   }
   return { identity, status };
@@ -97,7 +102,7 @@ async function streamHash(file, signal, consume) {
     return { bytes: position, sha256: digest.digest('hex') };
   } finally { await handle.close(); }
 }
-export async function persistentFiles(directory, plan, signal) {
+export async function persistentFiles(directory, plan, signal, programStateRoots) {
   const files = [], names = new Set(), directories = new Set(); let entries = 0, bytes = 0;
   const add = async path => {
     portablePath(path); cancelled(signal);
@@ -127,8 +132,8 @@ export async function persistentFiles(directory, plan, signal) {
     await add(source); files.at(-1).path = `package/${path}`;
     files.at(-1).sourcePath = source;
   }
-  for (const component of plan.pack.components) {
-    const path = `programs/${component.id}`;
+  for (const componentId of programStateRoots ?? plan.pack.components.map(component => component.id)) {
+    const path = `programs/${componentId}`;
     if (!(await exists(join(directory, path)))) continue;
     await ordinaryPath(join(directory, path));
     directories.add(path);
@@ -175,11 +180,20 @@ export async function backupStoppedInstance(directory, stopped, options) {
           || owner.format !== 'world-hub.maintenance-owner/v1' || owner.transactionId !== transactionId || owner.pid !== process.pid)
         throw fault('BACKUP_PATH', 'Choose a backup destination outside the source instance');
     }
-    const contents = await persistentFiles(directory, plan, options.signal), { files, directories } = contents;
+    const programStateRoots = options.snapshotProgramStateRoots;
+    if (programStateRoots !== undefined) {
+      validateProgramStateRoots(programStateRoots);
+      const owner = await json(join(directory, 'owner.lock'));
+      if (!options.maintenanceTransactionId || owner.format !== 'world-hub.maintenance-owner/v1'
+          || owner.transactionId !== options.maintenanceTransactionId || owner.pid !== process.pid)
+        throw fault('BACKUP_PATH', 'Additional opaque state roots require the owning stopped customization transaction');
+    }
+    const contents = await persistentFiles(directory, plan, options.signal, programStateRoots), { files, directories } = contents;
     const createdAt = new Date().toISOString();
     const header = { format: FORMAT, private: true, excludesGeneratedRuntimeFiles: true, mayIncludeApplicationSecrets: true, createdAt,
       sourceInstanceId: options.instanceId, platform: plan.lock.platform, hubVersion: stopped.identity.hubVersion,
       pack: { id: plan.pack.id, version: plan.pack.version },
+      ...(programStateRoots ? { programStateRoots } : {}),
       consistency: stopped.status ? 'confirmed-stopped' : 'never-started',
       directories, files: files.map(({ sourcePath, ...file }) => file) };
     const encoded = Buffer.from(JSON.stringify(header), 'utf8');
@@ -194,7 +208,7 @@ export async function backupStoppedInstance(directory, stopped, options) {
         const actual = await streamHash(join(directory, file.sourcePath ?? file.path), options.signal, chunk => writeAll(output, chunk));
         if (actual.bytes !== file.bytes || actual.sha256 !== file.sha256) throw fault('BACKUP_CHANGED', 'Instance data changed during backup; no completed snapshot was produced');
       }
-      const final = await persistentFiles(directory, plan, options.signal);
+      const final = await persistentFiles(directory, plan, options.signal, programStateRoots);
       if (JSON.stringify(final) !== JSON.stringify(contents)) throw fault('BACKUP_CHANGED', 'Instance file set changed during backup');
       await output.sync(); await output.close();
       const checked = await inspectBackup(destination, { signal: options.signal });
@@ -206,8 +220,15 @@ export async function backupStoppedInstance(directory, stopped, options) {
     }
 }
 
+function validateProgramStateRoots(roots) {
+  if (!Array.isArray(roots) || roots.length > 128 || new Set(roots).size !== roots.length
+      || JSON.stringify([...roots].sort()) !== JSON.stringify(roots)) throw fault('BACKUP_INVALID', 'Opaque program state roots must be a bounded sorted unique list');
+  for (const id of roots) safeId(id, 'snapshot program state root');
+}
 function validateHeader(header) {
-  closed(header, ['format', 'private', 'excludesGeneratedRuntimeFiles', 'mayIncludeApplicationSecrets', 'createdAt', 'sourceInstanceId', 'platform', 'hubVersion', 'pack', 'consistency', 'directories', 'files'], 'backup');
+  closed(header, ['format', 'private', 'excludesGeneratedRuntimeFiles', 'mayIncludeApplicationSecrets', 'createdAt', 'sourceInstanceId', 'platform', 'hubVersion', 'pack', 'consistency', 'directories', 'files',
+    ...(Object.hasOwn(header ?? {}, 'programStateRoots') ? ['programStateRoots'] : [])], 'backup');
+  if (Object.hasOwn(header, 'programStateRoots')) validateProgramStateRoots(header.programStateRoots);
   if (header.format !== FORMAT || header.private !== true || header.excludesGeneratedRuntimeFiles !== true || header.mayIncludeApplicationSecrets !== true
       || !['confirmed-stopped', 'never-started'].includes(header.consistency)
       || typeof header.createdAt !== 'string' || header.createdAt.length > 64 || !Number.isFinite(Date.parse(header.createdAt))) throw fault('BACKUP_INVALID', 'Unsupported private backup metadata');
@@ -291,7 +312,7 @@ async function readArchive(file, options = {}, visitor) {
     const final = await handle.stat();
     if (final.size !== info.size || final.mtimeMs !== info.mtimeMs || final.ctimeMs !== info.ctimeMs) throw fault('BACKUP_CHANGED', 'Backup changed while being inspected');
     validateArchivedPackage(header, manifests);
-    return { path, header, bytes, sha256: entire.digest('hex') };
+    return { path, header, bytes, sha256: entire.digest('hex'), pack: manifests.get('package/pack.json') };
   } finally { await handle.close(); }
 }
 function validateArchivedPackage(header, manifests) {
@@ -317,7 +338,7 @@ function validateArchivedPackage(header, manifests) {
     }
   }
   if (header.files.some(f => f.path.startsWith('package/') && !expected.has(f.path))) throw fault('BACKUP_INVALID', 'Backup has unlocked package files');
-  const ids = new Set(pack.components.map(c => c.id));
+  const ids = new Set([...pack.components.map(c => c.id), ...(header.programStateRoots ?? [])]);
   if (header.files.some(f => f.path.startsWith('programs/') && !ids.has(f.path.split('/')[1]))) throw fault('BACKUP_INVALID', 'Backup contains state for an undeclared component');
   if (header.directories.some(path => path.startsWith('programs/') && !ids.has(path.split('/')[1]))) throw fault('BACKUP_INVALID', 'Backup contains a directory for an undeclared component');
 }
@@ -330,6 +351,7 @@ export async function inspectBackup(file, options = {}) {
   if (archive.header.hubVersion !== current) incompatible.push(`Hub version requires ${archive.header.hubVersion}; installed ${current}`);
   const { files, directories, ...backup } = archive.header;
   return { format: 'world-hub.backup-inspection/v1', backup: { ...backup, files: files.length, directories: directories.length, bytes: archive.bytes },
+    pack: summarizePack(archive.pack),
     sha256: archive.sha256, compatible: incompatible.length === 0, incompatibilities: incompatible, private: true,
     excludesGeneratedRuntimeFiles: true, mayIncludeApplicationSecrets: true };
 }

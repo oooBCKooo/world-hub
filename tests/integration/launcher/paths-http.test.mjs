@@ -4,6 +4,7 @@ import { mkdir, writeFile, symlink, truncate, rm, realpath } from 'node:fs/promi
 import { join, parse } from 'node:path';
 import { createLauncherServer } from '../../../tools/launcher/server.mjs';
 import { discoveryLimits } from '../../../tools/launcher/paths-service.mjs';
+import { validatePack } from '../../../scripts/runtime/package.mjs';
 import { environment, workspace, until } from './helpers.mjs';
 
 async function launcher(app) {
@@ -95,10 +96,17 @@ test('PATHS-HTTP-02 discovery is bounded, cancellable, task-listed and never sca
 
 test('PATHS-HTTP-03 static module counts survive browser refresh and become unknown when declaration is unavailable', async t => {
   const app = await workspace(t), api = await launcher(app), packageDirectory = join(app.root, 'instances', 'static', 'package'); await mkdir(packageDirectory, { recursive: true });
-  await save(join(packageDirectory, 'pack.json'), { format: 'world-hub.pack/v1', components: [{ id: 'a', module: 'demo.a' }, { id: 'b', module: 'demo.b' }, { id: 'c', module: 'demo.c' }] });
+  // This endpoint displays metadata from a current valid declaration. A partial
+  // discovery hint does not establish a trustworthy installed-pack summary.
+  const declaration = { format:'world-hub.pack/v1',id:'demo.static',version:'1.0.0',title:'Static metadata fixture',license:'MIT',
+    topics:{events:'metadata/events'},components:['a','b','c'].map(id=>({id,module:'demo.'+id,after:[],settings:{},bridges:{main:{publish:['events'],subscribe:['events']}}})),
+    bindings:[],entry:{component:'a'},startupTimeoutMs:1000,healthTimeoutMs:1000,stopTimeoutMs:1000 };
+  validatePack(declaration); await save(join(packageDirectory, 'pack.json'),declaration);
   api.server.manager.records.set('static', { instanceId: 'static', root: app.root, environment, pack: { id: 'demo.static', version: '1.0.0' } }); await api.server.manager.save();
   assert.equal((await api.call('/api/instances')).instances[0].moduleCount, 3); assert.equal((await api.call('/api/instances/static')).instance.moduleCount, 3);
   await api.server.close(); const restarted = await launcher(app); assert.equal((await restarted.call('/api/instances')).instances[0].moduleCount, 3);
+  const invalid = structuredClone(declaration); invalid.components[0].autostart='false'; await save(join(packageDirectory,'pack.json'),invalid);
+  const unavailable=(await restarted.call('/api/instances/static')).instance;assert.equal(unavailable.moduleCount,null);assert.equal(unavailable.packMetadataUnavailable,true);
   await rm(join(packageDirectory, 'pack.json')); assert.equal((await restarted.call('/api/instances')).instances[0].moduleCount, null);
   app.record('static-declaration-count', { count: 3, survivesRestart: true, unavailableCount: null });
 });
@@ -110,10 +118,11 @@ test('PATHS-HTTP-04 private Creator drafts survive restart with no review author
     replacements: [{ componentId: 'module', moduleDirectory: join(source, 'not-yet-present') }], formValues: { author: '作者', target: join(app.directory, 'new pack') }, selection: 'module', updatedAt: new Date().toISOString() };
   const saved = await api.call('/api/creator-drafts/save', { draft }); assert.equal(saved.draft.pack.components[0].settings.token, 'private business setting');
   assert.equal((await api.request('/api/creator-drafts/save', { draft: { ...draft, reviewId: 'forbidden-authority' } })).body.error.code, 'DRAFT_INVALID');
-  assert.equal((await api.request('/api/creator-drafts/save', { draft: { ...draft, formValues: { text: 'a'.repeat(32768) } } })).status, 413);
+  assert.equal((await api.request('/api/creator-drafts/save', { draft: { ...draft, formValues: { text: 'a'.repeat(32768) } } })).status, 200);
+  assert.equal((await api.request('/api/creator-drafts/save', { draft: { ...draft, formValues: { text: 'a'.repeat(3 * 1024 * 1024) } } })).status, 413);
   await api.server.close(); const restarted = await launcher(app); assert.equal((await restarted.call('/api/creator-drafts')).drafts[0].selection, 'module');
   assert.equal(restarted.server.manager.reviews.size, 0); assert.equal(restarted.server.manager.sessions.size, 0);
   assert.equal((await restarted.request('/api/creator-drafts/delete', { directory: source }, { authorization: restarted.headers.authorization, 'content-type': 'application/json' })).status, 403);
   await restarted.call('/api/creator-drafts/delete', { directory: source }); assert.equal((await restarted.call('/api/creator-drafts')).drafts.length, 0);
-  app.record('private-draft-restoration', { retainsProgramSettings: true, refreshedAuthorizationRequired: true, requestBound: 32768, deletion: true });
+  app.record('private-draft-restoration', { retainsProgramSettings: true, refreshedAuthorizationRequired: true, requestBound: 3 * 1024 * 1024, deletion: true });
 });

@@ -54,12 +54,13 @@ test('source distribution is independent of local runtime caches and copies only
   assert.ok(start.includes('%~dp0scripts\\launcher.mjs'));
   assert.ok(verify.includes('%~dp0scripts\\release\\verify-package.mjs'));
   assert.ok(demo.includes('%~dp0examples\\management\\run-management-demo.mjs'));
-  assert.ok(ui.includes('%~dp0bin\\world-hub.mjs" ui --open'));
-  const uiHelp = spawnSync(process.execPath, [join(bundle, 'bin/world-hub.mjs'), 'ui', '--help'],
+  assert.ok(ui.includes('%~dp0bin\\world-hub.mjs" --open'));
+  const uiHelp = spawnSync(process.execPath, [join(bundle, 'bin/world-hub.mjs'), '--help'],
     { shell: false, windowsHide: true, encoding: 'utf8', timeout: 10_000 });
   assert.equal(uiHelp.error, undefined);
   assert.equal(uiHelp.status, 0, uiHelp.stderr);
-  assert.match(uiHelp.stdout, /world-hub ui/);
+  assert.match(uiHelp.stdout, /world-hub \[--config/);
+  assert.doesNotMatch(uiHelp.stdout, /world-hub ui/);
 });
 
 test('Hub bundles preserve self-contained provider documentation, SDK guides and the machine contract', async () => {
@@ -94,18 +95,19 @@ test('source package check works from an unrelated cwd without creating persiste
   assert.equal((await verifyPackage(bundle)).passed, true);
 });
 
-test('source bundle resolves its real built-in template from an unrelated cwd without execution', async () => {
-  const cwd = join(temporaryRoot, '工作目录');
-  const script = 'const {LauncherManager}=await import(process.env.WH_TEST_MANAGER);const m=new LauncherManager({root:process.env.WH_TEST_ROOT});await m.initialize();const r=await m.builtinTemplates();const checks=[];for(const c of r.candidates){const x=await m.templateInspect({directory:c.directory});checks.push({directory:c.directory,id:x.inspection.manifest.id,startsModules:x.inspection.startsModules})}await m.close();console.log(JSON.stringify(checks))';
-  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd, shell: false, windowsHide: true, encoding: 'utf8', timeout: 15000,
-    env: { ...process.env, WH_TEST_MANAGER: pathToFileURL(join(bundle, 'tools/launcher/manager.mjs')).href,
-      WH_TEST_ROOT: join(temporaryRoot, 'private-template-root') } });
-  assert.equal(result.status, 0, result.stderr);
-  const templates = JSON.parse(result.stdout); assert.equal(templates.length, 1); assert.equal(templates[0].id, 'demo.text-template');
-  // Windows runner temp paths can contain 8.3 aliases. The chooser returns
-  // the canonical directory, which must still be this bundle's exact template.
-  assert.equal(await realpath(templates[0].directory), await realpath(join(bundle, 'examples/templates/text-desk')));
-  assert.equal(templates[0].startsModules, false);
+test('current distribution ships native management and excludes retired product entries', async () => {
+  const manifest = JSON.parse(await readFile(join(bundle, 'manifest.json'), 'utf8'));
+  const pkg = JSON.parse(await readFile(join(bundle, 'package.json'), 'utf8'));
+  assert.equal(pkg.exports['./runtime'], undefined);
+  for (const path of ['bin/world-hub-pack.mjs', 'scripts/runtime/runtime.mjs', 'scripts/runtime/index.mjs', 'scripts/runtime/template.mjs', 'tools/launcher/cli.mjs', 'tools/launcher/server.mjs', 'tools/launcher/manager.mjs', 'tools/launcher/public/app.mjs', 'tools/launcher/public/index.html', 'docs/ecosystem/launcher.md', 'docs/ecosystem/launcher-deployment.md', 'docs/ecosystem/pack-spec.md']) {
+    assert.ok(!manifest.files.some(item => item.path === path), path);
+    await assert.rejects(access(join(bundle, path)), { code: 'ENOENT' });
+  }
+  for (const path of ['tools/launcher/module-groups.mjs', 'tools/launcher/module-versions.mjs', 'tools/launcher/module-uninstall.mjs', 'tools/launcher/wiring-defaults.mjs', 'tools/launcher/execution-policy.mjs', 'tools/launcher/demand-lifecycle.mjs', 'sdk/javascript/lifecycle-client.mjs'])
+    assert.ok(manifest.files.some(item => item.path === path));
+  for (const path of ['src/management/management-modules.mjs', 'src/management/management-community.mjs', 'src/management/canvas-modes.mjs', 'scripts/runtime/module-group.mjs']) {
+    assert.ok(manifest.files.some(item => item.path === path), path);
+  }
 });
 
 test('building over an existing target or archive is refused without modifying the existing package', async () => {

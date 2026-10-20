@@ -5,7 +5,6 @@ import { createHash } from 'node:crypto';
 import { lstat, readdir, readFile } from 'node:fs/promises';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BUNDLED_TEMPLATE_FILES } from './release/build-package.mjs';
 import { validateLock } from './runtime/package.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -23,9 +22,9 @@ const extensions = new Set(['.mjs', '.js', '.cjs', '.html', '.css', '.json', '.m
 const forbiddenSegments = new Set(['.local', '.artifacts', 'dist', 'data', 'world-hub-data', '.hub', '.state', 'node_modules', '__pycache__', '.venv']);
 const screenshotPath = /^docs\/images\/[a-z0-9][a-z0-9._-]*\.(?:png|jpg)$/;
 const ecosystemLock = 'examples/ecosystem-pack/pack.lock';
-const templateLocks = BUNDLED_TEMPLATE_FILES.filter(path => path.endsWith('/pack.lock'));
+const templateLocks = ['examples/templates/text-desk/base/pack.lock'];
 const ecosystemLicenses = new Set([...['source', 'stats', 'desk'].map(name => `examples/ecosystem-pack/modules/${name}/LICENSE`),
-  ...BUNDLED_TEMPLATE_FILES.filter(path => path.endsWith('/LICENSE')), ...['desktop','counter'].map(name=>`examples/soft-ui-modules/${name}/LICENSE`)]);
+  ...['source','stats','desk'].map(name=>`examples/templates/text-desk/base/modules/${name}/LICENSE`), ...['desktop','counter'].map(name=>`examples/soft-ui-modules/${name}/LICENSE`)]);
 const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const jpegStartOfFrame = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -80,7 +79,7 @@ async function collect(directory = '') {
   return result;
 }
 
-const indexed = Boolean(await exists(join(root, '.git')));
+const indexed = !process.argv.includes('--working-tree') && Boolean(await exists(join(root, '.git')));
 let paths = indexed
   ? execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', windowsHide: true }).split('\0').filter(Boolean)
   : await collect();
@@ -150,7 +149,14 @@ for (const path of paths) {
       // initModule copies this public SDK next to the generated author program.
       // Resolve only that exact materialized import; other template imports
       // must still refer to a real published source file.
-      if (path === 'scripts/runtime/templates/node/program.mjs' && match[1] === './bridge-kit.mjs') {
+      if (path === 'scripts/release/npm-launcher-check.mjs' && match[1] === './bridge-kit.mjs') {
+        await checkReference(path,'../../sdk/javascript/bridge-kit.mjs','Generated acceptance SDK source');
+      } else if (['tests/conformance/management-community.test.mjs', 'tests/conformance/management-execution.test.mjs', 'tests/helpers/module-versions-scene.mjs'].includes(path)
+          && (match[1] === './bridge-kit.mjs' || path === 'tests/conformance/management-execution.test.mjs' && match[1] === './lifecycle-client.mjs')) {
+        // These fixtures copy the public SDK alongside their generated external
+        // program. Verify that exact materialized dependency in the source set.
+        await checkReference(path, '../../sdk/javascript/' + match[1].slice(2), 'Generated test program SDK source');
+      } else if (path === 'scripts/runtime/templates/node/program.mjs' && match[1] === './bridge-kit.mjs') {
         await checkReference(path, '../../../../sdk/javascript/bridge-kit.mjs', 'Generated SDK source');
       } else await checkReference(path, match[1], 'Relative import');
     }

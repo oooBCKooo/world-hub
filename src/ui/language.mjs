@@ -73,7 +73,7 @@ export function createI18n(english = {}, { environment = globalThis, defaultLang
   }
 
   const attributes = [['title', 'data-i18n-title'], ['placeholder', 'data-i18n-placeholder'],
-    ['aria-label', 'data-i18n-aria-label'], ['alt', 'data-i18n-alt']];
+    ['aria-label', 'data-i18n-aria-label'], ['alt', 'data-i18n-alt'], ['data-tooltip', 'data-i18n-tooltip']];
   const selector = ['[data-i18n]', ...attributes.map(([, name]) => '[' + name + ']')].join(',');
   function apply(root = environment.document) {
     if (!root) return;

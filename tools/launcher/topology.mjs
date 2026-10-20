@@ -6,6 +6,14 @@ export function loopbackUrl(value, { rootOnly = false } = {}) {
     return url;
   } catch { return null; }
 }
+// Whitelist transport observations. No client PID, secret or application health
+// claim is promoted into Launcher process ownership.
+export function observedBridge(bridge) {
+  return { bridgeId: bridge.bridgeId, principal: bridge.principal, session: bridge.session, declaredId: bridge.declaredId,
+    authenticated: bridge.authenticated === true, since: bridge.since, remoteAddress: bridge.remoteAddress,
+    channels: (bridge.channels ?? []).map(channel => ({ name: channel.name, publish: channel.publish === true, subscribe: channel.subscribe === true })),
+    subscriptions: [...(bridge.subscriptions ?? [])], published: bridge.published ?? 0, delivered: bridge.delivered ?? 0 };
+}
 export function managementLink({ hubUrl, launcherUrl, instanceId, runId, bridge, principal, workbench = false }) {
   const hub = loopbackUrl(hubUrl), launcher = loopbackUrl(launcherUrl, { rootOnly: true });
   if (!hub || !launcher) return null;
@@ -25,8 +33,7 @@ export function mapTopology({ instanceId, status, snapshot, launcherUrl }) {
     const matches = live ? components.filter(c => c.process === 'running' && c.principal === bridge.principal
       && c.expectedBridges?.includes(bridge.declaredId)) : [];
     const owner = matches.length === 1 ? matches[0] : null;
-    const entry = { bridgeId: bridge.bridgeId, session: bridge.session, principal: bridge.principal,
-      declaredId: bridge.declaredId, ownership: owner ? 'managed' : 'external',
+    const entry = { ...observedBridge(bridge), ownership: owner ? 'managed' : 'external',
       ...(owner ? { componentId: owner.id, moduleId: owner.module, pid: owner.pid, process: owner.process,
         health: owner.health, readiness: owner.readiness } : { process: 'unknown', readiness: 'unknown' }) };
     entry.managementUrl = live ? managementLink({ hubUrl: hub.href, launcherUrl, instanceId, runId: status.runId, bridge: entry }) : null;

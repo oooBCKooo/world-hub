@@ -1,40 +1,25 @@
-# Module authors: independent implementation and replaceable delivery
+# Module author guide
 
-[中文](developer.md) · [Launcher guide](launcher.en.md)
+[简体中文](developer.md) · [Declarations](modules.md) · [Independent programs](external-programs.en.md)
 
-Modules are external programs. They exchange information through their own bidirectional module bridges and agree on application contracts. The optional Runtime deployment profile and author tools below do not prescribe every program's shape or move business logic into Hub Core.
+Choose the program's business responsibilities and public application contract, then select an SDK or implement a bridge. The Hub does not define pages, models, business storage or internal architecture.
 
-Existing software, Electron desktop hosts and ordinary application source trees can follow the [independent-program guide](external-programs.en.md) without Launcher import. This deployment profile's directory and lifecycle declarations apply when choosing Runtime management; application source, module source and pack roots have different entry points.
+1. Implement bidirectional communication with the [protocol](../specs/protocol.md) and [JavaScript](../../sdk/javascript/README.md), [Python](../../sdk/python/README.md) or [PowerShell](../../sdk/powershell/README.md) SDK.
+2. Define topics, payloads, directed calls and result semantics. Verify participant identities; distinguish delivery, ACK and business completion.
+3. Use your own installer, or supply a [module manifest](modules.md) and optional deployment defaults for the communication management interface. Deliver source as a module directory or ZIP.
+4. Import, register an independent instance, inspect the interpreter and permissions, then explicitly review startup on the shared Global Hub.
+5. Test actual consumers, disconnections, timeouts, redelivery and replacement before publishing an immutable version.
 
-```powershell
-npm install -g world-hub
-world-hub-pack init-module ./my-statistics --id author.statistics --runtime node
-world-hub-pack validate-module ./my-statistics
-world-hub-pack doctor-module ./my-statistics
-node --test ./my-statistics/logic.test.mjs
+Authors supply their own tests, for example `node --test <test file>`. A connected badge is not complete acceptance.
+
+To suggest an execution mode for new instances, add this field to `deployment.json`:
+
+```json
+"executionDefaults": { "mode": "on-demand", "idleTimeoutMs": 60000 }
 ```
 
-The destination must be new. Generation includes a manifest, runnable program, business logic and self-test, complete bridge SDK, MIT license and machine-readable contract. It does not install dependencies or execute code. For Python, use `--runtime python`, select your trusted interpreter with `doctor-module --python <path>`, and run `python -B -m unittest test_logic.py` inside the generated directory. Prepare the declared dependency yourself; doctor only probes the interpreter and the known websockets requirement, and does not inspect arbitrary dependencies.
+`mode` is required and accepts `resident` or `on-demand`. The optional idle timeout is an integer from 1000 to 86400000 milliseconds; omitting it selects 60000. A group member's `configuration.executionDefaults` overrides its module default. With neither declaration, a new instance defaults to resident with a 60-second timeout. Import review shows the resulting policy and its source. The instance remains stopped with an empty allowed-caller list. Users may override local policy; upgrades, downgrades and rollback retain existing instances' current local policy. Group export carries only mode and idle timeout; author defaults must not include `allowedCallers` or execution grants. See [module behavior](modules.md) and the [lifecycle SDK](../../sdk/javascript/LIFECYCLE.md) for the invocation contract.
 
-Validation checks the optional Runtime manifest, ordinary bounded files, declared entry and platform. Generic modules are not required to use a particular SDK layout or contract file. Generated samples additionally use an optional `author-sample.json` marker to check their included materials; remove that marker when adopting a different layout. Failures return structured issues with path, stage, code, message and remedy, and a nonzero CLI exit code. Structured results use stdout; command errors use stderr.
+The [provider contract](../modules/provider-contract.md) and [machine contract](../modules/text-statistics.contract.json) support an independent text-statistics implementation. The [interoperability benchmark](interop.md) separates declarations, bridge behavior and business results.
 
-The sample implements the exact Unicode, LF, UTF-8 and SHA-256 semantics of `text.statistics@1.0.0`. Its optional Runtime adapter receives `--runtime-config`, handles health/stop over stdin and reports readiness only after actual bridge registration and subscription receipts. Public `topicKey` and `callerId` settings default to `stats` and `desk`; credentials and actual connections come from private deployment configuration. It does not implement the separate capability-directory advertisement/lease profile; follow the [provider contract](../modules/provider-contract.md), currently in Chinese, when adopting that profile. Self-tests establish only the included algorithm's behavior.
-
-```powershell
-world-hub-pack publish ./my-statistics --destination ./statistics-publication --kind module --acknowledge-licenses true
-world-hub-pack source ./statistics-publication/index.json
-world-hub-pack fetch-source ./statistics-publication/index.json --index-digest '<reviewed digest>' --entry '<entryId>' --cache ./artifact-cache
-world-hub-pack preview-replacement '<original pack>' --component stats --module '<fetched module>' --python '<Python path>'
-```
-
-Publication produces local data artifacts and an open index, without uploading. Choose a static HTTPS source or optional Workshop after reviewing redistribution rights. Launcher also supports discovery, verified caching, persistent source configuration and explicit conflicts; the community server never executes uploads.
-
-Replacement previews compare the actual candidate's contracts, bridge slots, identity, platform, entry, license and declared permissions. A shared Module ID affects all references; a new ID affects only the selected component. The preview and derivation share declaration checks. Previews neither write files nor run code, explicitly return `businessValidated:false`, and leave state compatibility unknown.
-
-Open the original pack in Creator workspace, select a component, enter a candidate directory, review the differences and save. Derive a new directory and lock, import a new instance, then review and authorize the actual code and environment before starting. Headless creator commands remain available through `--help`. Changed code or interpreters require fresh review.
-
-Validate real source → processor → interface results, failed authorization, wrong versions, Unicode boundaries, unknown timeout outcomes, health versus communication, confirmed shutdown and restart identities. Hub acceptance and ACK are not business success. Preserve the original package and instance. Replacing code alone does not roll application data back; use a compatible private backup or [reviewed stopped-instance upgrade and persistent-data rollback](upgrade.md) when old state is required. Program authors still declare data compatibility and migration logic.
-
-`test:ecosystem` verifies generation, public CLI publication/discovery/fetch, both language replacements and real bridge results. Existing isolated-author evidence is an AI exercise from frozen documents, not acceptance by two independent human developers. Software sources support Module, Pack and [Template](templates.md) artifacts. Author samples and shareable parameterized composition templates are separate objects; a Template contains a locked base pack and generates a new Pack without executing modules. [Stopped-instance upgrades and data rollback](upgrade.md) require explicit policies for every component. Optional [Node headless container isolation](isolation.md) supports only its declared module profile. These tools do not guarantee arbitrary language, platform or dependency support, and human third-party acceptance remains pending.
-
-Use `--version` and `completion powershell|bash|zsh|fish` for version output and shell completion scripts. All commands support noninteractive parameter-driven use. The original standalone Hub and headless Runtime remain available.
+The current product does not provide pack/template generation commands or the old public `world-hub/runtime` API. Historical author generators are not current distribution entry points. SDK communication exports and the wire protocol remain independent.

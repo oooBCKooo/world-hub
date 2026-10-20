@@ -8,16 +8,16 @@ import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startOwnedProgram } from '../../tests/helpers/owned-program.mjs';
-import { LAUNCHER_FILES, WORKSHOP_FILES, INTEROP_FILES, ECOSYSTEM_RUNTIME_FILES, ECOSYSTEM_SCHEMA_FILES, BUNDLED_TEMPLATE_FILES, SOFT_UI_MODULE_FILES } from './build-package.mjs';
+import { LAUNCHER_FILES, WORKSHOP_FILES, INTEROP_FILES, ECOSYSTEM_RUNTIME_FILES, ECOSYSTEM_SCHEMA_FILES, BUNDLED_TEMPLATE_FILES, SOFT_UI_MODULE_FILES, CURRENT_DOCUMENTATION_FILES, APPLICATION_FILES, SDK_FILES, SDK_DOCUMENTATION_FILES, DOCUMENTATION_IMAGE_FILES } from './build-package.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const nonce = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID()}`;
 const safe = value => value.replaceAll('\\', '/');
 const ecosystemFiles = [...ECOSYSTEM_RUNTIME_FILES,
-  'docs/ecosystem/pack-spec.md', 'docs/ecosystem/runtime.md',
+  'docs/ecosystem/modules.md',
   ...ECOSYSTEM_SCHEMA_FILES];
-const developerMaterial = ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md', 'docs/ecosystem/launcher.md', ...ecosystemFiles, ...LAUNCHER_FILES, ...WORKSHOP_FILES, ...INTEROP_FILES, ...BUNDLED_TEMPLATE_FILES, ...SOFT_UI_MODULE_FILES];
+const developerMaterial = ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md', ...ecosystemFiles, ...LAUNCHER_FILES, ...WORKSHOP_FILES, ...INTEROP_FILES, ...BUNDLED_TEMPLATE_FILES, ...SOFT_UI_MODULE_FILES];
 
 async function findNpmCli() {
   const candidates = [process.env.npm_execpath, join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js'),
@@ -44,20 +44,10 @@ async function tree(directory, prefix = '') {
 function allowedPackageFile(path) {
   if (path.split('/').some(part => ['.local', '.artifacts', 'data', 'dist', 'node_modules', '__pycache__', '.venv', '.hub', '.state', 'generated'].includes(part))
       || /(?:\.py[co]|\.log|\.bak|\.tmp|\.tgz|\.zip|\.local\.json)$/i.test(path)) return false;
-  return ['package.json', 'README.md', 'README.en.md', 'LICENSE', 'config/hub.json', 'bin/world-hub.mjs',
-    'scripts/launcher.mjs', 'scripts/launcher-support.mjs',
-    'sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-client.mjs', 'sdk/javascript/README.md',
-    'sdk/python/hub_bridge.py', 'sdk/python/requirements.txt', 'sdk/python/README.md',
-    'sdk/powershell/HubBridge.psm1', 'sdk/powershell/HubBridge.cs', 'sdk/powershell/README.md',
-    'docs/images/hub-topology.jpg', 'docs/images/hub-workbench.jpg',
-    'docs/images/demo-event-desk.jpg', 'docs/images/demo-modular-assistant.jpg', 'docs/images/demo-digital-world.jpg',
-    'docs/images/hub-topology-en.jpg', 'docs/images/hub-workbench-en.jpg',
-    'docs/images/hub-launcher.jpg', 'docs/images/hub-launcher-en.jpg',
-    'docs/images/demo-event-desk-en.jpg', 'docs/images/demo-modular-assistant-en.jpg', 'docs/images/demo-digital-world-en.jpg',
-    'docs/images/demo-capability-directory.jpg', 'docs/images/demo-capability-directory-en.jpg',
-    'docs/modules/text-statistics.contract.json', ...ecosystemFiles, ...LAUNCHER_FILES, ...WORKSHOP_FILES, ...INTEROP_FILES, ...BUNDLED_TEMPLATE_FILES, ...SOFT_UI_MODULE_FILES].includes(path)
-    || /^src\/.+\.(?:mjs|js|html|css|json)$/.test(path)
-    || /^docs\/.+\.md$/.test(path);
+  return ['package.json','README.md','README.en.md','LICENSE','config/hub.json',
+    'scripts/launcher.mjs','scripts/launcher-support.mjs',
+    'docs/modules/text-statistics.contract.json',...APPLICATION_FILES,...SDK_FILES,...SDK_DOCUMENTATION_FILES,...CURRENT_DOCUMENTATION_FILES,...DOCUMENTATION_IMAGE_FILES,
+    ...ecosystemFiles,...LAUNCHER_FILES,...WORKSHOP_FILES,...INTEROP_FILES,...SOFT_UI_MODULE_FILES].includes(path);
 }
 
 export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(root, '.artifacts/npm'), archive: suppliedArchive } = {}) {
@@ -99,8 +89,9 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
     assert.equal(pkg.license, 'MIT'); assert.equal(pkg.bin?.['world-hub'], 'bin/world-hub.mjs');
     assert.equal(pkg.exports?.['.'], './sdk/javascript/bridge-kit.mjs');
     assert.equal(pkg.exports?.['./blob'], './sdk/javascript/blob-client.mjs');
-    assert.equal(pkg.exports?.['./runtime'], './scripts/runtime/index.mjs');
-    assert.equal(pkg.bin?.['world-hub-pack'], 'bin/world-hub-pack.mjs');
+    assert.equal(pkg.exports?.['./lifecycle'], './sdk/javascript/lifecycle-client.mjs');
+    assert.equal(pkg.exports?.['./runtime'], undefined);
+    assert.equal(pkg.bin?.['world-hub-pack'], undefined);
     assert.equal(pkg.bin?.['world-hub-interop'], 'bin/world-hub-interop.mjs');
     assert.equal(pkg.exports?.['./workshop'], './tools/workshop/server.mjs');
     assert.equal(pkg.bin?.['world-hub-workshop'], 'tools/workshop/cli.mjs');
@@ -200,30 +191,25 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
       assert.equal(await asset.text(), await readFile(join(sourceRoot, path), 'utf8'), `Installed UI asset differs: ${path}`);
     }
     report.checks.push({ label: 'Installed bilingual UI serves the exact shared language module and both dictionaries', passed: true });
-    const runtimeCheckPath = join(localApp, 'runtime-check.mjs');
-    await writeFile(runtimeCheckPath, await readFile(join(sourceRoot, 'scripts/release/npm-runtime-check.mjs')));
-    const runtime = JSON.parse(await execute('Public installed Runtime API imports, starts, observes, stops and exports a real Node pack', process.execPath, [runtimeCheckPath], { cwd: workspace }));
-    assert.equal(runtime.passed, true); assert.equal(runtime.version, pkg.version); assert.equal(runtime.exited, true);
-    await execute('Installed optional pack CLI exposes its public command contract', process.execPath, [join(localPackage, 'bin/world-hub-pack.mjs'), '--help'], { cwd: workspace });
     await execute('Installed public interoperability CLI runs from an independent workspace', process.execPath, [join(localPackage, 'bin/world-hub-interop.mjs'), '--help'], { cwd: workspace });
-    const generatedModule = join(workspace, 'installed author module');
-    const generated = JSON.parse(await execute('Installed CLI generates a complete independent author sample outside its installation', process.execPath,
-      [join(localPackage, 'bin/world-hub-pack.mjs'), 'init-module', generatedModule, '--id', 'npm.author', '--runtime', 'node'], { cwd: workspace }));
-    assert.equal(generated.startsModules, false); assert.equal(generated.installsDependencies, false);
-    const validated = JSON.parse(await execute('Installed CLI statically validates its generated sample', process.execPath,
-      [join(localPackage, 'bin/world-hub-pack.mjs'), 'validate-module', generatedModule], { cwd: workspace }));
-    assert.equal(validated.ok, true); assert.equal(validated.behaviorValidated, false);
-    const diagnosed = JSON.parse(await execute('Installed CLI uses its bundled fixed interpreter probe without running the generated module', process.execPath,
-      [join(localPackage, 'bin/world-hub-pack.mjs'), 'doctor-module', generatedModule], { cwd: workspace }));
-    assert.equal(diagnosed.ok, true); assert.equal(diagnosed.interpreter.executable, process.execPath);
-    await execute('Generated installed sample exercises exact business semantics through its own self-test', process.execPath,
-      ['--test', join(generatedModule, 'logic.test.mjs')], { cwd: workspace });
-    await execute('Installed unified UI CLI exposes its optional command contract', process.execPath, [join(localPackage, 'bin/world-hub.mjs'), 'ui', '--help'], { cwd: workspace });
+    const nativeHelp = await execute('Installed native management CLI exposes its current command contract', process.execPath, [join(localPackage, 'bin/world-hub.mjs'), '--help'], { cwd: workspace });
+    assert.match(nativeHelp, /world-hub \[--config/); assert.doesNotMatch(nativeHelp, /world-hub ui/);
     const launcherCheckPath = join(localApp, 'launcher-check.mjs');
     await writeFile(launcherCheckPath, await readFile(join(sourceRoot, 'scripts/release/npm-launcher-check.mjs')));
-    const launcherCheck = JSON.parse(await execute('Installed Launcher serves exact assets and manages a reviewed real pack through authenticated APIs', process.execPath,
+    const launcherCheck = JSON.parse(await execute('Installed native communication management serves exact assets, protects mutations and releases its listener', process.execPath,
       [launcherCheckPath], { cwd: workspace }));
     assert.equal(launcherCheck.passed, true); assert.equal(launcherCheck.version, pkg.version); assert.equal(launcherCheck.stopped, true);
+    assert.equal(launcherCheck.nativeManagement, true); assert.equal(launcherCheck.csrfRejected, true);
+    assert.equal(launcherCheck.crossOriginRejected, true); assert.equal(launcherCheck.removedEntries, true); report.management = launcherCheck;
+    const lifecycleCheckPath = join(localApp, 'lifecycle-check.mjs');
+    await writeFile(lifecycleCheckPath, `import assert from 'node:assert/strict';
+import { callManaged, acquireManagedLease, withManagedModule } from 'world-hub/lifecycle';
+for (const method of [callManaged, acquireManagedLease, withManagedModule]) assert.equal(typeof method, 'function');
+await assert.rejects(acquireManagedLease({}, null, 'target'), { code: 'LIFECYCLE_CONFIG_REQUIRED' });
+process.stdout.write('lifecycle public export passed\\n');
+`);
+    await execute('Installed local lifecycle SDK resolves its public export without starting a program', process.execPath,
+      [lifecycleCheckPath], { cwd: workspace });
     const workshopHelp = await execute('Installed hosted Workshop CLI exposes its independent command contract', process.execPath,
       [join(localPackage, pkg.bin['world-hub-workshop']), '--help'], { cwd: workspace });
     assert.match(workshopHelp, /World Hub Workshop/); assert.match(workshopHelp, /--password-stdin/); assert.match(workshopHelp, /--stop/);
@@ -241,7 +227,6 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomBytes } from 'node:crypto';
 import { createWorkshopServer } from 'world-hub/workshop';
-import { validateSourceIndex } from 'world-hub/runtime';
 const packageRoot = dirname(fileURLToPath(import.meta.resolve('world-hub/package.json')));
 const pkg = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
 const temporaryParent = resolve(tmpdir());
@@ -273,7 +258,7 @@ try {
     const value = await response.json(); assert.equal(response.status, expected); return { value, cookie: response.headers.get('set-cookie')?.split(';')[0], headers: response.headers };
   }
   assert.equal((await api('health')).value.ok, true); assert.equal((await api('api/me')).value.user, null);
-  const index = (await api('index.json')).value; assert.equal(index.format, 'world-hub.source-index/v1'); validateSourceIndex(index);
+  const index = (await api('index.json')).value; assert.equal(index.format, 'world-hub.source-index/v1'); assert.ok(Array.isArray(index.entries));
   assert.deepEqual((await api('api/catalog')).value.publications, []);
   for (const [path, file] of [['', 'index.html'], ['app.mjs', 'app.mjs'], ['style.css', 'style.css']]) {
     const response = await fetch(new URL(path, service.url), { redirect: 'error', signal: AbortSignal.timeout(5000) }); assert.equal(response.status, 200); assert.match(response.headers.get('content-security-policy'), /script-src 'self'/); assert.equal(sha(Buffer.from(await response.arrayBuffer())), sha(await readFile(join(packageRoot, 'tools/workshop/public', file))));

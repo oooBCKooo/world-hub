@@ -10,6 +10,11 @@ import { collectSourceFiles } from '../../scripts/runtime/source-guidance.mjs';
 import { ownProcess } from '../../scripts/runtime/process.mjs';
 import { validateDeploymentSettings } from '../../scripts/runtime/deployment.mjs';
 import { RUNTIME_API } from '../../scripts/runtime/compatibility.mjs';
+import { STARTUP_PLAN_FORMAT, startupPlan, publicStartupPlan } from './startup-plan.mjs';
+import { configurationRevision, previewProgramConfiguration, applyProgramConfiguration } from './program-configuration.mjs';
+import { normalizeModuleGroup } from './module-groups.mjs';
+import { executionPolicy, executionPolicyRevision, validateExecutionPolicy } from './execution-policy.mjs';
+import { initialExecutionPolicy } from '../../scripts/runtime/execution-defaults.mjs';
 
 const FORMAT = 'world-hub.launcher-local-programs/v1', REVIEW_AGE = 10 * 60000;
 const error = (code, message, status = 409) => Object.assign(new Error(message), { code, status });
@@ -19,6 +24,14 @@ const clone = value => JSON.parse(JSON.stringify(value));
 const date = () => new Date().toISOString();
 const delay = ms => new Promise(done => setTimeout(done, ms));
 const contractEqual = (left, right) => left?.id === right?.id && left?.version === right?.version;
+const fatalStartupError = issue => issue.cleanupIncomplete === true || /(?:REVIEW|INSTALLED_CODE|RUNTIME|OWNERSHIP|STILL_OWNED|PROVIDER|BINDINGS|CLEANUP|LOCAL_HUB|LAUNCHER_STOPPING|DEPENDENCY|DEPLOYMENT)/.test(issue.code ?? '');
+async function withAbort(promise, signal) {
+  if (!signal) return promise;
+  if (signal.aborted) throw error('START_STOPPED', 'Startup plan was cancelled.');
+  let listener;
+  try { return await Promise.race([promise, new Promise((_, reject) => { listener = () => reject(error('START_STOPPED', 'Startup plan was cancelled.')); signal.addEventListener('abort', listener, { once: true }); })]); }
+  finally { if (listener) signal.removeEventListener('abort', listener); }
+}
 function principalFor(id) { return `local.${id.slice(0, 35)}.${hash(id).slice(0, 8)}`; }
 function configuration(input, manifest, deployment = {}) {
   const settings = clone(input.settings ?? Object.fromEntries((deployment.settings ?? []).map(item => [item.key, item.default])));
@@ -54,6 +67,8 @@ export class LocalPrograms {
     this.getHub = getHub; this.updateCredentials = updateCredentials; this.inspectDeployment = inspectDeployment; this.prepareDependencies = prepareDependencies;
     this.records = new Map(); this.identities = new Map(); this.reviews = new Map(); this.handles = new Map(); this.monitors = new Map(); this.queue = Promise.resolve(); this.closing = false;
     this.startsPaused = false; this.startControllers = new Set();
+    this.groups = new Map();
+    this.startupPlanData = { format: STARTUP_PLAN_FORMAT, members: [], onFailure: 'continue-independent' };
   }
   enqueue(action) { const result = this.queue.then(action); this.queue = result.catch(() => {}); return result; }
   path(id, ...parts) { safeId(id, 'program ID'); return join(this.directory, id, ...parts); }
@@ -64,6 +79,7 @@ export class LocalPrograms {
     if (saved.format !== FORMAT || !Array.isArray(saved.programs) || saved.programs.length > 128) throw error('LOCAL_REGISTRY_INVALID', 'Independent-program registry is invalid; retain its private data for inspection.');
     for (const record of saved.programs) {
       safeId(record.programId); if (this.records.has(record.programId) || record.principal !== principalFor(record.programId)) throw error('LOCAL_REGISTRY_INVALID', 'Independent-program identities are inconsistent.');
+      executionPolicy(record); // Validate stored local metadata without granting artifact defaults authority.
       const identity = await json(this.path(record.programId, 'identity.json'));
       if (identity.programId !== record.programId || identity.principal !== record.principal || typeof identity.token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(identity.token)) throw error('LOCAL_IDENTITY_INVALID', 'The private program identity is invalid.');
       if (['starting', 'running', 'stopping'].includes(record.state)) {
@@ -74,15 +90,170 @@ export class LocalPrograms {
       }
       this.records.set(record.programId, record); this.identities.set(record.programId, identity);
     }
+    if (saved.startupPlan !== undefined) this.startupPlanData = publicStartupPlan(saved.startupPlan, [...this.records.keys()]);
+    if (saved.groups !== undefined) {
+      if (!Array.isArray(saved.groups) || saved.groups.length > 128) throw error('LOCAL_REGISTRY_INVALID', 'The module group registry is invalid.');
+      for (const input of saved.groups) {
+        const group = normalizeModuleGroup(input, [...this.records.keys()]);
+        if (this.groups.has(group.id)) throw error('LOCAL_REGISTRY_INVALID', 'Module group IDs must be distinct.');
+        this.groups.set(group.id, group);
+      }
+    }
     await this.save();
   }
-  async save() { await privateJson(join(this.directory, 'registry.json'), { format: FORMAT, programs: [...this.records.values()] }); }
+  async save() { await privateJson(join(this.directory, 'registry.json'), { format: FORMAT, groups: [...this.groups.values()], startupPlan: this.getStartupPlan(), programs: [...this.records.values()] }); }
+  configurationFor(input, manifest, deployment) { return configuration(input, manifest, deployment); }
+  async assertVersionReady(id) {
+    await this.versionRecoveryGuard?.(id);
+    let marker;
+    try { marker = JSON.parse((await readBounded(this.path(id, 'version-transaction.json'))).toString('utf8')); }
+    catch (issue) { if (issue.code === 'ENOENT') return; throw issue; }
+    throw Object.assign(error('VERSION_RECOVERY_REQUIRED', 'A version transaction was interrupted. Recover it before starting this instance.'), { transactionId: marker.transactionId });
+  }
+  configurationPreview(id, input = {}) { return this.enqueue(() => previewProgramConfiguration(this, id, input)); }
+  configurationApply(id, input = {}) { return this.enqueue(() => applyProgramConfiguration(this, id, input)); }
+  saveExecutionPolicy(id, input = {}) { return this.enqueue(async () => {
+    if (this.closing) throw error('LAUNCHER_STOPPING', 'Local deployment management is stopping.');
+    const row = this.row(id);
+    if (!plain(input) || Object.keys(input).some(key => !['expectedRevision', 'policy'].includes(key)))
+      throw error('EXECUTION_POLICY_INVALID', 'Supply the exact current policy revision and the complete local execution policy.');
+    if (input.expectedRevision !== executionPolicyRevision(row))
+      throw error('EXECUTION_POLICY_CHANGED', 'The local execution policy changed. Reload it before saving.');
+    const policy = validateExecutionPolicy(input.policy, { targetId: id, knownIds: [...this.records.keys()] });
+    for (const programId of new Set([id, ...policy.allowedCallers])) await this.assertVersionReady(programId);
+    const hadPolicy = Object.hasOwn(row, 'executionPolicy'), previous = row.executionPolicy;
+    row.executionPolicy = policy;
+    try { await this.save(); } catch (issue) { if (hadPolicy) row.executionPolicy = previous; else delete row.executionPolicy; throw issue; }
+    return { program: this.public(row), startsModules: false, stopsModules: false, changesBridgePermissions: false,
+      localOnly: true, sharedWithGroups: [...this.groups.values()].filter(group => group.memberProgramIds.includes(id)).map(group => ({ id: group.id, title: group.title })) };
+  }); }
+  getStartupPlan() { return publicStartupPlan(this.startupPlanData, [...this.records.keys()]); }
+  startupPlanOverview() { return this.enqueue(async () => ({ plan: this.getStartupPlan(), programs: await this.programs() })); }
+  saveStartupPlan({ plan, expectedRevision }) { return this.enqueue(async () => {
+    if (this.closing) throw error('LAUNCHER_STOPPING', 'Launcher is stopping.');
+    if (expectedRevision !== this.getStartupPlan().revision) throw error('LOCAL_STARTUP_PLAN_CHANGED', 'The registered programs or startup plan changed. Reload the plan before saving.');
+    const checked = publicStartupPlan(plan, [...this.records.keys()]), previous = this.startupPlanData;
+    for (const member of checked.members) if (member.enabled || member.after.length) await this.assertVersionReady(member.programId);
+    this.startupPlanData = checked;
+    try { await this.save(); } catch (issue) { this.startupPlanData = previous; throw issue; }
+    return { plan: this.getStartupPlan(), startsModules: false };
+  }); }
+  reviewStartupPlan(options = {}) { return this.enqueue(() => this.reviewStartupPlanNow(options)); }
+  async reviewStartupPlanNow({ planData = this.startupPlanData, ids = [...this.records.keys()], scope = {} } = {}) {
+    if (this.closing || this.startsPaused) throw error('LOCAL_HUB_STOPPING', 'Wait for the local Hub to finish stopping.');
+    const { order: selectedOrder, ...plan } = startupPlan(planData, ids);
+    const policies = new Map(ids.map(id => [id, executionPolicy(this.row(id))]));
+    const order = selectedOrder.filter(id => policies.get(id).mode === 'resident');
+    const members = [], skipped = [];
+    for (const member of plan.members) {
+      const policy = policies.get(member.programId);
+      if (!member.enabled || policy.mode !== 'resident') {
+        const reason = member.enabled ? 'on-demand' : 'not-selected';
+        members.push({ ...clone(member), executionPolicy: policy, skipped: reason });
+        skipped.push({ programId: member.programId, reason }); continue;
+      }
+      const reviewed = await this.reviewStart(member.programId), saved = this.reviews.get(reviewed.reviewId);
+      this.reviews.delete(reviewed.reviewId);
+      members.push({ ...clone(member), executionPolicy: policy, execution: { ...reviewed.review, sourceFiles: clone(saved.inspected.files) } });
+    }
+    const review = { format: 'world-hub.local-startup-plan-review/v1', plan, order, members, skipped, ...scope, startsModules: true,
+      sandbox: false, executionProfile: 'trusted-local', preservesRunningPrograms: true,
+      digest: hash(JSON.stringify({ plan, order, scope, members: members.map(member => ({ programId: member.programId, executionPolicy: member.executionPolicy, skipped: member.skipped, digest: member.execution?.digest })) })) };
+    return this.remember('startup-plan', review);
+  }
+  async confirmReady(id, signal) {
+    if (signal?.aborted) throw error('START_STOPPED', 'Startup plan was cancelled.');
+    const row = this.row(id), handle = this.handles.get(id);
+    if (row.state !== 'running' || !handle || handle.exit || handle.cleanupIncomplete) throw error('LOCAL_PREREQUISITE_NOT_READY', `The prerequisite ${id} has no confirmed live owned process.`);
+    const healthId = randomUUID(); handle.send({ command: 'health', id: healthId });
+    let observed;
+    try { observed = await withAbort(handle.waitFor(event => event.event === 'module-health' && event.id === healthId, 10000), signal); }
+    catch (issue) { if (signal?.aborted) throw issue; throw error('LOCAL_PREREQUISITE_NOT_READY', `The prerequisite ${id} did not confirm health.`); }
+    if (signal?.aborted) throw error('START_STOPPED', 'Startup plan was cancelled.');
+    if (observed.ready !== true || handle.exit || this.handles.get(id) !== handle || row.state !== 'running') throw error('LOCAL_PREREQUISITE_NOT_READY', `The prerequisite ${id} is not ready.`);
+    const hub = await this.getHub({ ensure: false, signal });
+    let response;
+    try { response = await fetch(new URL('/status', hub.url), { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(2000)]) : AbortSignal.timeout(2000), redirect: 'error' }); }
+    catch (issue) { if (signal?.aborted) throw issue; throw error('LOCAL_HUB_UNAVAILABLE', 'The shared local Hub cannot be observed.'); }
+    if (!response.ok) throw error('LOCAL_HUB_UNAVAILABLE', 'The shared local Hub cannot be observed.');
+    const snapshot = await response.json(), identity = this.identities.get(id);
+    if (!row.manifest.bridges.every(slot => snapshot.bridges?.some(bridge => bridge.principal === identity.principal
+        && bridge.declaredId === `local.${hash(id + ':' + slot).slice(0, 24)}` && bridge.authenticated === true)))
+      throw error('LOCAL_PREREQUISITE_NOT_READY', `The prerequisite ${id} has no confirmed authenticated module bridge connections.`);
+    return this.public(row);
+  }
+  startStartupPlan(input = {}) {
+    if (this.startsPaused || this.closing) throw error('LOCAL_HUB_STOPPING', 'Wait for the local Hub to finish stopping.');
+    const controller = new AbortController(); this.startControllers.add(controller);
+    const signal = input.signal ? AbortSignal.any([input.signal, controller.signal]) : controller.signal;
+    return this.enqueue(() => this.startStartupPlanNow({ ...input, signal })).finally(() => this.startControllers.delete(controller));
+  }
+  async startStartupPlanNow({ reviewId, accepted, signal, progress, planData, ids, scope, validateScope }) {
+    if (accepted !== true) throw error('TRUST_REQUIRED', 'Accept the displayed startup plan, code, runtime and wiring.');
+    if (signal?.aborted || this.startsPaused || this.closing) throw error('START_STOPPED', 'Startup plan was cancelled before execution.');
+    validateScope?.();
+    const saved = this.reviewed(reviewId, 'startup-plan'), current = await this.reviewStartupPlanNow({ planData, ids, scope }); this.reviews.delete(current.reviewId);
+    if (current.review.digest !== saved.review.digest) throw error('LOCAL_STARTUP_PLAN_CHANGED', 'The plan, registered source, runtime or wiring changed. Review the current startup plan.');
+    this.reviews.delete(reviewId);
+    const { plan, order, skipped } = saved.review, results = [], result = () => ({ plan, order, skipped: clone(skipped ?? []), results: clone(results), cancelled: signal?.aborted === true, halted,
+      partial: signal?.aborted === true || results.some(row => ['failed','blocked','cancelled','not-started'].includes(row.state)) });
+    let halted = false, cleanupFailure;
+    const notify = () => progress?.(result());
+    if (this.getHub) await this.getHub({ ensure: true, signal });
+    for (const id of order) {
+      if (signal?.aborted || this.startsPaused || this.closing) { results.push({ programId: id, state: 'cancelled' }); notify(); continue; }
+      if (halted) { results.push({ programId: id, state: 'not-started' }); notify(); continue; }
+      const resultIndex = results.length, complete = value => { results[resultIndex] = value; };
+      results.push({ programId: id, state: 'starting' }); notify();
+      const member = plan.members.find(row => row.programId === id), blockedBy = [];
+      let prerequisiteFailure;
+      for (const predecessor of member.after) try { await this.confirmReady(predecessor, signal); } catch (issue) {
+        if (signal?.aborted) break;
+        if (issue.code !== 'LOCAL_PREREQUISITE_NOT_READY') { prerequisiteFailure = issue; break; }
+        blockedBy.push(predecessor);
+      }
+      if (signal?.aborted) { complete({ programId: id, state: 'cancelled' }); notify(); continue; }
+      if (prerequisiteFailure) { complete({ programId: id, state: 'failed', error: { code: prerequisiteFailure.code ?? 'LOCAL_PREREQUISITE_OBSERVATION_FAILED', message: String(prerequisiteFailure.message).slice(0,2048) } }); halted = true; notify(); continue; }
+      if (blockedBy.length) { complete({ programId: id, state: signal?.aborted ? 'cancelled' : 'blocked', blockedBy }); if (plan.onFailure === 'stop-plan') halted = true; notify(); continue; }
+      try {
+        // Recheck exact source/runtime/configuration before every launch. Peer
+        // state changes caused by earlier plan members do not change identity.
+        const fresh = await this.reviewStart(id), expected = saved.review.members.find(row => row.programId === id).execution;
+        if (fresh.review.digest !== expected.digest) { this.reviews.delete(fresh.reviewId); throw error('LOCAL_REVIEW_CHANGED', 'Program source, runtime or wiring changed during the startup plan.'); }
+        const row = this.row(id), handle = this.handles.get(id);
+        if (row.state === 'running' && handle && !handle.exit && !handle.cleanupIncomplete) {
+          this.reviews.delete(fresh.reviewId); await this.confirmReady(id, signal); complete({ programId: id, state: 'already-running' });
+        } else {
+          await this.startNow(id, { reviewId: fresh.reviewId, accepted: true, signal }); complete({ programId: id, state: 'started' });
+        }
+      } catch (issue) {
+        if (/CLEANUP_INCOMPLETE$/.test(issue.code ?? '')) issue.cleanupIncomplete = true;
+        complete({ programId: id, state: signal?.aborted ? 'cancelled' : 'failed', error: { code: issue.code ?? 'LOCAL_START_FAILED', message: String(issue.message).slice(0, 2048), ...(issue.cleanupIncomplete ? { cleanupIncomplete: true } : {}) } });
+        if (issue.cleanupIncomplete) { cleanupFailure = issue; cleanupFailure.retainedDirectory = this.path(id); }
+        if (plan.onFailure === 'stop-plan' || fatalStartupError(issue) || issue.moduleExecutionFailure !== true) halted = true;
+      }
+      notify();
+    }
+    if (cleanupFailure) throw Object.assign(cleanupFailure, { partialResult: result() });
+    return result();
+  }
   row(id) { safeId(id); const row = this.records.get(id); if (!row) throw error('LOCAL_PROGRAM_NOT_FOUND', 'Unknown independent program.', 404); return row; }
   public(record) {
     const handle = this.handles.get(record.programId);
+    // These are declarations and the registered source inventory, never the
+    // private identity, launch configuration, installed environment or state.
+    const declared = record.manifest, contract = value => ({ id: value.id, version: value.version });
+    const manifest = { format: declared.format, id: declared.id, version: declared.version, license: declared.license,
+      platforms: [...declared.platforms], runtime: { kind: declared.runtime.kind, entry: declared.runtime.entry },
+      bridges: [...declared.bridges], provides: declared.provides.map(contract), requires: declared.requires.map(contract),
+      permissions: { filesystem: declared.permissions.filesystem, network: [...declared.permissions.network], processes: declared.permissions.processes } };
+    const sourceFiles = record.files.map(file => ({ path: file.path, sha256: file.sha256 }));
     return { programId: record.programId, module: clone(record.module), title: record.deployment?.title ?? record.module.id,
+      executionPolicy: executionPolicy(record), executionPolicyRevision: executionPolicyRevision(record),
       principal: record.principal, state: record.state, pid: handle?.pid ?? (record.state === 'unknown' ? record.pid : null),
-      settings: clone(record.settings), topics: clone(record.topics), bridges: clone(record.bridges), bindings: clone(record.bindings),
+      ownership: 'managed', sourceDirectory: this.path(record.programId, 'module'), manifest, runtime: clone(manifest.runtime),
+      sourceFiles, sourceFileCount: sourceFiles.length,
+      settings: clone(record.settings), topics: clone(record.topics), bridges: clone(record.bridges), bindings: clone(record.bindings), configurationRevision: configurationRevision(record),
       provides: clone(record.manifest.provides), requires: clone(record.manifest.requires), permissions: clone(record.manifest.permissions),
       executionProfile: 'trusted-local', sandbox: false, hubId: 'default', hubUrl: record.hubUrl ?? null,
       entryUrl: record.entryUrl ?? null, communication: record.communication ?? 'unknown', registeredAt: record.registeredAt,
@@ -119,18 +290,23 @@ export class LocalPrograms {
     while (this.reviews.size > 64) this.reviews.delete(this.reviews.keys().next().value);
     return { reviewId, review: clone(review), expiresAt: new Date(createdAt + REVIEW_AGE).toISOString() };
   }
-  async preview(input) {
+  async preview(input, { executionDefaults } = {}) {
     safeId(input.programId, 'program ID');
+    if (Object.hasOwn(input, 'executionDefaults')) throw error('LOCAL_EXECUTION_DEFAULTS_SOURCE_REQUIRED', 'Execution defaults must come from the reviewed module deployment or group recipe, not an import request.');
     if (this.records.has(input.programId)) throw error('LOCAL_PROGRAM_EXISTS', 'Choose another program instance ID; existing program data is retained.');
     const inspected = await this.inspect(input.directory, input), deployment = inspected.deploymentReview?.deployment ?? {};
     const configured = configuration(input, inspected.manifest, deployment);
+    const policy = initialExecutionPolicy(deployment, executionDefaults);
+    const executionPolicySource = executionDefaults !== undefined ? 'module-group' : deployment.executionDefaults !== undefined ? 'module' : 'system';
+    for (const binding of configured.bindings) await this.assertVersionReady(binding.providerId);
     this.validateBindings(input.programId, inspected.manifest, configured.bindings);
     const snapshot = this.peerSnapshot(input.programId, inspected.manifest, configured);
     const review = { format: 'world-hub.local-program-review/v1', programId: input.programId, directory: inspected.directory, module: { id: inspected.manifest.id, version: inspected.manifest.version },
-      principal: principalFor(input.programId), ...configured, manifest: inspected.manifest, environment: inspected.environment,
+      principal: principalFor(input.programId), ...configured, executionPolicy: policy, executionPolicySource,
+      manifest: inspected.manifest, environment: inspected.environment,
       deployment: inspected.deploymentReview, peers: snapshot.peers, capabilityBindings: snapshot.bindings,
-      digest: hash(JSON.stringify({ inspected: inspected.digest, configured, peers: snapshot.peers, bindings: snapshot.bindings })),
-      startsModules: false, createsPack: false, sandbox: false, executionProfile: 'trusted-local', installsDependencies: false };
+      digest: hash(JSON.stringify({ inspected: inspected.digest, configured, executionPolicy: policy, executionPolicySource, peers: snapshot.peers, bindings: snapshot.bindings })),
+      startsModules: false, sandbox: false, executionProfile: 'trusted-local', installsDependencies: false };
     return this.remember('register', review, { inspected, input: clone(input) });
   }
   reviewed(reviewId, kind, id) {
@@ -159,27 +335,32 @@ export class LocalPrograms {
       const identity = { format: 'world-hub.local-program-identity/v1', programId: id, principal: review.principal, token: randomBytes(32).toString('base64url') };
       await privateJson(join(home, 'identity.json'), identity, { exclusive: true });
       const row = { programId: id, module: review.module, principal: review.principal, manifest: current.manifest, deployment: current.deploymentReview?.deployment ?? null,
-        settings: review.settings, topics: review.topics, bridges: review.bridges, bindings: review.bindings,
+        settings: review.settings, topics: review.topics, bridges: review.bridges, bindings: review.bindings, executionPolicy: clone(review.executionPolicy),
         environment: Object.fromEntries(Object.entries(current.environment).map(([kind, runtime]) => [`${kind}Path`, runtime.executable])),
         files: current.files, state: 'stopped', registeredAt: date(), communication: 'disconnected' };
+      const previousPlan = this.startupPlanData;
       this.records.set(id, row); this.identities.set(id, identity);
-      try { await this.save(); } catch (issue) { this.records.delete(id); this.identities.delete(id); throw issue; }
+      if (Object.hasOwn(previousPlan, 'startupOrder')) this.startupPlanData = { ...previousPlan, startupOrder: [...previousPlan.startupOrder, id] };
+      try { await this.save(); } catch (issue) { this.records.delete(id); this.identities.delete(id); this.startupPlanData = previousPlan; throw issue; }
       this.reviews.delete(reviewId); return { program: this.public(row) };
     } catch (issue) { issue.incompleteDestination = home; throw issue; }
   }
   async reviewStart(id) {
+    await this.assertVersionReady(id);
     const row = this.row(id);
     if (row.state === 'unknown') throw error('LOCAL_PROCESS_OWNERSHIP_UNKNOWN', 'The recorded process is not owned by this Launcher. Retain it; no foreign process will be signalled.');
     const inspected = await this.inspect(this.path(id, 'module'), row.environment);
-    if (JSON.stringify(inspected.files) !== JSON.stringify(row.files)) throw error('LOCAL_INSTALLED_CODE_CHANGED', 'Installed program contents changed. Reinstall a reviewed module under a new program ID.');
+    if (JSON.stringify(inspected.files) !== JSON.stringify(row.files)) throw error('LOCAL_INSTALLED_CODE_CHANGED', 'Installed program contents changed outside a reviewed source update. Retain it for inspection.');
     this.validateBindings(id, inspected.manifest, row.bindings);
     const snapshot = this.peerSnapshot(id, inspected.manifest, row);
+    const policy = executionPolicy(row), lifecycle = this.lifecycleDescriptor?.(id);
     const runningProviders = [...new Set(row.bindings.map(binding => binding.providerId))].filter(provider => this.records.get(provider)?.state === 'running');
     const review = { format: 'world-hub.local-program-start-review/v1', programId: id, module: row.module, principal: row.principal, permissions: row.manifest.permissions,
       settings: row.settings, topics: row.topics, bridges: row.bridges, bindings: row.bindings, peers: snapshot.peers, capabilityBindings: snapshot.bindings,
-      directory:inspected.directory, manifest:inspected.manifest, environment: inspected.environment, deployment: inspected.deploymentReview, createsPack: false, startsModules: false, sandbox: false, executionProfile: 'trusted-local',
+      executionPolicy: policy, ...(lifecycle ? { lifecycle: clone(lifecycle) } : {}),
+      directory:inspected.directory, manifest:inspected.manifest, environment: inspected.environment, deployment: inspected.deploymentReview, startsModules: false, sandbox: false, executionProfile: 'trusted-local',
       runningProviders, providerConfigurationBoundary: runningProviders.length ? 'Existing providers retain their previously reviewed program configuration. Review and restart a provider if its application requires this new consumer identity.' : null,
-      digest: hash(JSON.stringify({ inspected: inspected.digest, configuration: row.settings, topics: row.topics, bridges: row.bridges, peers: snapshot.peers, bindings: snapshot.bindings })) };
+      digest: hash(JSON.stringify({ inspected: inspected.digest, configuration: row.settings, topics: row.topics, bridges: row.bridges, peers: snapshot.peers, bindings: snapshot.bindings, executionPolicy: policy, lifecycle })) };
     return this.remember('start', review, { inspected });
   }
   pauseStarts() {
@@ -193,9 +374,10 @@ export class LocalPrograms {
     // process handle. Dependency preparation belongs to this same lifetime.
     const controller = new AbortController(); this.startControllers.add(controller);
     const signal = input.signal ? AbortSignal.any([controller.signal, input.signal]) : controller.signal;
-    return this.enqueue(() => this.startNow(id, { ...input, signal })).finally(() => this.startControllers.delete(controller));
+    return this.enqueue(() => this.startNow(id, { ...input, signal, startReason: 'manual' })).finally(() => this.startControllers.delete(controller));
   }
-  async startNow(id, { reviewId, accepted, signal } = {}) {
+  async startNow(id, { reviewId, accepted, signal, startReason = 'manual' } = {}) {
+    await this.assertVersionReady(id);
     if (this.startsPaused || signal?.aborted) throw error('START_STOPPED', 'Independent-program startup was cancelled before execution.');
     if (accepted !== true) throw error('TRUST_REQUIRED', 'Accept the current independent-program execution review.');
     if (this.closing) throw error('LAUNCHER_STOPPING', 'Launcher is stopping.');
@@ -203,6 +385,7 @@ export class LocalPrograms {
     if(this.handles.get(id)?.cleanupIncomplete)throw error('CLEANUP_INCOMPLETE','Previous owned process tree retirement is unconfirmed. Retry Stop before starting another run.');
     if (this.handles.has(id) && !this.handles.get(id).exit) {
       if(row.state!=='running')throw error('LOCAL_PROGRAM_STILL_OWNED','Stop the previous owned program before reviewing another start.');
+      await this.lifecycleStarted?.(id, { reason: startReason, handle: this.handles.get(id), runId: row.runId });
       return { program: this.public(row) };
     }
     if (row.state === 'unknown') throw error('LOCAL_PROCESS_OWNERSHIP_UNKNOWN', 'No live process was adopted from a saved PID.');
@@ -212,13 +395,24 @@ export class LocalPrograms {
     const checkAbort = () => { if (signal?.aborted) throw error('START_STOPPED', 'Independent-program startup was cancelled.'); };
     let handle;
     row.state = 'starting'; delete row.error; row.communication = 'unknown'; await this.save();
+    // An operation cancellation governs this startup attempt. Once readiness
+    // succeeds, later plan cancellation must not poison the completed child's
+    // ongoing health observations or change its separately owned lifetime.
+    const processController = new AbortController(), relayAbort = () => processController.abort();
+    signal?.addEventListener('abort', relayAbort, { once: true }); if (signal?.aborted) relayAbort();
     try {
       checkAbort();
-      const prepared = this.prepareDependencies ? await this.prepareDependencies({ directory: this.path(id, 'module'), manifest: row.manifest, review: saved.inspected.deploymentReview, stateDir: this.path(id, 'environment'), signal }) : null;
+      // Prepared applications include reviewed source bytes. Separate caches
+      // by source, dependency declaration and interpreter so an upgrade never
+      // executes stale copied code or overwrites an older version's receipt.
+      const environmentDirectory = this.path(id, 'environment', saved.inspected.digest);
+      const prepared = this.prepareDependencies ? await this.prepareDependencies({ directory: this.path(id, 'module'), manifest: row.manifest, review: saved.inspected.deploymentReview, stateDir: environmentDirectory, signal }) : null;
+      const preparedReceipt = prepared?.directory ? hash(await readBounded(join(environmentDirectory, 'prepared.json'), 16 * 1024 * 1024)) : null;
       checkAbort();
+      const lifecycle = saved.review.lifecycle, lifecycleTopics = lifecycle ? [lifecycle.topic] : [];
       const credentials = { [identity.principal]: { token: secret, maxConnections: row.manifest.bridges.length, allow: {
-        publish: [...new Set(Object.values(row.bridges).flatMap(bridge => bridge.publish.map(alias => row.topics[alias])))],
-        subscribe: [...new Set(Object.values(row.bridges).flatMap(bridge => bridge.subscribe.map(alias => row.topics[alias])))] } } };
+        publish: [...new Set([...Object.values(row.bridges).flatMap(bridge => bridge.publish.map(alias => row.topics[alias])), ...lifecycleTopics])],
+        subscribe: [...new Set([...Object.values(row.bridges).flatMap(bridge => bridge.subscribe.map(alias => row.topics[alias])), ...lifecycleTopics])] } } };
       await this.updateCredentials({ credentials, annotations: { [identity.principal]: { programs: [{ id, name: row.module.id }], bridgeName: `Launcher local: ${id}` } }, remove: [] }, { signal });
       const hub = await this.getHub({ ensure: true, signal });
       if (!hub || typeof hub.url !== 'string') throw error('LOCAL_HUB_REQUIRED', 'The Launcher-managed local Hub is unavailable.');
@@ -232,15 +426,34 @@ export class LocalPrograms {
       const configFile = join(runDirectory, 'runtime.json');
       await privateJson(configFile, { format: RUNTIME_API, instanceId: 'launcher-local', componentId: id, module: row.module, stateDir,
         settings: row.settings, topics: row.topics, peers: saved.review.peers, bindings: saved.review.capabilityBindings, bridges,
+        ...(lifecycle ? { lifecycle: clone(lifecycle) } : {}),
         ...(prepared?.directory ? { deployment: { directory: prepared.directory } } : {}) });
       checkAbort(); const runtime = saved.inspected.environment[row.manifest.runtime.kind];
-      const options = { cwd: stateDir, temporary: join(stateDir, 'tmp'), secrets: [secret], signal, onFailure: issue => {
+      const options = { cwd: stateDir, temporary: join(stateDir, 'tmp'), secrets: [secret], signal: processController.signal, onFailure: issue => {
         if (handle?.stopping) return; row.state = 'failed'; row.communication = 'disconnected'; row.error = { code: 'LOCAL_PROGRAM_EXITED', message: redact(issue.message) };
         void this.enqueue(async () => { await this.captureLogs(id); await this.save(); }).catch(() => {});
       } };
       const args = [...(row.manifest.runtime.kind === 'python' ? ['-B', '-s'] : []), join(prepared?.directory??this.path(id, 'module'), row.manifest.runtime.entry), '--runtime-config', configFile];
-      handle = row.manifest.permissions.processes === 'owned-children'
-        ? await (await import('../../scripts/runtime/host-process.mjs')).ownHostedProcess(runtime.executable, args, { ...options, ownedChildren: true })
+      const hosted = row.manifest.permissions.processes === 'owned-children' ? (await import('../../scripts/runtime/host-process.mjs')).ownHostedProcess : null;
+      // Lazy Hub creation and reviewed dependency preparation can take time.
+      // Revalidate the exact installed bytes, prepared receipt/inventory and
+      // executable after those awaits, immediately before acquiring ownership.
+      if (prepared?.directory) {
+        if (hash(await readBounded(join(environmentDirectory, 'prepared.json'), 16 * 1024 * 1024)) !== preparedReceipt)
+          throw error('LOCAL_REVIEW_CHANGED', 'Prepared dependency receipt changed before execution.');
+        const verified = await this.prepareDependencies({ directory: this.path(id, 'module'), manifest: row.manifest, review: saved.inspected.deploymentReview, stateDir: environmentDirectory, signal });
+        if (verified?.directory !== prepared.directory || hash(await readBounded(join(environmentDirectory, 'prepared.json'), 16 * 1024 * 1024)) !== preparedReceipt)
+          throw error('LOCAL_REVIEW_CHANGED', 'Prepared dependency material changed before execution.');
+      }
+      try {
+        if (JSON.stringify(await collectSourceFiles(this.path(id, 'module'))) !== JSON.stringify(saved.inspected.files)) throw new Error('Installed source inventory differs.');
+      } catch { throw error('LOCAL_REVIEW_CHANGED', 'Installed source changed while startup was being prepared. Review it again.'); }
+      try {
+        if (hash(await readBounded(runtime.executable, 1024 * 1024 * 1024)) !== runtime.sha256) throw new Error('Runtime digest differs.');
+      } catch { throw error('LOCAL_RUNTIME_CHANGED', 'The reviewed interpreter changed while startup was being prepared. Review it again.'); }
+      checkAbort();
+      handle = hosted
+        ? await hosted(runtime.executable, args, { ...options, ownedChildren: true })
         : ownProcess(runtime.executable, args, options);
       this.handles.set(id, handle); row.pid = handle.pid; row.runId = runId; row.hubUrl = hub.url;
       const ready = await handle.waitFor(event => event.event === 'module-ready', 30000);
@@ -277,12 +490,18 @@ export class LocalPrograms {
         }catch(issue){if(row.state==='running'&&!handle.stopping&&!this.closing){row.state='failed';row.error={code:issue.code??'LOCAL_HEALTH_FAILED',message:redact(issue.message)};row.communication='disconnected';void this.enqueue(()=>this.save()).catch(()=>{});}}
         finally{checking=false;}
       },1000);monitor.unref?.();this.monitors.set(id,monitor);
+      await this.lifecycleStarted?.(id, { reason: startReason, handle, runId: row.runId });
       return { program: this.public(row) };
     } catch (issue) {
-      if (handle) try { await handle.stop(5000); if (!handle.exit) throw error('CLEANUP_INCOMPLETE', 'Owned program exit remains unconfirmed.'); } catch (cleanup) { row.state = 'unknown'; row.error = { code: 'CLEANUP_INCOMPLETE', message: redact(cleanup.message) }; await this.save(); throw Object.assign(error('CLEANUP_INCOMPLETE', row.error.message), { cleanupIncomplete: true }); }
+      if (!handle && issue.ownedHandle) {
+        handle = issue.ownedHandle; this.handles.set(id, handle); row.pid = handle.pid;
+      }
+      if (handle) try { await handle.stop(5000); if (!handle.exit || handle.cleanupIncomplete) throw error('CLEANUP_INCOMPLETE', 'Owned program tree exit remains unconfirmed.'); } catch (cleanup) { row.state = 'unknown'; row.error = { code: 'CLEANUP_INCOMPLETE', message: redact(cleanup.message) }; await this.save(); throw Object.assign(error('CLEANUP_INCOMPLETE', row.error.message), { cleanupIncomplete: true }); }
+      if (issue.ownedHandle && handle?.exit && !handle.cleanupIncomplete) issue = error('LOCAL_HOST_START_FAILED', 'The hosted program owner could not initialize; its owned process tree has now been retired.');
+      if (handle?.exit && !handle.cleanupIncomplete) Object.defineProperty(issue, 'moduleExecutionFailure', { value: true, enumerable: false });
       row.state = signal?.aborted ? 'stopped' : 'failed'; row.communication = 'disconnected'; row.error = { code: issue.code ?? 'LOCAL_START_FAILED', message: redact(issue.message) };
       await this.captureLogs(id); await this.save(); throw issue;
-    }
+    } finally { signal?.removeEventListener('abort', relayAbort); }
   }
   async captureLogs(id) {
     const handle = this.handles.get(id); if (handle) await privateJson(this.path(id, 'logs.json'), { stdout: handle.stdout, stderr: handle.stderr, truncated: handle.truncated, exit: handle.exit, observedAt: date() });
@@ -296,15 +515,31 @@ export class LocalPrograms {
     if (handle) { row.state = 'stopping'; await this.save(); try {await handle.stop(5000); if (!handle.exit || handle.cleanupIncomplete) throw error('CLEANUP_INCOMPLETE', 'Owned independent-program exit is not confirmed.'); await this.captureLogs(id);}
       catch(issue){row.state='unknown';row.error={code:'CLEANUP_INCOMPLETE',message:'Owned program cleanup is incomplete. Retry Stop; no recorded foreign PID will be signalled.'};await this.save();throw issue;} }
     row.state = 'stopped'; row.communication = 'disconnected'; row.stoppedAt = date(); row.entryUrl = null; delete row.error; await this.save();
+    await this.lifecycleStopped?.(id, { handle, runId: row.runId });
     return { program: this.public(row) };
   }
   remove(id) { return this.enqueue(async () => {
+    await this.assertVersionReady(id);
     const row = this.row(id),handle=this.handles.get(id); if (handle&&(!handle.exit||handle.cleanupIncomplete)||['running', 'starting', 'stopping', 'unknown'].includes(row.state)) throw error('LOCAL_PROGRAM_RUNNING', 'Stop this owned program before removing its registration.');
+    if ([...this.groups.values()].some(group => group.memberProgramIds.includes(id))) throw error('LOCAL_PROGRAM_IN_GROUP', 'Remove this instance from its module groups before unregistering it.');
     if ([...this.records.values()].some(candidate => candidate.programId !== id && candidate.bindings.some(binding => binding.providerId === id))) throw error('LOCAL_PROGRAM_IN_USE', 'Another independent program binds this capability provider. Retain it until those consumer registrations are removed.');
+    if (this.getStartupPlan().members.some(candidate => candidate.programId !== id && candidate.after.includes(id))) throw error('LOCAL_PROGRAM_IN_USE', 'A startup plan refers to this prerequisite. Remove its ordering references before unregistering it.');
     await this.updateCredentials({ credentials: {}, annotations: {}, remove: [row.principal] }, {});
     // This operation removes registration only. Software, state and identity
     // remain recoverable; it does not recursively delete program data.
-    this.records.delete(id); this.identities.delete(id); this.handles.delete(id); await this.save();
+    const previous = { startupPlanData: this.startupPlanData, records: [...this.records], identities: [...this.identities], handles: [...this.handles] };
+    const plan = this.getStartupPlan();
+    this.startupPlanData = { ...plan, members: plan.members.filter(member => member.programId !== id),
+      ...(Object.hasOwn(plan, 'startupOrder') ? { startupOrder: plan.startupOrder.filter(programId => programId !== id) } : {}) };
+    this.records.delete(id); this.identities.delete(id); this.handles.delete(id);
+    try { await this.save(); }
+    catch (issue) {
+      this.startupPlanData = previous.startupPlanData;
+      for (const key of ['records', 'identities', 'handles']) {
+        this[key].clear(); for (const [programId, value] of previous[key]) this[key].set(programId, value);
+      }
+      throw issue;
+    }
     return { programId: id, removed: true, retainedDirectory: this.path(id) };
   }); }
   async close() {

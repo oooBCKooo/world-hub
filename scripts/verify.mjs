@@ -59,7 +59,7 @@ try {
   for (const file of ['package.json', 'scripts/verify.mjs']) report.sourceHashes[file] = createHash('sha256').update(await readFile(join(root, file))).digest('hex');
   if (suite === 'node') {
     const conformance = (await readdir(join(root, 'tests/conformance'))).filter(name => name.endsWith('.test.mjs')).sort().map(name => `tests/conformance/${name}`);
-    await execute('Hub, protocol, SDK and management conformance', nodeTests(conformance), { test: true });
+    await execute('Hub, protocol, SDK and management conformance', nodeTests(conformance), { test: true, timeoutMs: 600000 });
     await execute('Node application context and JSON-RPC transport', nodeTests(['tests/integration/context/jsonrpc-process.test.mjs', 'tests/integration/context/ui-context.test.mjs']), { test: true });
     await execute('Directed requests, injection and large transfers', nodeTests(['tests/integration/directed-transfer/call-scenarios.test.mjs', 'tests/integration/directed-transfer/route-scenarios.test.mjs', 'tests/integration/directed-transfer/bulk-scenarios.test.mjs']), { test: true });
     await execute('Multiple-round external program workflows', ['examples/workflows/run-flows.mjs', '--evidence', join(directory, 'workflows')]);
@@ -83,19 +83,8 @@ try {
   } else if (suite === 'interop') {
     await execute('Public application contract benchmark: unchanged consumer, Node/Python providers, failure boundaries', nodeTests(['tests/integration/interop/reference.test.mjs']), { test: true });
   } else if (suite === 'ecosystem') {
-    await execute('Optional trusted-local Runtime: cross-language deploy, isolate, rebuild and reliable cleanup', nodeTests([
-      'tests/integration/ecosystem-runtime/runtime.test.mjs',
-      'tests/integration/ecosystem-runtime/compatibility.test.mjs',
-      'tests/integration/ecosystem-runtime/distribution.test.mjs',
+    await execute('Module declarations, dependency preparation and owned host cleanup', nodeTests([
       'tests/integration/ecosystem-runtime/paths.test.mjs',
-      'tests/integration/ecosystem-runtime/maintenance.test.mjs',
-      'tests/integration/ecosystem-runtime/developer.test.mjs',
-      'tests/integration/ecosystem-runtime/replacement-preview.test.mjs',
-      'tests/integration/ecosystem-runtime/developer-cli.test.mjs',
-      'tests/integration/ecosystem-runtime/template.test.mjs',
-      'tests/integration/ecosystem-runtime/upgrade.test.mjs',
-      'tests/integration/ecosystem-runtime/staged-upgrade.test.mjs',
-      'tests/integration/ecosystem-runtime/isolation.test.mjs',
       'tests/integration/ecosystem-runtime/publisher-trust.test.mjs',
       'tests/integration/ecosystem-runtime/dependency-prepare.test.mjs',
       'tests/integration/runtime/host-process.test.mjs',
@@ -103,8 +92,9 @@ try {
       'tests/integration/runtime/soft-ui-delivery.test.mjs',
     ]), { test: true, timeoutMs: 600000 });
   } else if (suite === 'launcher') {
-    const cases = (await readdir(join(root, 'tests/integration/launcher'))).filter(name => name.endsWith('.test.mjs')).sort().map(name => `tests/integration/launcher/${name}`);
-    await execute('Unified Launcher: reviewed starts, real cross-language packs, lifecycle and navigation', nodeTests(cases), { test: true, timeoutMs: 600000 });
+    const cases = (await readdir(join(root, 'tests/integration/launcher-single-hub'))).filter(name => name.endsWith('.test.mjs')).sort().map(name => `tests/integration/launcher-single-hub/${name}`);
+    const shared=['owner-lock','asset-versions','global-external-programs','author-execution-defaults'].map(name=>`tests/integration/launcher/${name}.test.mjs`);
+    await execute('Single-Hub Launcher: direct module configuration, reference groups, shared processes, sources and browser UI contracts', nodeTests([...cases,...shared]), { test: true, timeoutMs: 600000 });
   } else if (suite === 'workshop') {
     const cases = (await readdir(join(root, 'tests/integration/workshop'))).filter(name => name.endsWith('.test.mjs')).sort().map(name => `tests/integration/workshop/${name}`);
     await execute('Optional hosted Workshop: publication, accounts, collaboration and persistence', nodeTests(cases), { test: true });

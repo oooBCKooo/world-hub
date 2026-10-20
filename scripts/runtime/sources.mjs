@@ -5,9 +5,9 @@ import { request } from 'node:https';
 import { lookup } from 'node:dns';
 import { isIP } from 'node:net';
 import { randomUUID } from 'node:crypto';
-import { inspectPackage, validatePack, validateModule, validateLock } from './package.mjs';
+import { validateModule } from './package.mjs';
+import { validateModuleGroupFiles } from './module-group.mjs';
 import { ordinaryPath, readBounded, collectFiles, hash, relativePath, privateJson } from './paths.mjs';
-import { inspectTemplate, validateTemplateFiles } from './template.mjs';
 import { parsePublisherEvidence, verifyPublisherEvidence } from './publisher-trust.mjs';
 import { verifyStoredPublisherEvidence } from './publisher-store.mjs';
 
@@ -90,7 +90,7 @@ export function validateSourceIndex(index, options = {}) {
   for (const entry of index.entries) {
     exact(entry, ['entryId', 'kind', 'id', 'version', 'title', 'license', 'platforms', 'provides', 'requires', 'source', 'sha256'], 'source entry', ['publisherEvidence']);
     if (typeof entry.entryId !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,127}$/.test(entry.entryId) || ids.has(entry.entryId)
-        || !['pack', 'module', 'template'].includes(entry.kind) || typeof entry.id !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(entry.id)
+        || !['pack', 'module', 'template', 'module-group'].includes(entry.kind) || typeof entry.id !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(entry.id)
         || typeof entry.version !== 'string' || entry.version.length > 128 || !semver.test(entry.version)
         || typeof entry.title !== 'string' || !entry.title || entry.title.length > 256
         || typeof entry.license !== 'string' || !entry.license || entry.license.length > 128 || !sha.test(entry.sha256)
@@ -132,7 +132,7 @@ export async function readSourceIndex(source, options = {}) {
 }
 function validateArtifact(artifact) {
   exact(artifact, ['format', 'kind', 'id', 'version', 'files', 'provenance'], 'distribution artifact');
-  if (artifact.format !== 'world-hub.source-artifact/v1' || !['pack', 'module', 'template'].includes(artifact.kind)
+  if (artifact.format !== 'world-hub.source-artifact/v1' || !['module', 'module-group'].includes(artifact.kind)
       || !Array.isArray(artifact.files) || artifact.files.length < 1 || artifact.files.length > 8192
       || !artifact.provenance || typeof artifact.provenance !== 'object' || Array.isArray(artifact.provenance)) throw new Error('Invalid distribution artifact');
   const paths = new Set(); let size = 0; const decoded = [];
@@ -152,47 +152,15 @@ function validateArtifact(artifact) {
   const getJson = path => {
     const f = decoded.find(v => v.path === path); if (!f) throw new Error(`Artifact lacks ${path}`); return JSON.parse(f.bytes.toString());
   };
-  const manifest = getJson(artifact.kind === 'pack' ? 'pack.json' : artifact.kind === 'template' ? 'template.json' : 'module.json');
-  if (artifact.kind === 'pack') {
-    validatePack(manifest); const lock = getJson('pack.lock'); validateLock(lock);
-    if (lock.pack?.sha256 !== hash(decoded.find(v => v.path === 'pack.json').bytes)
-        || lock.pack.id !== manifest.id || lock.pack.version !== manifest.version || !Array.isArray(lock.modules)
-        || lock.modules.length < 1 || lock.modules.length > 32 || !lock.platform || typeof lock.platform.os !== 'string' || typeof lock.platform.arch !== 'string') throw new Error('Invalid distributed pack lock');
-    const allowed = new Set(['pack.json', 'pack.lock']);
-    for (const m of lock.modules) {
-      relativePath(m.source); if (!Array.isArray(m.files) || m.files.length < 1 || m.files.length > 4096) throw new Error('Invalid distributed module files');
-      const module = getJson(`${m.source}/module.json`); validateModule(module);
-      if (module.id !== m.id || module.version !== m.version) throw new Error('Distributed module identity mismatch');
-      if (!module.platforms.includes(`${lock.platform.os}-${lock.platform.arch}`)) throw new Error('Distributed module does not support the locked platform');
-      if (!lock.runtimes[module.runtime.kind]) throw new Error('Distributed module runtime is not locked');
-      if (!m.files.some(f => f.path === 'module.json') || !m.files.some(f => f.path === module.runtime.entry)) throw new Error('Distributed module manifest or entry is not locked');
-      for (const f of m.files) {
-        const path = `${m.source}/${relativePath(f.path)}`; allowed.add(path);
-        const data = decoded.find(v => v.path === path); if (!data || hash(data.bytes) !== f.sha256) throw new Error('Distributed module hash mismatch');
-      }
-    }
-    if (decoded.some(f => !allowed.has(f.path))) throw new Error('Distributed pack includes private or unlocked files');
-    const modules = lock.modules.map(m => getJson(`${m.source}/module.json`));
-    if (modules.some(m => !manifest.components.some(c => c.module === m.id))) throw new Error('Distributed pack contains an unused module');
-    for (const component of manifest.components) {
-      const module = modules.find(m => m.id === component.module);
-      if (!module || module.bridges.length !== Object.keys(component.bridges).length || module.bridges.some(slot => !Object.hasOwn(component.bridges, slot))) throw new Error('Distributed component bridge slots do not match its module');
-      for (const required of module.requires) if (!manifest.bindings.some(b => b.to === component.id && b.contract.id === required.id && b.contract.version === required.version)) throw new Error('Distributed component contract is unbound');
-    }
-    for (const binding of manifest.bindings) {
-      const from = modules.find(m => m.id === manifest.components.find(c => c.id === binding.from).module);
-      const to = modules.find(m => m.id === manifest.components.find(c => c.id === binding.to).module);
-      const match = contract => contract.id === binding.contract.id && contract.version === binding.contract.version;
-      if (!from?.provides.some(match) || !to?.requires.some(match)) throw new Error('Distributed capability binding is incompatible');
-    }
-  } else if (artifact.kind === 'template') {
-    validateTemplateFiles(decoded);
-  } else {
+  const manifest = getJson(artifact.kind === 'module-group' ? 'module-group.json' : 'module.json');
+  let modules;
+  if (artifact.kind === 'module-group') ({ modules } = validateModuleGroupFiles(manifest, decoded));
+  else {
     validateModule(manifest);
     if (!decoded.some(f => f.path === manifest.runtime.entry)) throw new Error('Distributed module entry is missing');
   }
   if (manifest.id !== artifact.id || manifest.version !== artifact.version) throw new Error('Artifact identity mismatch');
-  return { artifact, manifest, decoded };
+  return { artifact, manifest, decoded, ...(modules ? { modules } : {}) };
 }
 // A hosted catalog validates data without probing interpreters, extracting files
 // or executing uploaded programs. Preserve exact bytes for content addressing.
@@ -202,11 +170,9 @@ export function validateArtifactBytes(input) {
   if (!bytes.length || bytes.length > maximumArtifact) throw new Error('Artifact exceeds distribution size bound');
   const validated = validateArtifact(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)));
   const { artifact, manifest, decoded } = validated;
-  const lock = ['pack', 'template'].includes(artifact.kind) ? JSON.parse(decoded.find(f => f.path === (artifact.kind === 'pack' ? 'pack.lock' : 'base/pack.lock')).bytes.toString()) : null;
   const entry = { entryId: `${artifact.kind}.${artifact.id}.${artifact.version}`, kind: artifact.kind,
     id: artifact.id, version: artifact.version, title: manifest.title ?? manifest.id, license: manifest.license,
-    platforms: lock ? [`${lock.platform.os}-${lock.platform.arch}`] : manifest.platforms,
-    provides: lock ? [] : manifest.provides, requires: lock ? [] : manifest.requires,
+    platforms: manifest.platforms, provides: manifest.provides, requires: manifest.requires,
     source: { path: 'artifact.json' }, sha256: hash(bytes) };
   validateSourceIndex({ format: 'world-hub.source-index/v1', id: 'verified-artifact', title: 'Verified artifact', entries: [entry] });
   return { ...validated, bytes, entry };
@@ -214,12 +180,7 @@ export function validateArtifactBytes(input) {
 function checkEntry(validated, entry) {
   const { artifact, manifest } = validated;
   const contracts = values => JSON.stringify(values.map(c => `${c.id}@${c.version}`).sort());
-  let platforms, provides, requires;
-  if (artifact.kind === 'module') { platforms = manifest.platforms; provides = manifest.provides; requires = manifest.requires; }
-  else {
-    const lock = JSON.parse(validated.decoded.find(f => f.path === (artifact.kind === 'template' ? 'base/pack.lock' : 'pack.lock')).bytes.toString());
-    platforms = [`${lock.platform.os}-${lock.platform.arch}`]; provides = []; requires = [];
-  }
+  const {platforms,provides,requires}=manifest;
   if (artifact.kind !== entry.kind || artifact.id !== entry.id || artifact.version !== entry.version || manifest.license !== entry.license
       || JSON.stringify([...platforms].sort()) !== JSON.stringify([...entry.platforms].sort())
       || contracts(provides) !== contracts(entry.provides) || contracts(requires) !== contracts(entry.requires)) throw new Error('Artifact disagrees with index metadata');
@@ -329,6 +290,7 @@ export async function attachPublisherEvidence(directory, options = {}) {
 }
 export async function fetchSourceArtifact(source, indexDigest, entryId, options) {
   cancelled(options); if (!sha.test(indexDigest)) throw new Error('Invalid reviewed source index digest');
+  if(options.expectedSha256!==undefined&&(!sha.test(options.expectedSha256)||options.expectedSha256!==indexDigest))throw Object.assign(new Error('Reviewed source digest does not match the configured index pin.'),{code:'SOURCE_PIN_MISMATCH'});
   const cache = await ordinaryPath(options.cacheRoot, { allowMissing: true }); await mkdir(cache, { recursive: true, mode: 0o700 });
   let current, offline = false;
   try {
@@ -352,6 +314,7 @@ export async function fetchSourceArtifact(source, indexDigest, entryId, options)
     offline = true;
   }
   const entry = current.index.entries.find(e => e.entryId === entryId); if (!entry) throw new Error('Source entry not found');
+  if (!['module', 'module-group'].includes(entry.kind)) throw new Error('Only current module and module-group distributions can be fetched');
   const directory = join(cache, entry.sha256), artifactFile = join(cache, `${entry.sha256}.artifact.json`);
   const result = async cached => ({ directory, kind: entry.kind, entry, cached, offline, networkPolicy: policy(options),
     publisherEvidence: await readSourcePublisherEvidence(current, entry, { ...options, offline }), startsModules: false, requiresExecutionReview: true });
@@ -364,6 +327,7 @@ export async function fetchSourceArtifact(source, indexDigest, entryId, options)
     return { bytes, validated, complete: false };
   };
   let cached = await cachedArtifact(); if (cached?.complete) return result(true);
+  if(options.cacheOnly===true&&!cached)throw Object.assign(new Error('This distribution has no verified artifact cache.'),{code:'SOURCE_CACHE_REQUIRED'});
   const lockPath = join(cache, `${entry.sha256}.download.lock`), nonce = randomUUID();
   await ordinaryPath(lockPath, { allowMissing: true });
   let owner;
@@ -411,23 +375,10 @@ export async function fetchSourceArtifact(source, indexDigest, entryId, options)
 export async function publishArtifact(directory, options) {
   cancelled(options);
   if (options.redistributionAcknowledged !== true) throw new Error('Explicitly acknowledge redistribution rights before publishing');
-  const root = await ordinaryPath(directory); let files, manifest, platforms, provides, requires, provenance;
-  if (options.kind === 'pack') {
-    const plan = await inspectPackage(root, options); manifest = plan.pack;
-    files = [{ path: 'pack.json' }, { path: 'pack.lock' }, ...plan.modules.flatMap(m => m.files.map(f => ({ path: `${m.source}/${f.path}` })))];
-    platforms = [`${plan.lock.platform.os}-${plan.lock.platform.arch}`]; provides = []; requires = [];
-    provenance = { components: plan.modules.map(m => ({ id: m.manifest.id, version: m.manifest.version, license: m.manifest.license })), redistributionAcknowledged: true };
-    try { provenance.derivation = JSON.parse((await readBounded(join(root, 'authoring.json'))).toString()); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  } else if (options.kind === 'module') {
-    manifest = JSON.parse((await readBounded(join(root, 'module.json'))).toString()); validateModule(manifest);
-    files = await collectFiles(root); platforms = manifest.platforms; provides = manifest.provides; requires = manifest.requires;
-    provenance = { redistributionAcknowledged: true };
-  } else if (options.kind === 'template') {
-    const plan = await inspectTemplate(root, options); manifest = plan.manifest; files = plan.files;
-    platforms = plan.platforms; provides = []; requires = [];
-    provenance = { basePack: { id: plan.pack.id, version: plan.pack.version, sha256: plan.lock.pack.sha256 },
-      components: plan.modules.map(m => ({ id: m.manifest.id, version: m.manifest.version, license: m.manifest.license })), redistributionAcknowledged: true };
-  } else throw new Error('Publication kind must be pack, module or template');
+  if(!['module', 'module-group'].includes(options.kind))throw new Error('Publication kind must be module or module-group');
+  const root=await ordinaryPath(directory);
+  const manifest=JSON.parse((await readBounded(join(root, options.kind === 'module-group' ? 'module-group.json' : 'module.json'))).toString());
+  const files=await collectFiles(root),{platforms,provides,requires}=manifest,provenance={redistributionAcknowledged:true};
   let size = 0; const encoded = [];
   for (const f of files) {
     cancelled(options); const bytes = await readBounded(join(root, f.path), 8 * 1024 * 1024); size += bytes.length;

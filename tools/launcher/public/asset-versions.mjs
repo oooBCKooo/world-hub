@@ -11,7 +11,7 @@ function semver(text) {
   return { numbers: match.slice(1, 4).map(BigInt), prerelease };
 }
 
-// Descending display order only. This never changes a remembered selection.
+// Descending display order; a remembered available selection takes priority.
 export function compareAssetVersions(a, b) {
   if (a === b) return 0;
   const first = semver(a), second = semver(b);
@@ -85,59 +85,122 @@ export function groupAssets(rows, { mode = 'local', kind } = {}) {
   return [...groups.values()];
 }
 
-/** A disappearing selected item is unavailable, never a request to upgrade. */
+function previousOption(key, group) {
+  try {
+    const parsed = JSON.parse(key);
+    if (!Array.isArray(parsed) || parsed[0] !== group.key || !Array.isArray(parsed[2])) return null;
+    return { version: parsed[1], locator: parsed[2] };
+  } catch { return null; }
+}
+
+function replacementOption(group, previous) {
+  if (!previous) return group.options[0];
+  const { version, locator } = previous;
+  const same = (index, actual) => typeof locator[index] === 'string' && locator[index].length > 0 && locator[index] === actual;
+  const find = predicate => group.options.find(predicate);
+  if (group.mode === 'instance') {
+    const instance = find(option => same(0, option.instanceId));
+    if (instance) return instance;
+    const path = find(option => same(1, option.path));
+    if (path) return path;
+  } else if (group.mode === 'local') {
+    const path = find(option => same(0, option.path));
+    if (path) return path;
+  } else if (group.mode === 'source') {
+    const origin = option => same(0, option.sourceId) || same(1, option.source);
+    const exactArtifact = find(option => origin(option) && same(2, option.entryId) && same(3, option.sha256));
+    if (exactArtifact) return exactArtifact;
+    const content = find(option => same(3, option.sha256));
+    if (content) return content;
+    const entry = find(option => origin(option) && same(2, option.entryId));
+    if (entry) return entry;
+    const sourceVersion = find(option => origin(option) && option.version === version);
+    if (sourceVersion) return sourceVersion;
+  }
+  return find(option => option.version === version) ?? group.options[0];
+}
+
+/** Replace an unavailable display choice without authorizing any operation. */
 export function createAssetVersionSelection({storage,storageKey='world-hub.asset-version-selection/v1'}={}) {
   if(storage===undefined)try{storage=globalThis.sessionStorage;}catch{}
-  const selected = new Map();
+  const selected = new Map(), changes = new Map();
   try {
     const raw=storage?.getItem(storageKey);if(raw&&raw.length<=512*1024){const rows=JSON.parse(raw);if(Array.isArray(rows)&&rows.length<=256)for(const row of rows)if(Array.isArray(row)&&row.length===2&&row.every(value=>typeof value==='string'&&value.length<=8192))selected.set(...row);}
   }catch{}
-  const persist=()=>{while(selected.size>256)selected.delete(selected.keys().next().value);try{storage?.setItem(storageKey,JSON.stringify([...selected]));}catch{}};
+  const persist=()=>{while(selected.size>256){const key=selected.keys().next().value;selected.delete(key);changes.delete(key);}try{storage?.setItem(storageKey,JSON.stringify([...selected]));}catch{}};
   return {
     get(group) {
       if (!group?.options?.length) return null;
       if (!selected.has(group.key)) {selected.set(group.key, group.options[0].key);persist();}
-      return group.options.find(option => option.key === selected.get(group.key)) ?? null;
+      const exact = group.options.find(option => option.key === selected.get(group.key));
+      if (exact) return exact;
+      const fromKey = selected.get(group.key), previous = previousOption(fromKey, group);
+      const replacement = replacementOption(group, previous);
+      selected.set(group.key, replacement.key);
+      changes.set(group.key, { fromKey, toKey: replacement.key, fromVersion: previous?.version ?? null, toVersion: replacement.version });
+      persist();
+      return replacement;
     },
     select(group, key) {
       if (!group?.options?.some(option => option.key === key)) return false;
       selected.set(group.key, key);
+      changes.delete(group.key);
       persist();
       return true;
     },
     key(group) { return selected.get(group?.key) ?? null; },
-    clear(group) { const removed=selected.delete(group?.key);persist();return removed; }
+    notice(group) { const change=changes.get(group?.key);return change && change.toKey===selected.get(group?.key) ? { ...change } : null; },
+    clear(group) { const removed=selected.delete(group?.key);changes.delete(group?.key);persist();return removed; }
   };
 }
 
-export function assetOptionLabel(option, say = (zh, en) => en) {
+export function assetOptionLabel(option, say = (zh, en) => en, { versionOnly = false } = {}) {
   const version = option.version ? `v${option.version}` : say('版本未标明', 'Version unspecified');
-  if (option.instanceId) return `${version} · ${say('实例', 'Instance')}: ${option.instanceId}${option.path ? ` · ${option.path}` : ''}`;
+  if (versionOnly) return version;
+  if (option.instanceId) return `${version} · ${say('实例', 'Instance')}: ${option.instanceId}`;
   const source = option.sourceId ?? option.source ?? (option.origin === 'builtin' ? say('内置', 'Built-in') : option.origin === 'cache' ? say('缓存', 'Cache') : say('本机', 'Local'));
-  const details = [version, source, option.path ?? option.entryId, option.sha256 ? `SHA-256: ${option.sha256}` : null].filter(Boolean);
+  const details = [version, source, option.entryId, option.sha256 ? `SHA-256: ${option.sha256}` : null].filter(Boolean);
   return details.join(' · ');
+}
+
+export function renderAssetSelectionNotice(ctx, group, selection, chosen = selection.get(group)) {
+  const { el, say = (zh, en) => en } = ctx;
+  if (!chosen || !selection.notice?.(group)) return null;
+  return el('span', { class: 'field-help asset-selection-notice', role: 'status', 'data-asset-auto-selected': '' }, say(`原选项已不可用，已自动切换至 ${assetOptionLabel(chosen, say)}。操作针对当前选项。`, `The previous selection is unavailable. Automatically selected ${assetOptionLabel(chosen, say)}. Actions target the current selection.`));
 }
 
 /**
  * Integration calls selection.get(group)?.row for all card actions. onChange
  * should rerender the card so its facts, review and actions use that exact row.
  */
-export function renderAssetVersionSelector(ctx, group, selection, { onChange = () => {}, alwaysShow = true } = {}) {
+export function renderAssetVersionSelector(ctx, group, selection, { onChange = () => {}, alwaysShow = true, versionOnly = false, showLabel = true, showHelp = true } = {}) {
   const { el, say = (zh, en) => en } = ctx;
-  if (!alwaysShow && group.options.length < 2) return null;
+  const isVersionOnly = Boolean(versionOnly || group.mode === 'source');
   const chosen = selection.get(group);
-  const label = say('版本、来源与实例', 'Version, source and instance');
-  const select = el('select', { class: 'asset-version-select', 'aria-label': label, 'data-asset-project': group.key }, [
-    ...(!chosen ? [el('option', { value: '', disabled: true, selected: true }, say('原选项已不可用，请重新选择', 'Previous selection unavailable; choose again'))] : []),
-    ...group.options.map(option => el('option', { value: option.key, selected: option.key === chosen?.key }, assetOptionLabel(option, say)))
+  const automaticChange = selection.notice?.(group);
+  if (!alwaysShow && group.options.length < 2 && !automaticChange) return null;
+  const label = isVersionOnly ? say('版本', 'Version') : say('版本、来源与实例', 'Version, source and instance');
+  const select = el('select', { class: 'asset-version-select', 'aria-label': label, 'data-asset-project': group.key, disabled: !chosen }, [
+    ...(!chosen ? [el('option', { value: '', disabled: true, selected: true }, say('暂无可用选项', 'No available options'))] : []),
+    ...group.options.map(option => el('option', {
+      value: option.key,
+      selected: option.key === chosen?.key,
+      ...(option.path ? { title: option.path } : option.sha256 ? { title: `SHA-256: ${option.sha256}` } : {})
+    }, assetOptionLabel(option, say, { versionOnly: isVersionOnly })))
   ]);
   select.value = chosen?.key ?? '';
+  const automaticNotice = renderAssetSelectionNotice({ el, say }, group, selection, chosen);
   select.addEventListener('change', () => {
-    if (!selection.select(group, select.value)) { select.value = chosen?.key ?? ''; return; }
+    if (!selection.select(group, select.value)) { select.value = selection.get(group)?.key ?? ''; return; }
+    automaticNotice?.remove();
     onChange(selection.get(group), group);
   });
-  return el('label', { class: 'asset-version-picker' }, [
-    el('span', { class: 'field-label' }, label), select,
-    el('span', { class: 'field-help' }, say(`${group.versions.length} 个版本 · ${group.options.length} 个选项；操作仅针对所选项。`, `${group.versions.length} versions · ${group.options.length} options; actions target only the selected item.`))
-  ]);
+  const children = [];
+  if (showLabel) children.push(el('span', { class: 'field-label' }, label));
+  children.push(select);
+  if (automaticNotice) children.push(automaticNotice);
+  if (showHelp && !isVersionOnly) {
+    children.push(el('span', { class: 'field-help' }, say(`${group.versions.length} 个版本 · ${group.options.length} 个选项；操作仅针对所选项。`, `${group.versions.length} versions · ${group.options.length} options; actions target only the selected item.`)));
+  }
+  return el('label', { class: 'asset-version-picker' }, children);
 }

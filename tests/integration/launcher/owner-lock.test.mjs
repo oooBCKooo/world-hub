@@ -141,7 +141,7 @@ test('OWNER-05 legacy owner has no guard but its live PID and partially written 
   app.record('legacy-and-partial-write-remain-owned', { noGuardRequiredForLegacyRefusal: true, noPidSignalled: true });
 });
 
-test('OWNER-06 explicit cleanup only removes proven-dead root metadata and lock CLI remains standalone', options, async t => {
+test('OWNER-06 explicit cleanup only removes proven-dead root metadata and internal ownership CLI remains standalone', options, async t => {
   const app = await workspace(t); await mkdir(app.root); const childRoot = join(app.root, 'instances/preserved'); await mkdir(childRoot, { recursive: true });
   await save(join(childRoot, 'owner.lock'), { nonce: 'foreign-runtime', pid: process.pid });
   await save(join(app.root, 'launcher-owner.lock'), { nonce: 'dead-root-only', pid: await deadPid(t) });
@@ -157,7 +157,7 @@ test('OWNER-06 explicit cleanup only removes proven-dead root metadata and lock 
   assert.equal((await json(join(childRoot, 'owner.lock'))).nonce, 'foreign-runtime');
   assert.deepEqual(parseUiArgs(['--inspect-lock', '--root', app.root]), { 'inspect-lock': true, root: app.root });
   for (const args of [['--force'], ['--inspect-lock', '--clean-lock'], ['--clean-lock', '--open']]) assert.throws(() => parseUiArgs(args));
-  const output = execFileSync(process.execPath, [join(ROOT, 'bin/world-hub.mjs'), 'ui', '--inspect-lock', '--root', app.root], { encoding: 'utf8', windowsHide: true });
+  const output = execFileSync(process.execPath, [join(ROOT, 'tools/launcher/cli.mjs'), '--inspect-lock', '--root', app.root], { encoding: 'utf8', windowsHide: true });
   const inspection = JSON.parse(output);
   assert.equal(inspection.state, canRecover ? 'absent' : 'dead'); assert.equal(inspection.recoveryAllowed, false);
   assert.deepEqual((await readdir(app.root)).sort(), canRecover ? ['instances'] : ['instances', 'launcher-owner.lock']);
@@ -181,7 +181,7 @@ test('OWNER-07 canonical case and Windows 8.3 aliases cannot take over live root
 });
 
 test('OWNER-08 manager initialization failure releases only its own new root metadata', options, async t => {
-  const app = await workspace(t); await mkdir(app.root); await writeFile(join(app.root, 'launcher-instances.json'), '{');
+  const app = await workspace(t); await mkdir(app.root); await writeFile(join(app.root, 'launcher-paths.json'), '{');
   await assert.rejects(createLauncherServer({ root: app.root })); assert.equal((await inspectLauncherOwner(app.root)).state, 'absent');
   const owner = await acquireLauncherOwner(app.root); await owner.release();
 });

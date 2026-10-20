@@ -1,3 +1,5 @@
+> 历史资料：已退出当前产品。整合包、模板及每包独立 Hub 的使用路径已取消；本页保留原设计和证据，不代表当前支持，也不提供旧版兼容入口。当前使用请看[单 Hub Launcher](launcher.md)。
+
 # 可选执行保护模式
 
 三种可选 profile 都由外部 Runtime 实现，Hub Core 不选择保护模式、业务通道或程序形态。未选择 profile 时仍为经审阅的 `trusted-local`。

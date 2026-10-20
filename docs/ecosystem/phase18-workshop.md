@@ -1,3 +1,5 @@
+> 历史资料：已退出当前产品。整合包、模板及每包独立 Hub 的使用路径已取消；本页保留原设计和证据，不代表当前支持，也不提供旧版兼容入口。当前使用请看[单 Hub Launcher](launcher.md)。
+
 # Workshop → Launcher reproducible closure / 可复现生态闭环
 
 This acceptance connects the existing Workshop, static-source registry, creator workbench and trusted-local Runtime. Hub Core remains a communication crossroads. The test actors are two automated accounts. They are not independent human developers; independent human acceptance remains pending.

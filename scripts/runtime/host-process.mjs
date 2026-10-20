@@ -58,7 +58,12 @@ export async function ownHostedProcess(executable, argv, options = {}) {
   while (!ownerReady) {
     if (options.signal?.aborted || handle.exit || handle.error || Date.now() >= startupDeadline) {
       const issue = failure('HOST_OWNER_START_FAILED', `The trusted child-process owner did not initialize within ${startupTimeoutMs} ms (last stage: ${handle.bootstrapStage ?? 'process-start'}). ${handle.stderr} ${handle.stdout}`);
-      try { await handle.stop(1000); } catch (cleanup) { throw Object.assign(cleanup, { cause: issue }); }
+      try { await handle.stop(1000); } catch (cleanup) {
+        // The caller has not received this handle yet. Retain actual ownership
+        // privately so its normal Stop/close path can retry tree retirement.
+        Object.defineProperty(cleanup, 'ownedHandle', { value: handle, enumerable: false });
+        throw Object.assign(cleanup, { cause: issue, cleanupIncomplete: true });
+      }
       throw issue;
     }
     await delay(20);

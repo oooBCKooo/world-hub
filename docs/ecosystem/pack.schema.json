@@ -20,6 +20,23 @@
     "stopTimeoutMs"
   ],
   "properties": {
+    "packType": {
+      "description": "Failure-handling preset. Omission selects atomic; lifecyclePolicy never implies a pack type. Both honor each member's autostart selection and explicit after dependencies, and retain reviewed dynamic control.",
+      "enum": ["atomic", "mesh"],
+      "default": "atomic"
+    },
+    "lifecyclePolicy": {
+      "description": "Failure policy, independently overridable for either preset. Omission uses fail-fast for atomic and independent for mesh. An attempted critical member failure always stops the run. Atomic initial startup requires every selected member to succeed; unselected members can be started later.",
+      "enum": ["fail-fast", "independent"]
+    },
+    "startupOrder": {
+      "description": "Optional exact execution order containing every installed component ID once, including manual members. Every explicit after prerequisite must precede its dependent. Runtime validates the exact set and precedence; only autostart-selected members start initially. Omission uses declaration-derived topological order.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/id" }
+    },
     "format": {
       "const": "world-hub.pack/v1"
     },
@@ -28,6 +45,50 @@
     },
     "version": {
       "$ref": "#/$defs/version"
+    },
+    "lineage": {
+      "description": "Optional author-declared source baseline and local customization identity, covered by the package content lock. This declaration does not authenticate a publisher or assert official status. pack.version remains the only deployable version.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["format", "kind"],
+          "properties": {
+            "format": { "const": "world-hub.pack-lineage/v1" },
+            "kind": { "const": "self-created" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["format", "kind", "base", "revision", "customizedAt"],
+          "properties": {
+            "format": { "const": "world-hub.pack-lineage/v1" },
+            "kind": { "const": "customized" },
+            "base": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "version", "sourceDigest"],
+              "properties": {
+                "id": { "$ref": "#/$defs/id" },
+                "version": { "$ref": "#/$defs/version" },
+                "sourceDigest": {
+                  "description": "SHA-256 of the source authoring revision at the first customization; not a signature or publisher identity.",
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            },
+            "revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+            "customizedAt": {
+              "$comment": "The Runtime additionally checks that this is a real calendar instant with exact canonical ISO formatting.",
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            }
+          }
+        }
+      ]
     },
     "title": {
       "type": "string",
@@ -70,6 +131,16 @@
           "bridges"
         ],
         "properties": {
+          "autostart": {
+            "description": "Whether the saved startup plan requests this member, for either Atomic or Mesh. Manual members remain available for later reviewed starts and are never implicitly activated by dependents. A temporary hub-only run skips the saved plan without changing it.",
+            "type": "boolean",
+            "default": true
+          },
+          "critical": {
+            "description": "A failed requested start or unexpected runtime failure stops the entire run even under independent failure policy. A planned stop or an unrequested manual member is not a failure.",
+            "type": "boolean",
+            "default": false
+          },
           "id": {
             "$ref": "#/$defs/id"
           },
@@ -77,6 +148,7 @@
             "$ref": "#/$defs/id"
           },
           "after": {
+            "description": "Explicit readiness prerequisites for startup. These order selected members but do not implicitly select or start prerequisites. Capability bindings and communication routes do not imply startup dependencies.",
             "type": "array",
             "maxItems": 31,
             "uniqueItems": true,
@@ -86,6 +158,14 @@
           },
           "settings": {
             "type": "object"
+          },
+          "topicAliases": {
+            "description": "Explicit program-local alias to pack topic key map. It grants no access; bridge ACLs remain authoritative.",
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 64,
+            "propertyNames": { "$ref": "#/$defs/id" },
+            "additionalProperties": { "$ref": "#/$defs/id" }
           },
           "bridges": {
             "type": "object",

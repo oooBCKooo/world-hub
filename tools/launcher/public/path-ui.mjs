@@ -3,21 +3,12 @@ import { createIcon } from './icons.mjs';
 export function pathPurpose(input) {
   if (input.dataset.pathPurpose) return input.dataset.pathPurpose;
   const name = input.name ?? '', title = input.closest?.('label')?.textContent ?? '';
-  if (['nodePath', 'pythonPath', 'dockerPath', 'setprivPath'].includes(name)) return 'executable';
+  if (['nodePath', 'pythonPath'].includes(name)) return 'executable';
   if (name === 'moduleDirectory') return 'module';
-  if (name === 'proposalDirectory') return 'proposal';
-  if (name === 'backup') return 'backup';
   if (['evidencePath', 'artifactPath'].includes(name)) return 'file';
   if (name === 'source') return 'source';
-  if (name === 'backupDestination') return 'save-file';
   if (name === 'destination') return /备份|backup|文件|file/i.test(title) ? 'save-file' : 'save-directory';
-  if (name === 'candidate') return 'pack';
-  if (name === 'directory') {
-    if (/评论|comments|交换文件|exchange file/i.test(title)) return 'save-file';
-    if (/模板目录|template directory/i.test(title)) return /新的|new/i.test(title) ? 'save-directory' : 'template';
-    if (/包或模块|pack or module/i.test(title)) return 'directory';
-    return 'pack';
-  }
+  if (['directory','candidate'].includes(name)) return 'module';
   return null;
 }
 
@@ -44,7 +35,7 @@ export function createPathUi({ state, api, el, button, toast }) {
     try { const checked = await api('/api/paths/check', { path, purpose: selectedPurpose }); if (!dialog.open || target !== selectedInput || purpose !== selectedPurpose || request !== epoch) return; if (!checked.selectable) throw new Error(say('路径类型不匹配，或目标已存在。请选择有效来源或新的输出名称。', 'Path type does not match, or output already exists. Choose a valid source or a new output name.')); setValue(checked.path); }
     catch (error) { if (dialog.open && target === selectedInput && request === epoch) fail(error); }
   }
-  function objectText(object) { const kinds = { pack: ['整合包', 'Pack'], module: ['模块', 'Module'], template: ['模板', 'Template'], proposal: ['提案', 'Proposal'], source: ['软件源', 'Source'], backup: ['备份候选', 'Backup candidate'], executable: ['解释器候选', 'Executable candidate'], comments: ['评论交换', 'Comment exchange'] }; return object ? `${kinds[object.kind] ? say(...kinds[object.kind]) : object.kind}${object.title ?? object.id ? ` · ${object.title ?? object.id}` : ''}${object.version ? ` @${object.version}` : ''}` : ''; }
+  function objectText(object) { const kinds = { module: ['模块', 'Module'], source: ['软件源', 'Source'], executable: ['解释器候选', 'Executable candidate'] }; return object ? `${kinds[object.kind] ? say(...kinds[object.kind]) : object.kind}${object.title ?? object.id ? ` · ${object.title ?? object.id}` : ''}${object.version ? ` @${object.version}` : ''}` : ''; }
   function renderListing() {
     if (!dialog.open || !listing) return;
     dialog.querySelector('[name=path-location]').value = listing.directory;

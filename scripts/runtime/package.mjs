@@ -4,8 +4,10 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hash, relativePath, ordinaryPath, readBounded, privateJson, processCwd, processPath, checkPythonExecutablePath } from './paths.mjs';
 import { readSourceManifest, collectSourceFiles } from './source-guidance.mjs';
-import { inspectDeployment } from './deployment.mjs';
+import { inspectDeployment, deploymentTopics } from './deployment.mjs';
 import { PACK_LOCK_FORMAT_V2, currentHubCompatibility, validateHubCompatibility, checkHubCompatibility } from './compatibility.mjs';
+import { validatePackLineage } from './pack-lineage.mjs';
+import { resolveStartupOrder } from './startup-order.mjs';
 
 export const repository = fileURLToPath(new URL('../../', import.meta.url));
 const idPattern = /^[a-z0-9][a-z0-9._-]{0,63}$/;
@@ -45,9 +47,12 @@ export function validateModule(m) {
   return m;
 }
 export function validatePack(p) {
-  closed(p, ['format', 'id', 'version', 'title', 'license', 'topics', 'components', 'bindings', 'entry', 'startupTimeoutMs', 'healthTimeoutMs', 'stopTimeoutMs'], 'pack');
+  closed(p, ['format', 'id', 'version', 'title', 'license', 'topics', 'components', 'bindings', 'entry', 'startupTimeoutMs', 'healthTimeoutMs', 'stopTimeoutMs', ...['lifecyclePolicy', 'packType', 'lineage', 'startupOrder'].filter(key => Object.hasOwn(p, key))], 'pack');
   if (p.format !== 'world-hub.pack/v1') throw new Error('Unsupported pack format');
+  if (Object.hasOwn(p, 'packType') && !['atomic', 'mesh'].includes(p.packType)) throw new Error('Unsupported pack type');
+  if (Object.hasOwn(p,'lifecyclePolicy') && !['fail-fast','independent'].includes(p.lifecyclePolicy))throw new Error('Unsupported pack lifecycle policy');
   safeId(p.id); version(p.version); text(p.title, 'title'); text(p.license, 'license', 128);
+  validatePackLineage(p);
   object(p.topics, 'topics'); const names = Object.keys(p.topics); array(names, 'topics', 1, 64);
   for (const [name, topic] of Object.entries(p.topics)) {
     safeId(name, 'topic key');
@@ -56,7 +61,16 @@ export function validatePack(p) {
   unique(Object.values(p.topics), 'concrete topic');
   array(p.components, 'components', 1, 32); unique(p.components, 'component', c => c?.id);
   for (const c of p.components) {
-    closed(c, ['id', 'module', 'after', 'settings', 'bridges'], 'component'); safeId(c.id); relativePath(c.id); safeId(c.module);
+    closed(c, ['id', 'module', 'after', 'settings', 'bridges', ...['topicAliases', 'autostart', 'critical'].filter(key => Object.hasOwn(c, key))], 'component'); safeId(c.id); relativePath(c.id); safeId(c.module);
+    for (const flag of ['autostart', 'critical']) if (Object.hasOwn(c, flag) && typeof c[flag] !== 'boolean') throw new Error(`Component ${flag} must be boolean`);
+    if (Object.hasOwn(c, 'topicAliases')) {
+      object(c.topicAliases, 'component topic aliases'); array(Object.keys(c.topicAliases), 'component topic aliases', 1, 64);
+      for (const [alias, key] of Object.entries(c.topicAliases)) {
+        safeId(alias, 'program topic alias');
+        if (typeof key !== 'string' || !names.includes(key)) throw new Error('Program topic alias refers to missing pack topic');
+      }
+      unique(Object.values(c.topicAliases), 'program topic target');
+    }
     array(c.after, 'after', 0, 31); c.after.forEach(v => safeId(v)); unique(c.after, 'dependency');
     object(c.settings, 'settings'); if (Buffer.byteLength(JSON.stringify(c.settings)) > 65536) throw new Error('Settings exceeds 64 KiB');
     object(c.bridges, 'component bridges'); array(Object.keys(c.bridges), 'component bridges', 1, 8);
@@ -65,19 +79,15 @@ export function validatePack(p) {
       for (const action of ['publish', 'subscribe']) {
         array(b[action], action, 0, 64); unique(b[action], 'topic binding');
         if (b[action].some(k => !names.includes(k))) throw new Error('Bridge ACL refers to missing topic');
+        if (c.topicAliases && b[action].some(k => !Object.values(c.topicAliases).includes(k))) throw new Error('Bridge permissions must refer to the program topic map');
       }
     }
   }
   const ids = p.components.map(c => c.id);
   for (const c of p.components) if (c.after.some(id => !ids.includes(id) || id === c.id)) throw new Error('Invalid component dependency');
-  const ordered = [], visiting = new Set(), visited = new Set();
-  function visit(c) {
-    if (visiting.has(c.id)) throw new Error('Component dependency cycle');
-    if (visited.has(c.id)) return;
-    visiting.add(c.id); c.after.forEach(id => visit(p.components.find(x => x.id === id)));
-    visiting.delete(c.id); visited.add(c.id); ordered.push(c);
-  }
-  p.components.forEach(visit);
+  if (Object.hasOwn(p, 'startupOrder') && p.startupOrder === undefined)
+    throw Object.assign(new Error('Startup order must list every installed member exactly once.'), { code: 'STARTUP_ORDER_INVALID', status: 409 });
+  const ordered = resolveStartupOrder(p.components, p.startupOrder);
   array(p.bindings, 'bindings', 0, 1024); unique(p.bindings, 'contract binding', b => JSON.stringify([b?.from, b?.to, b?.contract?.id, b?.contract?.version]));
   for (const b of p.bindings) {
     closed(b, ['from', 'to', 'contract'], 'binding');
@@ -189,8 +199,9 @@ export async function inspectPackage(packDirectory, options = {}) {
   }
   checkNodePackagePaths(modules, directory);
   for (const c of pack.components) {
-    const module = modules.find(m => m.manifest.id === c.module)?.manifest;
+    const source = modules.find(m => m.manifest.id === c.module), module = source?.manifest;
     if (!module) throw new Error(`Missing module dependency: ${c.module}`);
+    deploymentTopics(pack, c, source.deployment?.deployment);
     if (Object.keys(c.bridges).length !== module.bridges.length || module.bridges.some(slot => !Object.hasOwn(c.bridges, slot))) throw new Error(`Bridge slots do not match module declaration: ${c.id}`);
     for (const required of module.requires) {
       if (!pack.bindings.some(b => b.to === c.id && b.contract.id === required.id && b.contract.version === required.version)) throw new Error(`Unbound required contract: ${c.id}/${required.id}`);

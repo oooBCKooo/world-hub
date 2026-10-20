@@ -6,14 +6,14 @@ import { homedir } from 'node:os';
 import { ordinaryPath, privateJson, readBounded, relativePath } from '../../scripts/runtime/paths.mjs';
 import { discoverEnvironment } from './environment.mjs';
 
-export const pathPurposes = new Set(['pack', 'module', 'template', 'proposal', 'source', 'backup', 'comments', 'executable', 'directory', 'file', 'save-directory', 'save-file']);
+export const pathPurposes = new Set(['module', 'module-group', 'source', 'executable', 'directory', 'file', 'save-directory', 'save-file']);
 export const discoveryLimits = Object.freeze({ depth: 4, entries: 2000, directories: 256, objects: 128, milliseconds: 2000, declarationBytes: 65536 });
 export const knownLimits = Object.freeze({ entries: 512, directories: 128, objects: 128, milliseconds: 2000 });
 export const nativePickerEncoding = '[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)';
 const fault = (code, message, status = 409) => Object.assign(new Error(message), { code, status });
 const same = (a, b) => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
 const ignored = new Set(['.git', 'node_modules', '__pycache__', '.venv', 'venv', '.state', '.hub', 'programs', 'runs', 'containers']);
-const filePurposes = new Set(['source', 'backup', 'comments', 'executable', 'file']);
+const filePurposes = new Set(['source', 'executable', 'file']);
 const purposeOf = value => { const purpose = value ?? 'directory'; if (!pathPurposes.has(purpose)) throw fault('PATH_PURPOSE_INVALID', 'Choose a supported path purpose.', 400); return purpose; };
 const absolute = value => {
   if (typeof value !== 'string' || !value.trim() || value.length > 4096 || value.includes('\0') || !isAbsolute(value))
@@ -46,38 +46,22 @@ async function declaration(directory, name) {
   } catch (error) { if (error.code === 'ENOENT') return null; return { warning: 'DECLARATION_UNREADABLE' }; }
 }
 export async function identifyDirectory(directory) {
-  for (const [kind, name, format] of [['pack', 'pack.json', 'world-hub.pack/v1'], ['module', 'module.json', 'world-hub.module/v1'],
-    ['template', 'template.json', 'world-hub.template/v1'], ['proposal', 'proposal.json', 'world-hub.proposal/v1']]) {
-    const found = await declaration(directory, name); if (!found) continue;
-    const warnings = found.warning ? [found.warning] : [];
-    if (found.value && found.value.format !== format) warnings.push('DECLARATION_FORMAT_UNRECOGNIZED');
-    let lockPresent;
-    if (kind === 'pack') { try { const lock = await lstat(join(directory, 'pack.lock')); lockPresent = lock.isFile() && !lock.isSymbolicLink(); } catch { lockPresent = false; } if (!lockPresent) warnings.push('PACK_LOCK_MISSING'); }
-    return {
-      kind, path: directory, declaration: name, ...Object.fromEntries(['id', 'version', 'title'].map(key => [key, short(found.value?.[key])]).filter(([, value]) => value !== undefined)),
-      ...(lockPresent === undefined ? {} : { lockPresent }), warnings, checked: false, requiresReview: true, startsModules: false,
-      ...(kind === 'module' ? {
-        description: short(found.value?.description),
-        runtime: found.value?.runtime,
-        provides: Array.isArray(found.value?.provides) ? found.value.provides : [],
-        requires: Array.isArray(found.value?.requires) ? found.value.requires : []
-      } : {}),
-      ...(kind === 'template' ? {
-        description: short(found.value?.description),
-        license: short(found.value?.license),
-        base: short(found.value?.base),
-        parameters: Array.isArray(found.value?.parameters) ? found.value.parameters : []
-      } : {})
-    };
+  for(const [kind,name,format] of [['module-group','module-group.json','world-hub.module-group/v1'],['module','module.json','world-hub.module/v1']]) {
+    const found=await declaration(directory,name); if(!found)continue;
+    const warnings=found.warning?[found.warning]:[];
+    if(found.value&&found.value.format!==format)warnings.push('DECLARATION_FORMAT_UNRECOGNIZED');
+    return {kind,path:directory,declaration:name,...Object.fromEntries(['id','version','title'].map(key=>[key,short(found.value?.[key])]).filter(([,value])=>value!==undefined)),
+      description:short(found.value?.description),...(kind==='module'?{runtime:found.value?.runtime}:{memberCount:Array.isArray(found.value?.modules)?found.value.modules.length:undefined}),provides:Array.isArray(found.value?.provides)?found.value.provides:[],requires:Array.isArray(found.value?.requires)?found.value.requires:[],
+      warnings,checked:false,requiresReview:true,startsModules:false};
   }
   return null;
 }
 async function identifyFile(path, purpose, info) {
-  let kind = extname(path).toLowerCase() === '.whbackup' ? 'backup' : shellFile(path, info) ? 'executable' : null;
+  let kind = shellFile(path, info) ? 'executable' : null;
   if (info.size <= discoveryLimits.declarationBytes && extname(path).toLowerCase() === '.json') {
     try {
       const value = JSON.parse((await readBounded(path, discoveryLimits.declarationBytes)).toString('utf8'));
-      const found = { 'world-hub.source-index/v1': 'source', 'world-hub.comments/v1': 'comments' }[value?.format];
+      const found = { 'world-hub.source-index/v1': 'source' }[value?.format];
       if (found) return { kind: found, path, ...Object.fromEntries(['id', 'version', 'title'].map(key => [key, short(value?.[key])]).filter(([, value]) => value !== undefined)), warnings: [], checked: false, requiresReview: true, startsModules: false };
     } catch { /* File selection does not validate business or archive contents. */ }
   }
@@ -291,12 +275,13 @@ export class PathsService {
     try {
       const value = JSON.parse((await readBounded(join(this.root, 'launcher-paths.json'), 1024 * 1024)).toString('utf8'));
       if (value.format !== 'world-hub.launcher-paths/v1' || !Array.isArray(value.recents) || value.recents.length > 32) throw fault('PATH_RECENTS_INVALID', 'Inspect the private recent-path registry.');
-      this.recents = value.recents.map(row => ({ path: absolute(row.path), purpose: purposeOf(row.purpose), usedAt: short(row.usedAt) ?? '' }));
+      this.recents = value.recents.filter(row=>pathPurposes.has(row.purpose)).map(row => ({ path: absolute(row.path), purpose: purposeOf(row.purpose), usedAt: short(row.usedAt) ?? '' }));
       if (value.library !== undefined && (!Array.isArray(value.library) || value.library.length > knownLimits.objects)) throw fault('PATH_LIBRARY_INVALID', 'Inspect the private downloaded-resource library.');
-      this.library = (value.library ?? []).map(row => {
-        if (!['module', 'pack', 'template'].includes(row.purpose)) throw fault('PATH_LIBRARY_INVALID', 'Unsupported downloaded-resource library kind.');
+      this.library = (value.library ?? []).filter(row=>['module','module-group'].includes(row.purpose)).map(row => {
         return { path: absolute(row.path), purpose: row.purpose, usedAt: short(row.usedAt) ?? '' };
       });
+      if(value.hidden!==undefined&&(!Array.isArray(value.hidden)||value.hidden.length>knownLimits.objects))throw fault('PATH_LIBRARY_INVALID','Invalid hidden module references.');
+      this.hidden=(value.hidden??[]).map(absolute);
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
   async roots() {
@@ -339,66 +324,48 @@ export class PathsService {
   async remember(input) {
     const purpose = purposeOf(input.purpose), checked = await this.check({ path: input.path, purpose });
     if ((!purpose.startsWith('save-') && !checked.exists) || checked.kind === 'blocked') throw fault('PATH_UNAVAILABLE', 'This path is unavailable.');
-    if (input.library === true && (!['module', 'pack', 'template'].includes(purpose) || checked.object?.kind !== purpose)) throw fault('PATH_LIBRARY_INVALID', 'Choose a complete downloaded resource directory for its library kind.');
+    if (input.library === true && (!['module','module-group'].includes(purpose) || checked.object?.kind !== purpose)) throw fault('PATH_LIBRARY_INVALID', 'Choose a complete downloaded module or module-group directory for its library kind.');
     const action = this.queue.then(async () => {
       const row = { path: checked.path, purpose, usedAt: new Date().toISOString() };
       const recents = [row, ...this.recents.filter(row => !same(row.path, checked.path) || row.purpose !== purpose)].slice(0, 32);
       const retained = this.library.filter(row => !same(row.path, checked.path) || row.purpose !== purpose);
       if (input.library === true && retained.length >= knownLimits.objects) throw fault('PATH_LIBRARY_FULL', 'The downloaded-resource library is full (128 resources). Retain existing resources; no library entry was removed.');
       const library = input.library === true ? [row, ...retained] : this.library;
-      const registry = { format: 'world-hub.launcher-paths/v1', recents, library };
+      const hidden=(this.hidden??[]).filter(path=>!same(path,checked.path)||input.library!==true);
+      const registry = { format: 'world-hub.launcher-paths/v1', recents, library, hidden };
       if (Buffer.byteLength(JSON.stringify(registry)) > 1024 * 1024) throw fault('PATH_LIBRARY_LIMIT', 'The downloaded-resource and path registry exceeds its 1 MiB limit. No previous entry was removed.');
       await privateJson(join(this.root, 'launcher-paths.json'), registry);
-      this.recents = recents; this.library = library;
+      this.recents = recents; this.library = library; this.hidden=hidden;
       return { remembered: true, path: checked.path };
     }); this.queue = action.catch(() => {}); return action;
   }
-  async builtinTemplates(manager) {
-    const candidates = []; let scannedEntries = 0, partial = false;
-    const started = Date.now(), root = manager.defaults.templateDirectory;
-    if (!root) return { candidates, partial, startsModules: false, requiresReview: true };
-    try {
-      const directory = await ordinaryPath(root);
-      for await (const entry of await opendir(directory)) {
-        if (scannedEntries >= 32 || Date.now() - started >= knownLimits.milliseconds) { partial = true; break; }
-        scannedEntries++;
-        if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
-        const path = await ordinaryPath(join(directory, entry.name)), object = await identifyDirectory(path);
-        if (object?.kind !== 'template' || object.warnings.length) continue;
-        let basePack = null, runtimeKinds = [], platforms = [], componentCount = null;
-        try {
-          const base = relativePath(object.base), baseDirectory = await ordinaryPath(join(path, base));
-          const pack = (await declaration(baseDirectory, 'pack.json'))?.value;
-          if (pack?.format === 'world-hub.pack/v1' && Array.isArray(pack.components) && pack.components.length <= 32) {
-            componentCount = pack.components.length;
-            basePack = { id: short(pack.id), title: short(pack.title), version: short(pack.version) };
-            const modules = join(baseDirectory, 'modules'); let count = 0;
-            for await (const module of await opendir(await ordinaryPath(modules))) {
-              if (count++ >= 32 || Date.now() - started >= knownLimits.milliseconds) { partial = true; break; }
-              if (!module.isDirectory() || module.isSymbolicLink()) continue;
-              const manifest = (await declaration(join(modules, module.name), 'module.json'))?.value;
-              if (['node', 'python'].includes(manifest?.runtime?.kind)) runtimeKinds.push(manifest.runtime.kind);
-              if (Array.isArray(manifest?.platforms)) platforms.push(...manifest.platforms.filter(value => typeof value === 'string' && value.length <= 64));
-            }
-          }
-        } catch { /* Identification is a hint; full template inspection follows selection. */ }
-        candidates.push({ ...object, directory: path, origin: 'builtin', basePack, componentCount,
-          runtimeKinds: [...new Set(runtimeKinds)], platforms: [...new Set(platforms)] });
-      }
-    } catch { partial = true; }
-    return { candidates, scannedEntries, partial, startsModules: false, requiresReview: true };
+  forget(input) {
+    const path=absolute(input.path),purpose=purposeOf(input.purpose);
+    if(!['module','module-group'].includes(purpose))throw fault('PATH_LIBRARY_INVALID','Only module or module-group library references can be removed.');
+    const action=this.queue.then(async()=>{
+      const recents=this.recents.filter(row=>!same(row.path,path)||row.purpose!==purpose);
+      const library=this.library.filter(row=>!same(row.path,path)||row.purpose!==purpose);
+      const hidden=[path,...(this.hidden??[]).filter(row=>!same(row,path))];
+      if(hidden.length>knownLimits.objects)throw fault('PATH_LIBRARY_LIMIT','At most 128 module library paths can be hidden.');
+      await privateJson(join(this.root,'launcher-paths.json'),{format:'world-hub.launcher-paths/v1',recents,library,hidden});
+      this.recents=recents;this.library=library;
+      this.hidden=hidden;
+      this.discovered=this.discovered.filter(row=>!same(row.path,path));
+      return {removed:true,deletesFiles:false,removesInstances:false};
+    });this.queue=action.catch(()=>{});return action;
   }
   async known(manager) {
     await this.queue;
     const places = [{ id: 'launcher', label: 'Launcher', path: this.root }, { id: 'home', label: basename(homedir()) || homedir(), path: homedir() }];
     for (const name of ['Desktop', 'Documents', 'Downloads']) try { const path = await ordinaryPath(join(homedir(), name)); if ((await lstat(path)).isDirectory()) places.push({ id: name.toLowerCase(), label: name, path }); } catch {}
-    if (manager.defaults.packDirectory) places.push({ id: 'examples', label: 'Examples', path: dirname(manager.defaults.packDirectory) });
+    if (manager.defaults.moduleDirectory) places.push({ id: 'examples', label: 'Examples', path: dirname(manager.defaults.moduleDirectory) });
     const cache = join(this.root, 'source-cache'); let canonicalCache = null;
     try { const path = await ordinaryPath(cache); if ((await lstat(path)).isDirectory()) { canonicalCache = path; places.push({ id: 'cache', label: 'Source cache', path }); } } catch {}
     const objects = [], seen = new Set(), started = Date.now(); let scannedEntries = 0, scannedDirectories = 0, partial = false, skipped = 0;
     const exhausted = () => objects.length >= knownLimits.objects || scannedEntries >= knownLimits.entries
       || scannedDirectories >= knownLimits.directories || Date.now() - started >= knownLimits.milliseconds;
     const add = async (path, metadata = {}) => {
+      if((this.hidden??[]).some(hidden=>same(hidden,path)))return;
       if (exhausted()) { partial = true; return; }
       if (seen.has(process.platform === 'win32' ? path.toLowerCase() : path)) return;
       seen.add(process.platform === 'win32' ? path.toLowerCase() : path);
@@ -425,19 +392,10 @@ export class PathsService {
       let exists = false; try { await ordinaryPath(recent.path); exists = true; } catch {}
       recents.push({ ...recent, exists }); if (exists) await add(recent.path);
     }
-    const builtin = exhausted() ? { candidates: [], partial: true, scannedEntries: 0 } : await this.builtinTemplates(manager);
-    partial ||= builtin.partial; scannedEntries += builtin.scannedEntries ?? 0;
-    for (const candidate of builtin.candidates) { if (exhausted()) { partial = true; break; } const key = process.platform === 'win32' ? candidate.path.toLowerCase() : candidate.path; if (!seen.has(key)) { objects.push(candidate); seen.add(key); } }
-    if (manager.defaults.packDirectory) {
-      await add(manager.defaults.packDirectory);
-      await scan(join(manager.defaults.packDirectory, 'modules'));
-    }
-    for (const row of manager.records.values()) {
-      if (row.deletion) continue;
-      if (exhausted()) { partial = true; break; }
-      const pkgDir = join(this.root, 'instances', row.instanceId, row.detached ? 'detached-package' : 'package');
-      await add(pkgDir);
-      await scan(join(pkgDir, 'modules'));
+    if(manager.defaults.moduleDirectory)await scan(manager.defaults.moduleDirectory);
+    for(const row of manager.localPrograms.records.values()) {
+      if(exhausted()){partial=true;break;}
+      await add(manager.localPrograms.path(row.programId,'module'),{registeredProgramId:row.programId});
     }
     for (const object of this.discovered) { if (exhausted()) { partial = true; break; } await add(object.path); }
     await scan(cache);

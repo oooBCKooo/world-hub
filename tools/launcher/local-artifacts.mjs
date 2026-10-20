@@ -4,9 +4,11 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ordinaryPath, readBounded, relativePath, hash } from '../../scripts/runtime/paths.mjs';
-import { validateModule, validatePack } from '../../scripts/runtime/package.mjs';
+import { validateModule } from '../../scripts/runtime/package.mjs';
 import { collectSourceFiles } from '../../scripts/runtime/source-guidance.mjs';
 import { readDeployment } from '../../scripts/runtime/deployment.mjs';
+import { readModuleGroup, validateModuleGroupFiles } from '../../scripts/runtime/module-group.mjs';
+import { validateArtifactBytes } from '../../scripts/runtime/sources.mjs';
 
 const bad = message => Object.assign(new Error(message),{code:'LOCAL_ARTIFACT_INVALID'});
 function crc32(bytes) { let crc = 0xffffffff; for (const value of bytes) { crc ^= value; for (let bit=0;bit<8;bit++) crc=(crc>>>1)^((crc&1)?0xedb88320:0); } return (crc^0xffffffff)>>>0; }
@@ -43,30 +45,37 @@ export function readLocalZip(bytes) {
 }
 async function identify(directory) {
   const markers=[];
-  for(const [kind,name] of [['module','module.json'],['pack','pack.json'],['template','template.json']]) try { const value=JSON.parse(await readBounded(join(directory,name))); markers.push({kind,value}); } catch(error) { if(error.code!=='ENOENT') throw error; }
-  if(markers.length!==1) throw bad('Choose one complete module, pack or template root. Ordinary application source is not an installable module.');
+  for(const [kind,name] of [['module','module.json'],['module-group','module-group.json']]) try { const value=JSON.parse(await readBounded(join(directory,name))); markers.push({kind,value}); } catch(error) { if(error.code!=='ENOENT') throw error; }
+  if(markers.length!==1) throw bad('Choose one complete module or module-group root. Ordinary application source is not an installable module.');
   const {kind,value}=markers[0];
   if(kind==='module') {validateModule(value);await readDeployment(directory,value);const files=await collectSourceFiles(directory);if(!files.some(file=>file.path===value.runtime.entry)) throw bad('Module entry is missing');}
-  if(kind==='pack') {validatePack(value);await readBounded(join(directory,'pack.lock'));}
-  if(kind==='template' && value.format!=='world-hub.template/v1') throw bad('Unsupported template format');
-  return {kind,id:value.id,version:value.version,title:value.title??value.id,path:directory,checked:true,requiresReview:true,startsModules:false};
+  else await readModuleGroup(directory);
+  return {kind,id:value.id,version:value.version,title:value.title??value.id,path:directory,checked:true,requiresReview:true,startsModules:false,...(kind==='module-group'?{memberCount:value.modules.length}:{})};
 }
-export async function importLocalArtifact({root,path,kind='module'}) {
+export async function importLocalArtifact({root,path,kind}={}) {
   const source=await ordinaryPath(path);
-  if(!['module','pack','template'].includes(kind)) throw bad('Unsupported import kind');
-  if(!source.toLowerCase().endsWith('.zip')) {const object=await identify(source);if(object.kind!==kind) throw bad(`Choose a ${kind} distribution`);return {object,startsModules:false};}
-  const bytes=await readBounded(source,64*1024*1024),files=readLocalZip(bytes);
-  const candidates=files.filter(file=>file.path.split('/').at(-1)===({module:'module.json',pack:'pack.json',template:'template.json'}[kind]));
-  // A pack naturally contains module manifests; the requested marker identifies
-  // its single distribution root. Multiple module roots must be separate imports.
-  if(candidates.length!==1) throw bad(`Archive must contain one ${kind} distribution root`);
-  const prefix=candidates[0].path.slice(0,-candidates[0].path.split('/').at(-1).length);
-  if(files.some(file=>prefix&&!file.path.startsWith(prefix))) throw bad('Files outside the distribution root');
-  const destination=await ordinaryPath(join(root,'local-artifacts',kind+'-'+hash(bytes).slice(0,12)+'-'+randomUUID()),{allowMissing:true});
+  if(kind!==undefined&&!['module','module-group'].includes(kind)) throw bad('Only module and module-group distributions can be imported');
+  const zip=source.toLowerCase().endsWith('.zip'),json=source.toLowerCase().endsWith('.json');
+  if(!zip&&!json) {const object=await identify(source);if(kind&&object.kind!==kind) throw bad(`Choose a ${kind} distribution`);return {object,startsModules:false};}
+  const bytes=await readBounded(source,(json?96:64)*1024*1024);
+  let files,prefix='',detected=kind;
+  if(json) {const validated=validateArtifactBytes(bytes);detected=validated.artifact.kind;files=validated.decoded.map(file=>({path:file.path,content:file.bytes}));}
+  else {
+    files=readLocalZip(bytes);
+    const groups=files.filter(file=>file.path.split('/').at(-1)==='module-group.json');
+    const candidates=groups.length?groups:files.filter(file=>file.path.split('/').at(-1)==='module.json');
+    if(candidates.length!==1) throw bad('Archive must contain one complete module or module-group root');
+    detected=groups.length?'module-group':'module';
+    prefix=candidates[0].path.slice(0,-candidates[0].path.split('/').at(-1).length);
+    if(files.some(file=>prefix&&!file.path.startsWith(prefix))) throw bad('Files outside the distribution root');
+    if(detected==='module-group')validateModuleGroupFiles(JSON.parse(candidates[0].content),files.map(file=>({path:file.path.slice(prefix.length),bytes:file.content})));
+  }
+  if(kind&&detected!==kind)throw bad(`Choose a ${kind} distribution`);
+  const destination=await ordinaryPath(join(root,'local-artifacts',detected+'-'+hash(bytes).slice(0,12)+'-'+randomUUID()),{allowMissing:true});
   await mkdir(destination,{recursive:true,mode:0o700});
   try {
     for(const file of files) {const local=file.path.slice(prefix.length);relativePath(local);const target=join(destination,local);await mkdir(dirname(target),{recursive:true,mode:0o700});await writeFile(target,file.content,{flag:'wx',mode:0o600});}
-    const object=await identify(destination);if(object.kind!==kind) throw bad('Archive kind differs from import');
+    const object=await identify(destination);if(object.kind!==detected) throw bad('Archive kind differs from import');
     return {object,archive:{path:source,sha256:hash(bytes)},startsModules:false};
   } catch(error) {error.incompleteDestination=destination;throw error;}
 }
