@@ -1,6 +1,6 @@
-# 候选 mod 桥验收装置
+# 候选枢纽桥验收装置
 
-通过 manifest 选择候选可执行文件和 argv。候选桥必须自行打开 WebSocket；Node 控制器安排隔离 Hub、参考程序和断言，不替候选发送 Hub 消息。控制绑定采用 NDJSON，只是测试接口，不规定真实程序的语言、进程或 mod 形态。
+通过 manifest 选择候选可执行文件和 argv。候选桥必须自行打开 WebSocket；Node 控制器安排隔离 Hub、参考程序和断言，不替候选发送 Hub 消息。控制绑定采用 NDJSON，只是测试接口，不规定真实程序的语言、进程或模块形态。
 
 ```powershell
 node tests/bridge-acceptance/run.mjs --bridge tests/bridge-acceptance/javascript.json

@@ -1,6 +1,6 @@
 # npm 包与 SDK
 
-`world-hub` 提供前台运行的 Hub CLI、内置通信管理界面和外部程序可选用的 JavaScript、Python、PowerShell 模块桥。Hub CLI、管理界面服务与 JavaScript SDK 需要 Node.js 22.4.0 或以上，没有 npm 运行依赖；Node 运行时由使用者安装。Python 和 PowerShell SDK 按各自模块文件路径使用，需要自己的运行环境。npm 安装不会启动业务程序，也不会安装 DSH、模型或 Python 依赖。
+`world-hub` 提供前台运行的 Hub CLI、内置通信管理界面和外部程序可选用的 JavaScript、Python、PowerShell 枢纽桥。Hub CLI、管理界面服务与 JavaScript SDK 需要 Node.js 22.4.0 或以上，没有 npm 运行依赖；Node 运行时由使用者安装。Python 和 PowerShell SDK 按各自模块文件路径使用，需要自己的运行环境。npm 安装不会启动业务程序，也不会安装 DSH、模型或 Python 依赖。
 
 ## 安装并启动
 
@@ -18,7 +18,7 @@ world-hub --open
 
 默认监听 `127.0.0.1:8790`，管理地址为 `http://127.0.0.1:8790/manage`。`--open` 在就绪后打开浏览器；不传时按终端输出手动打开。若端口已有其他服务，可选择自己的端口或使用 `world-hub --port 0 --open`，按启动输出取得系统分配的地址。Ctrl+C 停止，等待 `stopped` 输出再关闭终端。
 
-参考配置仅允许已登记的可信回环身份，预置 `ui.manual` 工作台凭据标识，未设 token。自己的程序需要在配置中登记桥或凭据、主题权限和所需连接额度，保存后重启。私人配置、token 与通讯数据留在部署目录，不提交源码仓库。具体接入和管理边界见[模块桥接入](onboarding.md)与[部署](deployment.md)。
+参考配置仅允许已登记的可信回环身份，预置 `ui.manual` 工作台凭据标识，未设 token。自己的程序需要在配置中登记桥或凭据、主题权限和所需连接额度，保存后重启。私人配置、token 与通讯数据留在部署目录，不提交源码仓库。具体接入和管理边界见[枢纽桥接入](onboarding.md)与[部署](deployment.md)。
 
 ## 配置和数据路径
 

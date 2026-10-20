@@ -90,7 +90,7 @@ const STORIES = {
     empty: '先读取汇总，再把一个新的信息来源接进来。',
     next: '改变来源参数，观察读数变化；再按顶部路线启用第三种信息。所有读数均为本地演示数据。',
     roles: { sensor: '产生环境读数；自己保存采样参数。两座桥分别传读数与参数。', market: '独立产生模拟行情；接受自己的参数请求。', aggregator: '订阅各来源，自己维护最新读数与汇总。', traffic: '预置的新来源；收到启用请求后才注册采样主题并输出。' },
-    fallback: [{ id: 'parameters', title: '从查看到反向控制', description: '先读取当前数据，再修改来源自己的采样参数。', steps: [{ action: 'summary', label: '读取多源汇总', expect: '查看真实来源与读数。' }, { action: 'sensor-settings', label: '修改采样参数', expect: '来源程序回应保存后的参数。' }, { action: 'sensor-reading', label: '再次读取来源', expect: '检查返回参数与后续读数。' }], takeaway: '界面与来源是同类外部程序，均通过自己的模块桥收发信息。' }],
+    fallback: [{ id: 'parameters', title: '从查看到反向控制', description: '先读取当前数据，再修改来源自己的采样参数。', steps: [{ action: 'summary', label: '读取多源汇总', expect: '查看真实来源与读数。' }, { action: 'sensor-settings', label: '修改采样参数', expect: '来源程序回应保存后的参数。' }, { action: 'sensor-reading', label: '再次读取来源', expect: '检查返回参数与后续读数。' }], takeaway: '界面与来源是同类外部程序，均通过自己的枢纽桥收发信息。' }],
   },
   'modular-assistant': {
     purpose: '用途：把分散在不同程序的系统提示、对话与材料组合，再交给可替换的执行器。',
@@ -228,7 +228,7 @@ function startUi() {
     $('action-description').textContent = t(selection.description);
     $('route').replaceChildren();
     const target = principalLabel(selection.target.principal);
-    ['界面程序', '双向模块桥', '枢纽', target].forEach((value, index) => {
+    ['界面程序', '双向枢纽桥', '枢纽', target].forEach((value, index) => {
       if (index) $('route').append(node('span', '→', 'route-arrow'));
       $('route').append(node('span', t(value), 'route-node'));
     });
@@ -497,7 +497,7 @@ function startUi() {
     catch { $('manage').removeAttribute('href'); }
     $('endpoint').textContent = state.endpoint; $('profile').textContent = 'PROFILE / ' + state.profile.id;
     const connected = state.explorer.connected && !state.hubStatusError && !connectionStopped;
-    $('connection').textContent = t(connectionStopped ? '会话已停止' : connected ? '模块桥已连接' : '通讯中断'); $('connection').classList.toggle('off', !connected);
+    $('connection').textContent = t(connectionStopped ? '会话已停止' : connected ? '枢纽桥已连接' : '通讯中断'); $('connection').classList.toggle('off', !connected);
     $('count').textContent = state.hubStatus?.lastSeq ?? state.events.at(-1)?.seq ?? 0;
     $('hub-count').textContent = t('{count} 个桥连接', { count: array(state.hubStatus?.bridges).length });
     const key = format([state.profile.id, state.profile.actions]);

@@ -1,5 +1,5 @@
 // This external application owns DSH, prompt composition and execution policy.
-// The hub only transports the registered channels used by its module bridge.
+// The hub only transports the registered channels used by its hub bridge.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';

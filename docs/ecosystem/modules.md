@@ -1,6 +1,6 @@
 # 模块与模块组 / Modules and module groups
 
-模块（module）是可安装的外部程序制品，模块桥（module bridge）是其通信适配层。通信管理界面使用模块声明协助导入、配置和启动程序；Hub 连接不要求这些文件。程序也可以自行安装和运行，再通过模块桥接入。
+模块（module）可理解为“程序 + 枢纽桥”的可安装制品，枢纽桥（hub bridge）负责程序与 Hub 之间的双向通信。一个程序可以使用多座桥，桥可以嵌入程序或独立运行。通信管理界面使用模块声明协助导入、配置和启动程序；Hub 连接不要求这些文件。程序也可以自行安装和运行，再通过枢纽桥接入。
 
 ## 制品与实例
 
@@ -67,7 +67,7 @@
 
 启动计划中的选择、执行顺序和前置依赖仍分别保存。实际编排只启动“已选入计划且为常驻”的实例；绘制依赖不会自动选入计划，也不会将按需前置模块偷偷启动。需要尚未运行的前置实例时，该步骤显示受阻。
 
-自动唤醒使用独立的本机生命周期管理模块桥契约，Hub Core 不读取运行策略、不查看业务正文，也不因普通消息自动执行代码。调用者使用私有运行配置中的 `lifecycle` 描述符，以及 JavaScript SDK 的 `callManaged` 或显式租约接口，见 [生命周期客户端](../../sdk/javascript/LIFECYCLE.md)。其他语言可按相同普通请求／回应契约实现客户端。已有调用者在首次启用按需功能后需重新启动，取得该描述符及控制主题权限；仅有普通 `Bridge.call` 的程序仍按原行为通讯。
+自动唤醒使用独立的本机生命周期管理枢纽桥契约，Hub Core 不读取运行策略、不查看业务正文，也不因普通消息自动执行代码。调用者使用私有运行配置中的 `lifecycle` 描述符，以及 JavaScript SDK 的 `callManaged` 或显式租约接口，见 [生命周期客户端](../../sdk/javascript/LIFECYCLE.md)。其他语言可按相同普通请求／回应契约实现客户端。已有调用者在首次启用按需功能后需重新启动，取得该描述符及控制主题权限；仅有普通 `Bridge.call` 的程序仍按原行为通讯。
 
 策略中明确选择可唤醒的本机调用者，管理器依据认证后的通讯主体校验，不相信正文自报身份。缺少权限、源码被改动、所有权未知或待恢复的版本事务均不能绕过。多个并发调用共享同一次受管启动，各自持有租约；管理器只回传已确认就绪的目标地址，不代发业务请求。
 
@@ -160,7 +160,7 @@
 
 业务契约由外部程序选择。要实现示例的可替换统计能力，阅读[提供者契约](../modules/provider-contract.md)、[机器契约](../modules/text-statistics.contract.json)和对应 SDK。匹配的 `provides`／`requires` 仅是候选声明，实际消费者仍需验证身份、版本、权限和业务结果。
 
-A module is an external artifact; a module bridge is its communication adapter. The communication management interface uses `module.json` for optional deployment assistance; it is not a Hub handshake requirement. A downloadable module group bundles a versioned recipe, public configuration and member sources. Imported members remain independent instances on the same local Hub. Groups carry no Hub, credentials or runtime state, and importing does not start programs. Artifact versions, local configuration revisions and Hub releases are distinct. Application compatibility must be tested through real consumers.
+A module combines a program and its hub bridge in an installable artifact; a hub bridge provides bidirectional communication between the program and the Hub. A program may use several bridges, embedded or separate. The communication management interface uses `module.json` for optional deployment assistance; it is not a Hub handshake requirement. A downloadable module group bundles a versioned recipe, public configuration and member sources. Imported members remain independent instances on the same local Hub. Groups carry no Hub, credentials or runtime state, and importing does not start programs. Artifact versions, local configuration revisions and Hub releases are distinct. Application compatibility must be tested through real consumers.
 
 An optional `deployment.json` `connections` entry pins a default provider module ID and version, required contracts, and consumer-to-provider topic aliases. A unique matching installed instance is filled into the import review; multiple matches require an explicit choice; missing providers show what to download and import before checking again. The manager uses the chosen provider's current topic values without changing that provider's configuration or permissions. Full member configuration in a module-group recipe takes precedence over member deployment defaults and never resolves an external target. These are deployment suggestions interpreted by the management layer; Hub Core retains its communication-only role.
 

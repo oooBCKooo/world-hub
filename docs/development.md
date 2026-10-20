@@ -11,7 +11,7 @@ npm start
 
 `npm start` 使用部署启动器和 `config/hub.json`，提供 `/manage` 并持有数据目录启动锁。手动打开启动输出的管理地址；`npm start -- --open` 可显式打开浏览器。Ctrl+C 正常停止。只开发原服务时可使用 `npm run hub`；该入口直接启动服务，不提供包级重复启动锁。
 
-管理工作台是普通浏览器模块桥。管理 API 只处理本机接入与观察；修改数据面功能必须同时维护其协议实现、桥行为与回归，不把管理 API 变成代发业务消息的捷径。
+管理工作台是普通浏览器枢纽桥。管理 API 只处理本机接入与观察；修改数据面功能必须同时维护其协议实现、桥行为与回归，不把管理 API 变成代发业务消息的捷径。
 
 当前模块管理直接位于 Hub 的 `/manage` 页面。源码也可使用 npm CLI 入口，选择数据目录并打开界面：
 
@@ -37,7 +37,7 @@ npm run demo:workflow
 
 增加通用通讯能力时，先确定[职责边界](specs/boundaries.md)，保持正文原始 JSON、身份与主题授权、每订阅 ACK、提供者保护和明确容量失败。新增特性需协商；不能给旧 `publish` 塞进目标字段后假定旧 Hub 会定向路由。规范、实际实现和测试证据分别更新。
 
-Hub 自己的诊断字段登记在 `tests/conformance/diagnostic-contract.mjs`，新增字段需登记用途、值规则和对应行为测试。登记不限制业务正文、模块桥主题或外部程序形态，也不能替代职责审查。
+Hub 自己的诊断字段登记在 `tests/conformance/diagnostic-contract.mjs`，新增字段需登记用途、值规则和对应行为测试。登记不限制业务正文、枢纽桥主题或外部程序形态，也不能替代职责审查。
 
 模块声明见[模块格式](ecosystem/modules.md)，本机实例和分组指南见[通信管理](ecosystem/launcher.md)。通信管理回归包括 `tests/conformance/management-*.test.mjs`；`npm run test:launcher` 运行单 Hub 管理辅助的集成场景。旧 pack/template 路由测试仅为历史源码资料，不继续定义产品要求。模块替换须验证真实消费者行为，声明匹配不能替代业务兼容验收。
 

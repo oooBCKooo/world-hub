@@ -6,7 +6,7 @@
 
 管理操作沿用本机管理 API：查看状态、暂停／恢复主体、断开选定当前连接、编辑程序与桥 N:M 注记。注记不参与认证或寻址，程序运行状态仍未知。暂停作用于主体全部实例，断连作用于所选 connectionId；过期标识不能误断后来连接。
 
-手动通讯由浏览器自己的模块桥直连同一个 Hub 的 WebSocket。用户明确选择 bridge、可选 credential 与 token；实际 principal/session/features/limits 以 welcome 为准。管理 HTTP 不替其他桥发消息、订阅、ACK、回应或释放。连接路径从管理快照 transport.path 读取，不固定为 /bridge。
+手动通讯由浏览器自己的枢纽桥直连同一个 Hub 的 WebSocket。用户明确选择 bridge、可选 credential 与 token；实际 principal/session/features/limits 以 welcome 为准。管理 HTTP 不替其他桥发消息、订阅、ACK、回应或释放。连接路径从管理快照 transport.path 读取，不固定为 /bridge。
 
 bridge 必填，credential 可留空。填写的标识须为 1–64 个字符，以小写 ASCII 字母或数字开头，其后允许小写字母、数字、点、下划线和连字符。连接表单先由浏览器提示格式错误，浏览器桥和 Hub 仍各自执行身份校验。
 
@@ -16,14 +16,14 @@ bridge 必填，credential 可留空。填写的标识须为 1–64 个字符，
 
 | 功能 | 通讯含义 |
 | --- | --- |
-| 连接／断开 | 真实 hello/welcome；页面自身模块桥，没有自动重连 |
+| 连接／断开 | 真实 hello/welcome；页面自身枢纽桥，没有自动重连 |
 | 通道登记 | 任意 channel 的发布／订阅方向；登记不等于已订阅，无 unregister 原语 |
 | 订阅／历史抽取 | 任意 filters，from 数字水位或 now，可选 operations；逐 subscription 关联回执、投递、追平与缺口 |
 | ACK／取消／恢复抽取 | 用户操作本连接订阅；不自动 ACK，resume 是缺口恢复原语，不能将 SDK 字符串 resume 当 from |
 | 发布／请求／注入／回应 | 任意主题与 JSON 正文；目标是 principal 与可选 session，回应关联真实 requestSeq |
 | 消息释放 | 用户以自己的提供者身份请求 release；Hub 校验所有权，不替他人决定策略，不立即删除 |
 | 附件操作 | 六个已有 blob 原语；文件便利层分块、校验大小和 SHA-256，具浏览器本地容量上限 |
-| 原始帧与诊断 | 收发原文、安全文本展示、有界记录；高级操作仍走同一个真实模块桥 |
+| 原始帧与诊断 | 收发原文、安全文本展示、有界记录；高级操作仍走同一个真实枢纽桥 |
 | 接入与注记 | 主体通断、指定实例断开、完整 id/name 的 N:M 视图注记，保留本机请求校验 |
 
 业务信息种类与主题不设下拉穷举。operations 选择的是已有通讯动作，不是业务 kind。JSON 正文先验证再按原文发送；业务大整数、指数、转义、空白不能因诊断解析而被重建。手动回应不自动建立调用方订阅，调用者要自行安排抽取；界面不解释程序如何处理正文。

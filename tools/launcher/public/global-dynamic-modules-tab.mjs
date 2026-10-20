@@ -79,10 +79,10 @@ export function createGlobalDynamicModulesUi(ctx) {
     const displayName = input('externalTitle', say('显示名称', 'Display name'));
     const slotRows = el('div', { class: 'dynamic-slot-rows' }), slots = [];
     function addSlot() {
-      const slot = input('bridgeSlot', say('模块桥槽标识', 'Module bridge slot'), slots.length ? '' : 'main');
+      const slot = input('bridgeSlot', say('枢纽桥槽标识', 'Hub bridge slot'), slots.length ? '' : 'main');
       const publish = input('publishTopics', say('允许发送的通道（逗号分隔）', 'Publish topics (comma separated)'));
       const subscribe = input('subscribeTopics', say('允许抽取的通道（逗号分隔）', 'Subscribe topics (comma separated)'));
-      const row = el('fieldset', {}, [el('legend', {}, say('模块桥权限', 'Module bridge permissions')), field(say('模块桥槽', 'Module bridge slot'), slot), field(say('允许发送', 'Allow publish'), publish), field(say('允许抽取', 'Allow subscribe'), subscribe)]);
+      const row = el('fieldset', {}, [el('legend', {}, say('枢纽桥权限', 'Hub bridge permissions')), field(say('枢纽桥槽', 'Hub bridge slot'), slot), field(say('允许发送', 'Allow publish'), publish), field(say('允许抽取', 'Allow subscribe'), subscribe)]);
       const entry = { slot, publish, subscribe, row }; slots.push(entry);
       row.append(button(say('移除此桥槽', 'Remove this slot'), () => { slots.splice(slots.indexOf(entry), 1); row.remove(); }, 'button button-quiet'));
       slotRows.append(row);
@@ -102,7 +102,7 @@ export function createGlobalDynamicModulesUi(ctx) {
   function sessionCard(row, programId) {
     const id = row.connectionId ?? row.bridgeId, connectionIds = row.connectionId ? [row.connectionId] : [];
     return el('article', { class: 'panel dynamic-observed-session', 'data-connection-id': id }, [
-      el('h3', {}, `${row.declaredId ?? row.bridgeId ?? say('模块桥', 'Module bridge')} · ${row.authenticated ? say('已认证连接', 'Authenticated connection') : say('未认证', 'Unauthenticated')}`),
+      el('h3', {}, `${row.declaredId ?? row.bridgeId ?? say('枢纽桥', 'Hub bridge')} · ${row.authenticated ? say('已认证连接', 'Authenticated connection') : say('未认证', 'Unauthenticated')}`),
       el('p', { class: 'mono' }, `${row.principal ?? '—'} · ${row.session ?? '—'}`),
       el('p', {}, `${say('连接时间', 'Connected since')}: ${row.since ? ctx.date?.(row.since) ?? row.since : '—'} · ${say('远端地址', 'Remote address')}: ${row.remoteAddress ?? '—'}`),
       el('p', {}, `${say('已发送 / 已递送', 'Published / delivered')}: ${row.published ?? '—'} / ${row.delivered ?? '—'}`),
@@ -126,7 +126,7 @@ export function createGlobalDynamicModulesUi(ctx) {
       el('h3', {}, say('其他外部连接', 'Other external connections')),
       ...((inventory?.observedSessions ?? []).filter(session => !rows.some(row => row.principal === session.principal)).length ? inventory.observedSessions.filter(session => !rows.some(row => row.principal === session.principal)).map(row => sessionCard(row)) : [el('p', { class: 'field-help' }, say('暂无其他已观察连接。', 'No other connections observed.'))]));
     view.matrix.replaceChildren(el('h3', {}, say('通信权限与接线', 'Communication permissions and wiring')),
-      el('p', { class: 'field-help' }, say('模块桥槽权限是程序声明；身份授权是 Hub 的通信边界；当前连接的通道注册与订阅是运行观察。它们不代表进程或业务就绪。', 'Slot permissions are program declarations. Identity grants are the Hub communication boundary. Registered channels and subscriptions are observations of current connections. They do not establish process or business readiness.')),
+      el('p', { class: 'field-help' }, say('枢纽桥槽权限是程序声明；身份授权是 Hub 的通信边界；当前连接的通道注册与订阅是运行观察。它们不代表进程或业务就绪。', 'Slot permissions are program declarations. Identity grants are the Hub communication boundary. Registered channels and subscriptions are observations of current connections. They do not establish process or business readiness.')),
       ...programs.map(row => data(`${title(row)} · ${say('受管模块声明', 'Managed declaration')}`, { topics: row.topics, bridges: row.bridges, bindings: row.bindings })),
       ...rows.map(row => data(`${title(row)} · ${say('本轮有效授权', 'Run grants')}`, { principal: row.principal, effectiveAllow: row.effectiveAllow, bridges: row.bridges })),
       ...(!live ? [el('p', { role: 'status' }, say('当前权限观察不可用，请刷新。', 'Current permission observation is unavailable. Refresh to inspect it.'))] : []));

@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import { ordinaryPath, readBounded, hash } from '../../scripts/runtime/paths.mjs';
 import { validateArtifactBytes, validateSourceIndex, validateArtifactPublisherEvidence, maximumPublisherEvidence } from '../../scripts/runtime/sources.mjs';
 import { MAX_MEDIA_BYTES, inspectMedia, validatePresentation, assertPresentation, presentationAssets, mediaExtension, publicPresentation } from './media.mjs';
+import { artifactConfiguration, configurationFromValidatedArtifact } from './artifact-configuration.mjs';
 
 const scrypt = promisify(scryptCallback);
 const token = () => randomBytes(32).toString('base64url');
@@ -304,6 +305,17 @@ export class WorkshopStore {
     const p = this.publication(entryId, user); if (p.kind !== 'module-group') return null;
     return validateArtifactBytes(await this.artifactBytes(p.sha256)).manifest;
   }
+  async configuration(entryId, user = null) {
+    const publication = this.publication(entryId, user);
+    const bytes = await this.artifactBytes(publication.sha256);
+    try { return artifactConfiguration(bytes); }
+    catch { throw workshopError('ARTIFACT_CORRUPT', 'Stored artifact configuration failed integrity or declaration validation.', 500); }
+  }
+  previewArtifact(user, { artifact }) {
+    requireValue(user && this.state.users.some(value => value.id === user.id && !value.disabled), 'AUTH_REQUIRED', 'Active account required.', 401);
+    // Preview is not redistribution consent, a publication or a persistent grant.
+    return { configuration: this.validatedArtifact(artifact, true).configuration };
+  }
   distributionVisible(digest) { return this.state.publications.some(p => distributedKinds.has(p.kind) && !p.hidden && (p.sha256 === digest || p.proposals.some(q => q.sha256 === digest))); }
   publisherVisible(digest) { return this.state.publications.some(p => distributedKinds.has(p.kind) && !p.hidden && (p.entry.publisherEvidence?.sha256 === digest || p.proposals.some(q => q.publisherEvidence?.sha256 === digest))); }
   mediaVisible(digest) { return this.state.publications.some(p => distributedKinds.has(p.kind) && !p.hidden && presentationAssets(p.presentation).some(asset => asset.sha256 === digest)); }
@@ -388,8 +400,10 @@ export class WorkshopStore {
     requireValue(acknowledged === true, 'REDISTRIBUTION_REQUIRED', 'Explicit redistribution acknowledgement is required.');
     requireValue(artifact && typeof artifact === 'object' && !Array.isArray(artifact), 'INVALID_ARTIFACT', 'An artifact object is required.');
     const bytes = Buffer.from(JSON.stringify(artifact) + '\n'); requireValue(bytes.length <= MAX_UPLOAD, 'BODY_TOO_LARGE', 'Artifact exceeds 8 MiB.', 413);
-    let validated; try { validated = validateArtifactBytes(bytes); } catch { throw workshopError('INVALID_ARTIFACT', 'Artifact manifest, file set, contract or digest validation failed.'); }
-    return { bytes, validated, digest: hash(bytes) };
+    let validated, configuration;
+    try { validated = validateArtifactBytes(bytes); configuration = configurationFromValidatedArtifact(validated); }
+    catch { throw workshopError('INVALID_ARTIFACT', 'Artifact manifest, file set, configuration, contract or digest validation failed.'); }
+    return { bytes, validated, configuration, digest: hash(bytes) };
   }
   publish(user, { artifact, redistributionAcknowledged, title, publisherEvidence, presentation }) {
     const { bytes, validated, digest } = this.validatedArtifact(artifact, redistributionAcknowledged); const publicEvidence = this.validatePublisherUpload(publisherEvidence, validated); const displayTitle = textInput(title ?? validated.manifest.title ?? artifact.id, 256, 'publication title');

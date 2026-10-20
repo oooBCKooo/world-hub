@@ -295,7 +295,7 @@ async function run() {
     const rawBody = '{\n  "信息种类":' + JSON.stringify(kind) + ', "整数":9007199254740993,  "指数":1.2300e+02,\n  "文本":"中文 🧭 双  space", "嵌套":{"保留":"原文"}\n}';
     let sequence, subscription;
     let otherSubscription;
-    await step('one credential permits independent simultaneous module bridges', async () => {
+    await step('one credential permits independent simultaneous hub bridges', async () => {
       assert.equal(peer.welcome.principal, 'ui.manual'); assert.equal(otherPeer.welcome.principal, 'ui.manual');
       assert.notEqual(peer.bridge, otherPeer.bridge); assert.notEqual(peer.welcome.bridge, otherPeer.welcome.bridge); assert.notEqual(peer.welcome.session, otherPeer.welcome.session);
       otherPeer.send({ type: 'register', requestToken: 'package-other-register', channels: [{ name: topic, subscribe: true }] });
@@ -305,7 +305,7 @@ async function run() {
       const state = await json(endpoint.base, '/manage/api/state'); assert.equal(state.bridges.find(item => item.key === 'ui.manual').instances.length, 2);
       return { first: peer.welcome, second: otherPeer.welcome, instances: 2 };
     });
-    await step('own module bridge dynamic channels raw publish delivery and explicit ACK', async () => {
+    await step('own hub bridge dynamic channels raw publish delivery and explicit ACK', async () => {
       peer.send({ type: 'register', requestToken: 'package-register', channels: [{ name: topic, publish: true, subscribe: true }] });
       const registration = await peer.frame(frame => frame.type === 'registered' && frame.requestToken === 'package-register', 'registered');
       assert.ok(registration.frame.channels.some(channel => channel.name === topic && channel.publish && channel.subscribe));
@@ -323,7 +323,7 @@ async function run() {
       const pending = await eventually(() => json(endpoint.base, '/manage/api/state'), state => state.hub.subscriptions.some(item => item.id === subscription && item.pending === 1), 'pending before explicit ACK');
       peer.send({ type: 'ack', subscription, seq: [sequence] });
       otherPeer.send({ type: 'ack', subscription: otherSubscription, seq: [sequence] });
-      const acknowledged = await eventually(() => json(endpoint.base, '/manage/api/state'), state => [subscription, otherSubscription].every(id => state.hub.subscriptions.some(item => item.id === id && item.cursor === sequence && item.pending === 0)), 'ACK diagnostics on both module bridges');
+      const acknowledged = await eventually(() => json(endpoint.base, '/manage/api/state'), state => [subscription, otherSubscription].every(id => state.hub.subscriptions.some(item => item.id === id && item.cursor === sequence && item.pending === 0)), 'ACK diagnostics on both hub bridges');
       await save('mod-frames.json', peer.frames); await save('pending-before-ack.json', pending); await save('state-after-ack.json', acknowledged);
       const files = (await inventory(logDir)).filter(file => /^log-\d+\.jsonl$/.test(file.path));
       const records = [];
@@ -336,7 +336,7 @@ async function run() {
     const blobBytes = Buffer.from(Array.from({ length: 128 * 1024 + 17 }, (_, index) => index % 251));
     const blobSha256 = createHash('sha256').update(blobBytes).digest('hex');
     let blobObject, blobSequence;
-    await step('small chunked binary attachment crosses real module bridges', async () => {
+    await step('small chunked binary attachment crosses real hub bridges', async () => {
       otherPeer.send({ type: 'subscribe', token: 'package-blob-subscribe', filters: [blobTopic], from: 'now' });
       const blobSubscription = (await otherPeer.frame(frame => frame.type === 'subscribed' && frame.token === 'package-blob-subscribe', 'blob subscribed')).frame.subscription;
       blobObject = await blobRequest(peer, 'blob_begin', { size: blobBytes.length, sha256: blobSha256 });

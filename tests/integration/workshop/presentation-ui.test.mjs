@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { renderArtifactConfiguration } from '../../../tools/workshop/public/artifact-config-view.mjs';
+import { artifactConfiguration } from '../../../tools/workshop/artifact-configuration.mjs';
 
 // Run the real rendering and event handlers with a minimal DOM surface. No
 // network, browser globals, or second DOM dependency is needed for these flows.
@@ -10,7 +13,7 @@ class Element {
   setAttribute(name,value) { this.attributes[name] = String(value); if (name === 'value') this.value = String(value); }
   removeAttribute(name) { delete this.attributes[name]; }
   addEventListener(name,fn) { this.listeners[name] = fn; }
-  append(node) { this.children.push(node); }
+  append(...nodes) { this.children.push(...nodes); }
   replaceChildren(...nodes) { this.children = nodes; }
 }
 const walk = node => [node,...node.children.flatMap(walk)];
@@ -19,11 +22,16 @@ const find = (node,id) => walk(node).find(node => node.attributes.id === id);
 const event = { preventDefault() {} };
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const source = await readFile(new URL('../../../tools/workshop/public/app.mjs',import.meta.url),'utf8');
-function harness(fetcher = () => { throw new Error('Unexpected network access'); }) {
-  const view = new Element('main'), notice = new Element('div'), language = new Element('select');
+function harness(fetcher = () => { throw new Error('Unexpected network access'); }, {previewFetch} = {}) {
+  const view = new Element('main'), notice = new Element('div'), language = new Element('select'), account = new Element('span');
   const context = { Node:Element,URL,URLSearchParams,TextDecoder,Uint8Array,atob,btoa,Blob,setTimeout,navigator:{language:'en'},localStorage:{getItem:() => 'en'},location:{hash:'#publish'},
-    document:{createElement:tag => new Element(tag),createTextNode:value => new Element('#text',value),querySelector:selector => ({'#view':view,'#notice':notice,'#language':language}[selector] ?? find(view,selector.slice(1))),querySelectorAll:() => []},fetch:fetcher };
-  vm.runInNewContext(source.slice(0,source.indexOf("$('#language').addEventListener")).replace("const base = new URL('./', import.meta.url);","const base = new URL('https://example.test/workshop/');")+'\nglobalThis.ui={state,renderPublish,renderDetail,presentationInput,presentationEditor,presentationGallery,card,mediaURL};',context);
+    renderArtifactConfiguration,
+    document:{documentElement:{lang:'en'},createElement:tag => new Element(tag),createTextNode:value => new Element('#text',value),querySelector:selector => ({'#view':view,'#notice':notice,'#language':language,'#account-indicator':account}[selector] ?? find(view,selector.slice(1))),querySelectorAll:() => []},fetch:async (url,options) => {
+      if (url.pathname.endsWith('/api/artifacts/preview') && previewFetch) return previewFetch(url,options);
+      if (url.pathname.endsWith('/api/artifacts/preview')) return {ok:true,json:async () => ({configuration:artifactConfiguration(Buffer.from(JSON.stringify(JSON.parse(options.body).artifact)+'\n'))})};
+      return fetcher(url,options);
+    } };
+  vm.runInNewContext(source.slice(0,source.indexOf("$('#language').addEventListener")).replace(/^import \{ renderArtifactConfiguration \} from [^\r\n]+\r?\n/m,'').replace("const base = new URL('./', import.meta.url);","const base = new URL('https://example.test/workshop/');")+'\nglobalThis.ui={state,renderPublish,renderDetail,presentationInput,presentationEditor,presentationGallery,card,mediaURL,authForm,commentsPanel,proposalsPanel,selectDraftArtifact,validateDraft,loadRoute};',context);
   return {...context.ui,view,notice,context};
 }
 function asset(char = 'a',extra = {}) { const sha256=char.repeat(64); return {sha256,mimeType:'image/png',size:70,width:20,height:20,url:`/workshop/media/${sha256}.png`,alt:'A useful screenshot',...extra}; }
@@ -31,8 +39,9 @@ function publication(extra = {}) { return {entryId:'test.pub',kind:'module',id:'
 function detail(p,versions = [p]) { return {publication:p,entry:{license:'MIT',platforms:['win32-x64'],provides:[],requires:[]},comments:[],proposals:[],versions}; }
 function imageFile(name = 'safe.png',size = 16,arrayBuffer) { return {name,size,type:'image/png',arrayBuffer:arrayBuffer ?? (async () => new Uint8Array(size).buffer)}; }
 function artifactFile() {
-  const manifest={format:'world-hub.module/v1',id:'test.example',version:'2.0.0',license:'MIT'};
-  const artifact={format:'world-hub.source-artifact/v1',kind:'module',id:manifest.id,version:manifest.version,files:[{path:'module.json',base64:Buffer.from(JSON.stringify(manifest)).toString('base64')}]};
+  const manifest={format:'world-hub.module/v1',id:'test.example',version:'2.0.0',license:'MIT',platforms:['win32-x64'],runtime:{kind:'node',entry:'program.mjs'},bridges:['main'],provides:[],requires:[],permissions:{filesystem:'instance-state',network:['hub-loopback'],processes:'none'}};
+  const file=(path,content) => { const bytes=Buffer.from(content); return {path,base64:bytes.toString('base64'),sha256:createHash('sha256').update(bytes).digest('hex')}; };
+  const artifact={format:'world-hub.source-artifact/v1',kind:'module',id:manifest.id,version:manifest.version,files:[file('module.json',JSON.stringify(manifest)),file('program.mjs','// source, never executed\n')],provenance:{redistributionAcknowledged:true}};
   return {size:400,name:'artifact.json',text:async () => JSON.stringify(artifact)};
 }
 
@@ -114,4 +123,91 @@ test('only owner/admin gets picture editor; editing preserves references and art
   assert.equal(calls[0].url,'https://example.test/workshop/api/publications/test.pub/presentation');
   assert.deepEqual(calls[0].body,{presentation:{icon:{sha256:'a'.repeat(64),alt:'A useful screenshot'}}});
   assert.equal(calls[0].body.artifact,undefined); assert.equal(calls[0].body.version,undefined);
+});
+
+test('publication keeps its reviewed artifact, edited title and images across language and account navigation without persistence', async () => {
+  const ui=harness(); ui.state.user={id:'owner.id',role:'member'}; ui.renderPublish();
+  const upload=find(ui.view,'artifact-file'); upload.files=[artifactFile()]; await upload.listeners.change();
+  assert.ok(ui.state.publicationDraft.configuration); assert.match(text(ui.view),/Resident/);
+  const title=walk(ui.view).find(node => node.attributes.name==='title'); title.value='My own title'; title.listeners.input();
+  const image=find(ui.view,'publication-images-icon'); image.files=[imageFile()]; await image.listeners.change();
+  const ack=find(ui.view,'redistribution-ack'); ack.checked=true; ack.listeners.change();
+  const digest=ui.state.publicationDraft.configuration.sha256;
+  ui.context.location.hash='#account'; ui.state.language='zh'; ui.renderPublish();
+  assert.equal(walk(ui.view).find(node => node.attributes.name==='title').value,'My own title');
+  assert.equal(find(ui.view,'artifact-file').required,false); assert.equal(find(ui.view,'redistribution-ack').checked,true);
+  assert.match(text(ui.view),/常驻/); assert.equal(ui.state.publicationDraft.configuration.sha256,digest);
+  assert.equal(walk(ui.view).filter(node => node.tag==='img').length,1);
+  assert.equal(find(ui.view,'publish-submit').disabled,false);
+  assert.equal(ui.context.localStorage.setItem,undefined,'draft handlers cannot write files or credentials to storage');
+});
+
+test('a new artifact invalidates review and consent, while a stale validation response cannot replace the new draft', async () => {
+  const pending=[];
+  const ui=harness(undefined,{previewFetch:async (_url,options) => new Promise(resolve => pending.push({body:JSON.parse(options.body),resolve}))});
+  ui.state.user={id:'owner.id',role:'member'}; ui.renderPublish();
+  const file=artifactFile(), first=ui.selectDraftArtifact(ui.state.publicationDraft,file); await flush(); assert.equal(pending.length,1);
+  ui.state.language='zh'; ui.renderPublish();
+  const next=JSON.parse(await file.text()); next.version='2.0.1'; const marker=next.files.find(row => row.path==='module.json'); const manifest=JSON.parse(Buffer.from(marker.base64,'base64')); manifest.version=next.version; const bytes=Buffer.from(JSON.stringify(manifest)); marker.base64=bytes.toString('base64'); marker.sha256=createHash('sha256').update(bytes).digest('hex');
+  const second=ui.selectDraftArtifact(ui.state.publicationDraft,{...file,name:'next.json',text:async()=>JSON.stringify(next)}); await flush();
+  assert.equal(ui.state.publicationDraft.configuration,null); assert.equal(find(ui.view,'redistribution-ack').checked,false); assert.equal(find(ui.view,'publish-submit').disabled,true);
+  const response=item=>({ok:true,json:async()=>({configuration:artifactConfiguration(Buffer.from(JSON.stringify(item.body.artifact)+'\n'))})});
+  pending[1].resolve(response(pending[1])); await second;
+  const expected=ui.state.publicationDraft.configuration.sha256;
+  pending[0].resolve(response(pending[0])); await first;
+  assert.equal(ui.state.publicationDraft.configuration.version,'2.0.1'); assert.equal(ui.state.publicationDraft.configuration.sha256,expected);
+  assert.match(text(ui.view),/next.json/); assert.equal(find(ui.view,'redistribution-ack').checked,false);
+});
+
+test('login submission is locked synchronously, clears passwords, and returns to the saved work only if the user stayed', async () => {
+  const calls=[]; let finish;
+  const ui=harness(async(url,options)=>{calls.push(url.pathname); return new Promise(resolve=>{finish=resolve;});});
+  ui.context.location.hash='#account'; ui.state.returnTo='#publish';
+  const form=ui.authForm('login'), username=find(form,'login-username'), password=find(form,'login-password'); username.value='test.user'; password.value='Local test password';
+  form.listeners.submit(event); form.listeners.submit(event); assert.equal(calls.length,1); assert.equal(ui.state.authBusy,true);
+  finish({ok:true,json:async()=>({user:{id:'owner.id',username:'test.user',role:'member'},csrfToken:'local-test'})}); await flush();
+  assert.equal(ui.context.location.hash,'#publish'); assert.equal(password.value,''); assert.equal(ui.state.returnTo,null); assert.equal(ui.state.authBusy,false);
+  ui.context.location.hash='#account'; ui.state.returnTo='#publish'; const next=ui.authForm('login'); find(next,'login-password').value='Other local test password'; next.listeners.submit(event); ui.context.location.hash='#catalog';
+  finish({ok:true,json:async()=>({user:{id:'owner.id',username:'test.user',role:'member'},csrfToken:'local-test'})}); await flush();
+  assert.equal(ui.context.location.hash,'#catalog','a late sign-in does not steal newer navigation');
+});
+
+test('an in-flight publication cannot be duplicated by submit events and does not redirect a user who left', async () => {
+  let finish; const calls=[];
+  const ui=harness(async(url,options)=>{calls.push({url,body:JSON.parse(options.body)});return new Promise(resolve=>{finish=resolve;});});
+  ui.state.user={id:'owner.id',role:'member'}; ui.renderPublish(); const file=find(ui.view,'artifact-file'); file.files=[artifactFile()]; await file.listeners.change();
+  const ack=find(ui.view,'redistribution-ack'); ack.checked=true; ack.listeners.change(); const form=find(ui.view,'publication-form');
+  form.listeners.submit(event); form.listeners.submit(event); ack.listeners.change(); form.listeners.submit(event); assert.equal(calls.length,1);
+  ui.context.location.hash='#catalog'; finish({ok:true,json:async()=>({publication:{entryId:'created.pub'}})}); await flush();
+  assert.equal(ui.context.location.hash,'#catalog'); assert.equal(ui.state.publicationDraft.preview,null);
+});
+
+test('detail renders configuration only for the selected artifact digest', async () => {
+  const ui=harness(), config=artifactConfiguration(JSON.parse(await artifactFile().text()));
+  const p=publication({sha256:config.sha256}); ui.state.detail={...detail(p),configuration:config}; ui.renderDetail();
+  assert.match(text(ui.view),/Resident/); assert.equal(walk(ui.view).find(node=>node.attributes['data-artifact-sha256']).attributes['data-artifact-sha256'],p.sha256);
+  ui.state.detail.publication={...p,version:'1.0.0',sha256:'b'.repeat(64)}; ui.renderDetail();
+  assert.doesNotMatch(text(ui.view),/Resident/); assert.match(text(ui.view),/has not been loaded/);
+});
+
+test('publication and proposal previews can retry a busy server without selecting the artifact again', async () => {
+  for (const kind of ['publication','proposal']) {
+    let attempts = 0;
+    const ui = harness(undefined,{previewFetch:async (_url,options) => {
+      if (++attempts === 1) return {ok:false,status:503,json:async () => ({error:{code:'UPLOAD_BUSY',message:'Retry shortly.'}})};
+      return {ok:true,json:async () => ({configuration:artifactConfiguration(Buffer.from(JSON.stringify(JSON.parse(options.body).artifact)+'\n'))})};
+    }});
+    ui.state.user = {id:'owner.id',role:'member'};
+    if (kind === 'publication') ui.renderPublish();
+    else ui.view.append(ui.proposalsPanel(detail(publication())));
+    const upload = find(ui.view,kind === 'publication' ? 'artifact-file' : 'proposal-file');
+    upload.files = [artifactFile()]; await upload.listeners.change();
+    assert.match(text(ui.view),/UPLOAD_BUSY/);
+    const submit = find(ui.view,kind === 'publication' ? 'publish-submit' : 'proposal-submit'); assert.equal(submit.disabled,true);
+    const retry = walk(ui.view).find(node => node.tag === 'button' && node.textContent === 'Validate again');
+    assert.ok(retry); assert.equal(retry.hidden,false); await retry.listeners.click(); await flush();
+    assert.equal(attempts,2); assert.equal(retry.hidden,true); assert.match(text(ui.view),/Resident/);
+    const ack = find(ui.view,kind === 'publication' ? 'redistribution-ack' : 'proposal-ack'); ack.checked = true; ack.listeners.change();
+    assert.equal(submit.disabled,false);
+  }
 });

@@ -88,7 +88,7 @@ export function createDynamicAssemblyUi(ctx) {
         })]));
       bridgeRows.append(el('fieldset', {}, [el('legend', {}, slot), ...directions]));
     }
-    return { node: el('details', {}, [el('summary', {}, say('通道与模块桥权限', 'Topics and module bridge permissions')), topicRows, bridgeRows]),
+    return { node: el('details', {}, [el('summary', {}, say('通道与枢纽桥权限', 'Topics and hub bridge permissions')), topicRows, bridgeRows]),
       read: () => ({ topics: Object.fromEntries(topicInputs.map(([alias, input]) => [alias, input.value.trim()])), bridges: copy(selected) }) };
   }
 
@@ -290,7 +290,7 @@ export function createDynamicAssemblyUi(ctx) {
       const componentId = el('input', { name: 'componentId', 'aria-label': say('外部成员标识', 'External member ID') });
       const title = el('input', { name: 'externalTitle', 'aria-label': say('显示名称', 'Display name') });
       const topics = jsonField(say('通道别名与地址', 'Topic aliases and addresses'), {}, 'externalTopics');
-      const bridges = jsonField(say('模块桥槽与收发权限', 'Bridge slots and publish/subscribe permissions'), {}, 'externalBridges');
+      const bridges = jsonField(say('枢纽桥槽与收发权限', 'Bridge slots and publish/subscribe permissions'), {}, 'externalBridges');
       const provides = jsonField(say('提供的精确能力契约', 'Exact provided capability contracts'), [], 'externalProvides');
       const requires = jsonField(say('需要的精确能力契约', 'Exact required capability contracts'), [], 'externalRequires');
       const bindings = jsonField(say('选定的能力提供者', 'Selected capability providers'), [], 'externalBindings');
@@ -355,7 +355,7 @@ export function createDynamicAssemblyUi(ctx) {
         row.readiness ? el('p', {}, `${say('就绪状态', 'Readiness')}: ${typeof row.readiness === 'string' ? ({ ready: say('已就绪', 'Ready'), 'not-ready': say('未就绪', 'Not ready') }[row.readiness] ?? row.readiness) : JSON.stringify(row.readiness)}`) : null,
         row.sourceDirectory || row.directory ? el('p', { class: 'mono' }, row.sourceDirectory ?? row.directory) : null,
         manifest?.runtime ? el('p', {}, `${say('执行环境', 'Runtime')}: ${manifest.runtime.kind} · ${manifest.runtime.entry ?? ''}`) : null,
-        row.sourceFileCount !== undefined ? el('p', {}, `${say('源码文件', 'Source files')}: ${row.sourceFileCount} · ${say('模块桥槽', 'Bridge slots')}: ${(manifest?.bridges ?? Object.keys(row.bridges ?? {})).length}`) : null,
+        row.sourceFileCount !== undefined ? el('p', {}, `${say('源码文件', 'Source files')}: ${row.sourceFileCount} · ${say('枢纽桥槽', 'Bridge slots')}: ${(manifest?.bridges ?? Object.keys(row.bridges ?? {})).length}`) : null,
         row.error || row.failure ? el('p', { role: 'status' }, (row.error ?? row.failure).message ?? String(row.error ?? row.failure)) : null,
         detail(say('当前参数、接线与权限', 'Current settings, wiring and permissions'), { settings: row.settings, topics: row.topics, bridges: row.bridges, bindings: row.bindings, permissions: manifest?.permissions ?? row.permissions, readiness: row.readiness }),
         el('div', { class: 'result-actions' }, [actionButton(embedded ? say('启动', 'Start') : say('审阅启动', 'Review start'), 'start', row, active), actionButton(embedded ? say('停止', 'Stop') : say('审阅停止', 'Review stop'), 'stop', row, !active && row.state !== 'failed'),

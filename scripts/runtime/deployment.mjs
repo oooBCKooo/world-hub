@@ -58,7 +58,7 @@ export function validateDeployment(value, manifest) {
       || Object.values(value[key]).some(text => typeof text !== 'string' || !text || text.length > 2048)) throw bad(`Invalid deployment ${key}`);
   if (!object(value.topics) || Object.keys(value.topics).length > 64 || !Object.keys(value.topics).length) throw bad('Declare communication topic defaults');
   for (const [alias,topic] of Object.entries(value.topics)) if (!id.test(alias) || typeof topic !== 'string' || !topic || topic.length > 512 || /[\s\0#+]/.test(topic) || topic.split('/').some(part => !part)) throw bad('Invalid communication topic');
-  if (!object(value.bridges) || manifest && (Object.keys(value.bridges).length !== manifest.bridges.length || manifest.bridges.some(slot => !Object.hasOwn(value.bridges,slot)))) throw bad('Declare defaults for each module bridge');
+  if (!object(value.bridges) || manifest && (Object.keys(value.bridges).length !== manifest.bridges.length || manifest.bridges.some(slot => !Object.hasOwn(value.bridges,slot)))) throw bad('Declare defaults for each hub bridge');
   for (const [slot,rules] of Object.entries(value.bridges)) {
     if (!id.test(slot) || !object(rules) || Object.keys(rules).sort().join(',') !== 'publish,subscribe') throw bad('Invalid bridge defaults');
     for (const action of ['publish','subscribe']) if (!Array.isArray(rules[action]) || rules[action].length > 64 || new Set(rules[action]).size !== rules[action].length || rules[action].some(alias => !Object.hasOwn(value.topics,alias))) throw bad('Unknown topic alias in bridge defaults');

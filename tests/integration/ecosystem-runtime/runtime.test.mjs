@@ -177,7 +177,7 @@ test('RUNTIME-02 real JS to Python to JS flow isolates two instances and survive
     instances: [first.ready.instanceId, second.ready.instanceId, third.ready.instanceId], exportedFiles: exportedFiles.length });
 });
 
-test('RUNTIME-03 one external program owns multiple independent mod bridges with filtered environment and private credentials', options, async t => {
+test('RUNTIME-03 one external program owns multiple independent hub bridges with filtered environment and private credentials', options, async t => {
   const app = await workspace(t), directory = await fixturePackage(app, { bridges: ['input', 'output'] });
   const secret = 'parent-only-' + randomUUID(), previous = process.env.WORLD_HUB_TEST_PARENT_SECRET;
   process.env.WORLD_HUB_TEST_PARENT_SECRET = secret;

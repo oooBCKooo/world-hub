@@ -1,8 +1,8 @@
-# Connect independent programs through module bridges
+# Connect independent programs through hub bridges
 
 [中文](external-programs.md) · [JavaScript SDK](../../sdk/javascript/README.md) · [Protocol](../specs/protocol.md)
 
-Programs may install dependencies, own state, create windows and manage their own child processes, then connect through module bridges. Electron hosts, browsers, games, database services and existing CLIs are ordinary communication participants from the Hub's perspective. Hub Core does not choose their application shape or business behavior.
+Programs may install dependencies, own state, create windows and manage their own child processes, then connect through hub bridges. Electron hosts, browsers, games, database services and existing CLIs are ordinary communication participants from the Hub's perspective. Hub Core does not choose their application shape or business behavior.
 
 Launcher optionally manages independent module instances on one Global Hub. A managed module supplies module.json and optional deployment.json defaults. Packs and templates are not current import types. Self-managed Electron hosts, services and other programs retain their own installer, process ownership, windows and business state.
 

@@ -27,7 +27,7 @@ export const HELP = `世界枢纽 npm 命令（前台运行）
 指定 --data-dir 时三类数据都放在该根；原 --config 文件保持不变。
 安装目录不保存运行配置和数据。启动后使用 Ctrl+C 等待 stopped 行再关闭终端。
 通信管理界面在同一个本机 Hub 中管理独立模块实例和模块组。
-枢纽只提供通讯；外部程序由自己的模块桥接入。
+枢纽只提供通讯；外部程序由自己的枢纽桥接入。
 `;
 
 export function parseNpmArgs(argv) {

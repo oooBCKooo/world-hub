@@ -5,7 +5,7 @@
 | `src/hub/` | 线协议、寻址、主题路由、通信日志和对象存储 |
 | `src/management/` | 本机通信管理 API、拓扑和用户通信工作台 |
 | `src/debug/` | 本机只读调试视图 |
-| `sdk/javascript/`、`sdk/python/`、`sdk/powershell/` | 外部程序可选择的模块桥实现 |
+| `sdk/javascript/`、`sdk/python/`、`sdk/powershell/` | 外部程序可选择的枢纽桥实现 |
 | `config/hub.json` | 直接部署 Hub 的参考接线与容量配置 |
 | `bin/world-hub.mjs` | 启动 Hub 与 `/manage` 通信管理界面的 npm 入口 |
 | `tools/launcher/` | 通信管理所用的模块、实例、分组、路径与进程辅助；旧独立界面与服务不进入发行 |
@@ -20,7 +20,7 @@
 | `.github/workflows/` | 持续集成 |
 | `LICENSE` | 项目源码与文档的 MIT 许可 |
 
-模块（module）是外部程序制品；模块桥（module bridge）是它的通信适配层。一个程序可使用多座桥。普通程序无需采用管理器的模块声明即可接入；Hub 不读取模块组，也不装载业务程序。
+模块（module）可理解为“程序 + 枢纽桥”的外部程序制品；枢纽桥（hub bridge）是程序连接 Hub 的双向通信适配层。一个程序可使用多座桥，桥可以嵌入程序或独立运行。普通程序无需采用管理器的模块声明即可接入；Hub 不读取模块组，也不装载业务程序。
 
 ## 发行边界
 

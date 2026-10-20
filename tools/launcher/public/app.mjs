@@ -245,8 +245,8 @@ async function registerModule(directory) {
   });
   const jsonSettings = declaration ? null : json('settings', settings), jsonTopics = declaration ? null : json('topics', topics), bridgeEditor = json('bridges', bridges);
   const node = dialog(say('登记独立模块实例', 'Register an independent module instance'), [el('p', {}, `${manifest.id}@${manifest.version}`), info(directory), field(say('实例标识（与其他实例不同）', 'Instance ID (unique)'), id),
-    ...settingNodes.map(row => row.field), ...topicNodes.map(row => field(row.alias, row.node)), ...(declaration ? [] : [info(say('此模块没有默认接入声明，请填写公开参数、具体通道和模块桥权限。', 'This module has no default deployment declaration. Enter public settings, concrete topics and bridge permissions.')), field(say('公开参数 (JSON)', 'Public settings (JSON)'), jsonSettings), field(say('通道地址 (JSON)', 'Topic addresses (JSON)'), jsonTopics)]),
-    ...bindings.map(row => field(`${row.contract.id}@${row.contract.version}`, row.select)), el('details', { open: !declaration }, [el('summary', {}, say('模块桥权限 (JSON)', 'Module bridge permissions (JSON)')), bridgeEditor])]);
+    ...settingNodes.map(row => row.field), ...topicNodes.map(row => field(row.alias, row.node)), ...(declaration ? [] : [info(say('此模块没有默认接入声明，请填写公开参数、具体通道和枢纽桥权限。', 'This module has no default deployment declaration. Enter public settings, concrete topics and bridge permissions.')), field(say('公开参数 (JSON)', 'Public settings (JSON)'), jsonSettings), field(say('通道地址 (JSON)', 'Topic addresses (JSON)'), jsonTopics)]),
+    ...bindings.map(row => field(`${row.contract.id}@${row.contract.version}`, row.select)), el('details', { open: !declaration }, [el('summary', {}, say('枢纽桥权限 (JSON)', 'Hub bridge permissions (JSON)')), bridgeEditor])]);
   const submit = button(say('审阅登记', 'Review registration'), () => run(async () => {
     const body = { programId: id.value.trim(), directory, settings: declaration ? Object.fromEntries(settingNodes.map(({ row, node }) => [row.key, row.type === 'boolean' ? node.checked : row.type === 'number' ? Number(node.value) : node.value])) : JSON.parse(jsonSettings.value),
       topics: declaration ? Object.fromEntries(topicNodes.map(row => [row.alias, row.node.value.trim()])) : JSON.parse(jsonTopics.value), bridges: JSON.parse(bridgeEditor.value), bindings: bindings.map(row => ({ providerId: row.select.value, contract: row.contract })) };
@@ -933,7 +933,7 @@ function moduleCenter() {
     button(say('在线获取', 'Get Modules'), () => { moduleSubtab = 'sources'; renderShell(); renderView(); }, `view-subtab${moduleSubtab === 'sources' ? ' is-active' : ''}`)
   ]);
   const content = moduleSubtab === 'sources' ? sources() : programs();
-  return [tabs, ...(Array.isArray(content) ? content : [content])];
+  return [tabs, info(say('模块由程序及其枢纽桥组成；一个程序可以通过多座枢纽桥接入同一枢纽。', 'A module combines a program with its hub bridges. A program can connect to the same Hub through several hub bridges.')), ...(Array.isArray(content) ? content : [content])];
 }
 function communicationCenter() {
   return environment();

@@ -1,8 +1,8 @@
-# 独立程序接入：桌面宿主、原有软件与模块桥
+# 独立程序接入：桌面宿主、原有软件与枢纽桥
 
 [English](external-programs.en.md) · [SDK](../../sdk/javascript/README.md) · [通信协议](../specs/protocol.md)
 
-程序可以自行安装依赖、管理状态、创建窗口和启动它拥有的子进程，再通过模块桥接入 Hub。Electron、浏览器、游戏、数据库服务与现有 CLI 都可以采用这种方式。相对 Hub，它们与 Launcher 可选择管理登记到一个全局 Hub 的独立模块实例。受管模块提供 module.json，可选 deployment.json 给出接入默认值；不再要求 pack.json、pack.lock 或模板。自行管理的 Electron、服务及其他程序保留自己的安装器、进程归属、窗口和业务状态。
+程序可以自行安装依赖、管理状态、创建窗口和启动它拥有的子进程，再通过枢纽桥接入 Hub。Electron、浏览器、游戏、数据库服务与现有 CLI 都可以采用这种方式。相对 Hub，它们与 Launcher 可选择管理登记到一个全局 Hub 的独立模块实例。受管模块提供 module.json，可选 deployment.json 给出接入默认值；不再要求 pack.json、pack.lock 或模板。自行管理的 Electron、服务及其他程序保留自己的安装器、进程归属、窗口和业务状态。
 
 ## 选择入口
 

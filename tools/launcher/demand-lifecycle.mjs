@@ -1,5 +1,5 @@
 // This is an external local process supervisor, connected through an ordinary
-// module bridge. Hub Core only carries its own opaque request/response contract.
+// hub bridge. Hub Core only carries its own opaque request/response contract.
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Bridge } from '../../sdk/javascript/bridge-kit.mjs';
 import { hash } from '../../scripts/runtime/paths.mjs';

@@ -2,7 +2,7 @@
 
 # 整合包部署预设：Atomic 与 Mesh
 
-本规格约束可选 Launcher／Runtime 的部署行为。两种模式是可调整的部署预设，不限制程序形态，不是 Hub 业务模型，也不表示多进程业务事务具有原子性。Hub 继续只处理身份、模块桥权限、信息路由与留存。
+本规格约束可选 Launcher／Runtime 的部署行为。两种模式是可调整的部署预设，不限制程序形态，不是 Hub 业务模型，也不表示多进程业务事务具有原子性。Hub 继续只处理身份、枢纽桥权限、信息路由与留存。
 
 ## 1. 已有基础与本轮范围
 
@@ -129,4 +129,4 @@ Atomic 不承诺业务操作回滚或端到端成果成功。Mesh 不承诺应�
 - 原动态装配、全局 Hub 参数接线、升级与分发安装回归。
 - 故障注入仅由测试保留的确切 ChildProcess／所属树句柄发起，清理后核对实际退出。
 
-实现证据以实际进程、真实模块桥通信及保存后重启为准。静态图、Schema 或按钮存在本身不构成业务验收。相关基础见[动态装配规格](dynamic-pack-assembly-spec.md)、[本机 Hub 静态装配](global-hub-static-assembly-spec.md)与[部署规范](../ecosystem/pack-spec.md)。
+实现证据以实际进程、真实枢纽桥通信及保存后重启为准。静态图、Schema 或按钮存在本身不构成业务验收。相关基础见[动态装配规格](dynamic-pack-assembly-spec.md)、[本机 Hub 静态装配](global-hub-static-assembly-spec.md)与[部署规范](../ecosystem/pack-spec.md)。

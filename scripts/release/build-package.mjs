@@ -41,8 +41,8 @@ export const CURRENT_DOCUMENTATION_FILES = Object.freeze([
 export const SOFT_UI_MODULE_FILES = Object.freeze(['examples/soft-ui-modules/README.md',
   ...['desktop','counter'].flatMap(name=>['README.md','LICENSE','module.json','deployment.json','program.mjs','state.mjs','bridge-kit.mjs','blob-client.mjs'].map(file=>`examples/soft-ui-modules/${name}/${file}`)),
   ...['config.mjs','host.mjs','model.mjs','package.json','package-lock.json','desktop/main.cjs','desktop/manager-preload.cjs','desktop/view-preload.cjs','desktop/manager.html','desktop/manager.js','desktop/manager.css','desktop/view.html','desktop/view.js','desktop/view.css','desktop/assets/tray.png'].map(file=>'examples/soft-ui-modules/desktop/'+file)]);
-export const WORKSHOP_FILES = Object.freeze(['tools/workshop/cli.mjs', 'tools/workshop/store.mjs', 'tools/workshop/server.mjs', 'tools/workshop/media.mjs',
-  ...['index.html', 'app.mjs', 'style.css'].map(name => `tools/workshop/public/${name}`)]);
+export const WORKSHOP_FILES = Object.freeze(['tools/workshop/cli.mjs', 'tools/workshop/store.mjs', 'tools/workshop/server.mjs', 'tools/workshop/media.mjs', 'tools/workshop/artifact-configuration.mjs',
+  ...['index.html', 'app.mjs', 'artifact-config-view.mjs', 'style.css'].map(name => `tools/workshop/public/${name}`)]);
 export const INTEROP_FILES = Object.freeze(['bin/world-hub-interop.mjs', 'tools/interop/text-statistics.mjs',
   ...['javascript', 'python'].flatMap(language => ['authorship.json', 'README.md', language === 'javascript' ? 'provider.mjs' : 'provider.py'].map(file => `tools/interop/providers/${language}/${file}`))]);
 export const DOCUMENTATION_IMAGE_FILES = Object.freeze(

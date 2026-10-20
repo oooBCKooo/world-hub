@@ -96,7 +96,7 @@ Windows Node 参考 profile 中，Node 模块的 `package.json` 规范化完整�
 
 一个模块收到自己的 bridge token，不收到其他组件的秘密凭据或 Runtime 控制 token。`peers` 是部署交付的对方稳定 principal 地址；业务程序仍须从真实 welcome 和可信 delivery 核对身份，不采用载荷自报身份。每座桥必须自行 connect、核对 welcome、registerChannels、subscribe，并 await Hub 建立回执后才宣告自己的应用准备完成。
 
-多个桥槽对应同一程序中的多个模块桥。Reference profile 给组件共享主体；ACL 为该主体全部槽的权限并集。桥槽名不规定来源程序、目标程序或业务信息种类。模块没有义务把通信角色转成不同可执行程序。
+多个桥槽对应同一程序中的多个枢纽桥。Reference profile 给组件共享主体；ACL 为该主体全部槽的权限并集。桥槽名不规定来源程序、目标程序或业务信息种类。模块没有义务把通信角色转成不同可执行程序。
 
 ## 模块生命周期适配
 

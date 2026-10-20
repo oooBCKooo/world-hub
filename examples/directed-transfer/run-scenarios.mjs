@@ -53,7 +53,7 @@ const report = { passed, exitCode: code, startedAt, endedAt: new Date().toISOStr
   skipped: statistic('skipped'), cancelled: statistic('cancelled'), todo: statistic('todo'), expectedScenes: expectedNames,
   evidenceErrors,
   sceneCount: scenes.length, scenes, sources: hashes, ...(spawnError ? { spawnError } : {}),
-  scope: 'Independent local programs through actual module bridge / Hub WebSocket',
+  scope: 'Independent local programs through actual hub bridge / Hub WebSocket',
   limitations: ['No external model API or real device acceptance', 'No cross-machine, long-duration load or power-loss acceptance', 'DSH application scenarios are a separate optional suite'] };
 await writeFile(join(directory, 'scenarios.tap'), stdout);
 await writeFile(join(directory, 'stderr.txt'), stderr);
