@@ -187,14 +187,17 @@ function card(item) {
 }
 function renderCatalog() {
   const search = el('input',{name:'search',type:'search',maxlength:128,value:state.search,placeholder:t('searchPlaceholder')});
-  const kind = el('select',{name:'kind'},[['',t('allKinds')],['module',t('module')],['configuration',t('configuration')],['data',t('data')]].map(([value,text]) => el('option',{value,text}))); kind.value = state.kind;
   const contract = el('input',{name:'contract',maxlength:128,value:state.contract,placeholder:t('contractPlaceholder')});
-  const filters = el('form',{id:'catalog-filter',class:'filters'},[el('label',{},[t('search'),search]),el('label',{},[t('kind'),kind]),el('label',{},[t('contract'),contract]),el('button',{type:'submit',class:'button',text:t('filter')})]);
-  filters.addEventListener('submit',event => { event.preventDefault(); state.search = search.value.trim(); state.kind = kind.value; state.contract = contract.value.trim(); state.offset = 0; loadRoute(); });
+  const applyFilters = (kind = state.kind) => {
+    state.search = search.value.trim(); state.kind = kind; state.contract = contract.value.trim(); state.offset = 0;
+    return loadRoute();
+  };
+  const filters = el('form',{id:'catalog-filter',class:'filters'},[el('label',{},[t('search'),search]),el('label',{},[t('contract'),contract]),el('button',{type:'submit',class:'button',text:t('filter')})]);
+  filters.addEventListener('submit',event => { event.preventDefault(); return applyFilters(); });
   const total = state.catalog?.total ?? 0, items = state.catalog?.publications ?? [];
   const paging = el('div',{class:'pagination'},[button(t('previous'),() => { state.offset = Math.max(0,state.offset - state.limit); loadRoute(); }),el('span',{text:t('page',{page:Math.floor(state.offset/state.limit)+1})}),button(t('next'),() => { state.offset += state.limit; loadRoute(); })]);
   paging.firstChild.disabled = state.offset === 0; paging.lastChild.disabled = state.offset + state.limit >= total;
-  const kinds = el('div',{class:'resource-tabs',role:'group','aria-label':t('resourceTypes')},['','module','configuration','data'].map(value => { const tab = button(t(value || 'allKinds'),() => { state.kind = value; state.offset = 0; loadRoute(); },state.kind === value ? 'primary' : 'quiet'); tab.setAttribute('aria-pressed',String(state.kind === value)); tab.dataset.kind = value; return tab; }));
+  const kinds = el('div',{class:'resource-tabs',role:'group','aria-label':t('resourceTypes')},['','module','configuration','data'].map(value => { const tab = button(t(value || 'allKinds'),() => applyFilters(value),state.kind === value ? 'primary' : 'quiet'); tab.setAttribute('aria-pressed',String(state.kind === value)); tab.dataset.kind = value; return tab; }));
   replaceView(hero(),el('div',{class:'toolbar'},[el('div',{},[el('h2',{},[t('collection'),el('span',{class:'count',text:t('items',{count:total})})])]),filters]),kinds,items.length ? el('div',{class:'card-grid'},items.map(card)) : empty(t(state.search || state.contract || state.kind ? 'noResults' : 'noPublications'),t(state.search || state.contract || state.kind ? 'emptyFilter' : 'emptyText'),link(t('share'),'#publish','button primary')),total > state.limit ? paging : null,sourceStrip(),boundary());
 }
 async function readArtifact(file) {
