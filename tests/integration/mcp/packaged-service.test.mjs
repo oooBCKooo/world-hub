@@ -44,10 +44,10 @@ test('actual npm tarball prepares only optional production dependencies and serv
   await execute([npm, 'install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', '--save=false', archive], { cwd: workspace });
   const installed = join(workspace, 'node_modules/world-hub'), entry = join(installed, 'bin/world-hub-mcp.mjs');
   await assert.rejects(access(join(installed, 'tools/mcp/node_modules')));
-  const prepared = await execute([entry, '--prepare'], { cwd: f.root,
-    // The agents prerequisite already fetched this exact lock. Preparation must
-    // work from the npm cache, without depending on a second registry request.
-    env: { ...process.env, npm_config_offline: 'true' } });
+  // Preparation is an explicit dependency download in the real CLI contract.
+  // Windows runners may select a different npm cache inside npm-run than in
+  // the prerequisite step. Do not silently require that unrelated cache state.
+  const prepared = await execute([entry, '--prepare'], { cwd: f.root });
   const report = JSON.parse(prepared.stdout);
   assert.equal(report.prepared, true); assert.equal(report.lifecycleScripts, false); assert.equal(report.startsPrograms, false);
   const serverManifest = JSON.parse(await readFile(join(installed, 'tools/mcp/node_modules/@modelcontextprotocol/server/package.json'), 'utf8'));
