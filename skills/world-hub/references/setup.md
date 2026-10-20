@@ -8,7 +8,7 @@ To install this Skill in a client's chosen directory, run `world-hub-skill --ins
 
 Establish whether the user wants a new local Hub or an existing one. For an existing deployment, obtain its actual configuration/data location and endpoint. Avoid starting a second process against the same port, configuration, or data directory.
 
-The CLI and JavaScript SDK require Node.js 22.4.0 or later. Inspect `node --version` and the installed CLI's `world-hub --help`. To inspect the npm package version, use `npm ls --global world-hub --depth=0` for a global installation, or `npm ls world-hub --depth=0` in the program's project. The Hub CLI does not have a `--version` option.
+The CLI and JavaScript SDK require Node.js 22.4.0 or later. Inspect `node --version`, `world-hub --version`, and the installed CLI's `world-hub --help`. To identify the installation, use `npm ls --global world-hub --depth=0` for a global installation, or `npm ls world-hub --depth=0` in the program's project. Use commands supported by that installed release.
 
 ## Install and start a new local deployment
 
@@ -77,6 +77,8 @@ Restart the owned Hub. Pass `credential: 'agent.tools'` and its token to the fir
 ## Separate optional UI
 
 Hub is headless: its root is JSON, `/manage` serves no page, and `--open` is not a Hub option. Read `ready.endpoint`, `ready.statusUrl` and `ready.managementApiUrl`. World Hub UI is installed and started separately with an explicit Hub address; never require it for SDK or MCP communication.
+
+To operate the running deployment, use `world-hub status --hub <actual-http-origin> --json` and the commands described in [management](management.md). The CLI uses the public local management API; it does not require a browser or a communicating bridge. Do not confuse its HTTP origin with a `ws://.../bridge` communication endpoint.
 
 ## Diagnose with the narrowest check
 

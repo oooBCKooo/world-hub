@@ -13,11 +13,11 @@ let suite = 'node', evidenceRoot = join(root, '.artifacts/evidence');
 const seen = new Set();
 for (let index = 0; index < args.length; index += 2) {
   const option = args[index], value = args[index + 1];
-  if (!['--suite', '--evidence'].includes(option) || !value || seen.has(option)) throw new Error('usage: node scripts/verify.mjs [--suite node|dsh|cross-language|demos|capabilities|ecosystem|launcher|workshop|interop|agents|resources] [--evidence directory]');
+  if (!['--suite', '--evidence'].includes(option) || !value || seen.has(option)) throw new Error('usage: node scripts/verify.mjs [--suite node|dsh|cross-language|demos|capabilities|ecosystem|launcher|workshop|interop|agents|cli|resources] [--evidence directory]');
   seen.add(option);
   if (option === '--suite') suite = value; else evidenceRoot = resolve(value);
 }
-if (!['node', 'dsh', 'cross-language', 'demos', 'capabilities', 'ecosystem', 'launcher', 'workshop', 'interop', 'agents', 'resources'].includes(suite)) throw new Error(`unknown suite: ${suite}`);
+if (!['node', 'dsh', 'cross-language', 'demos', 'capabilities', 'ecosystem', 'launcher', 'workshop', 'interop', 'agents', 'cli', 'resources'].includes(suite)) throw new Error(`unknown suite: ${suite}`);
 const directory = join(evidenceRoot, `${suite}-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID()}`);
 await mkdir(directory, { recursive: true });
 const report = { suite, startedAt: new Date().toISOString(), node: process.version, platform: process.platform, arch: process.arch,
@@ -92,6 +92,12 @@ try {
   } else if (suite === 'resources') {
     const cases = (await readdir(join(root, 'tests/integration/resources'))).filter(name => name.endsWith('.test.mjs')).sort().map(name => `tests/integration/resources/${name}`);
     await execute('Independent module bodies, configurations, data, switching and retention cleanup', nodeTests(cases), { test: true });
+  } else if (suite === 'cli') {
+    const cases = [];
+    for (const directory of ['cli-management', 'management-client']) {
+      cases.push(...(await readdir(join(root, 'tests/integration', directory))).filter(name => name.endsWith('.test.mjs')).sort().map(name => `tests/integration/${directory}/${name}`));
+    }
+    await execute('Noninteractive CLI management, shared HTTP client and independent Hub execution', nodeTests(cases), { test: true });
   } else if (suite === 'agents') {
     const cases = (await readdir(join(root, 'tests/integration/mcp'))).filter(name => name.endsWith('.test.mjs')).sort().map(name => `tests/integration/mcp/${name}`);
     await execute('Official Skill installation and real MCP stdio communication over independent Hub bridges', nodeTests(cases), { test: true });

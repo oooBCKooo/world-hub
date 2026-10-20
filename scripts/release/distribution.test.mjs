@@ -31,6 +31,11 @@ test('source distribution is independent of local runtime caches and copies only
   const pkg = JSON.parse(await readFile(join(repository, 'package.json'), 'utf8'));
   assert.equal(manifest.version, pkg.version);
   assert.equal(manifest.kind, 'source');
+  const metadata = JSON.parse(await readFile(join(bundle, 'package.json'), 'utf8'));
+  assert.equal(metadata.exports['./management'], './sdk/javascript/management-client.mjs');
+  const commands = spawnSync(process.execPath, ['bin/world-hub.mjs', 'operations', '--json'], { cwd: bundle, encoding: 'utf8', windowsHide: true });
+  assert.equal(commands.status, 0, commands.stderr);
+  assert.ok(JSON.parse(commands.stdout).operations.some(operation => operation.name === 'resources.profiles.apply'));
   assert.equal(manifest.runtime, null);
   assert.equal(built.runtimeVerified, false);
   assert.equal((await verifyPackage(bundle)).passed, true);

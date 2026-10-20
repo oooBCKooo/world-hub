@@ -44,6 +44,14 @@ test('actual npm tarball prepares only optional production dependencies and serv
   await execute([npm, 'install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', '--save=false', archive], { cwd: workspace });
   const installed = join(workspace, 'node_modules/world-hub'), entry = join(installed, 'bin/world-hub-mcp.mjs');
   await assert.rejects(access(join(installed, 'tools/mcp/node_modules')));
+  const cli = join(installed, 'bin/world-hub.mjs');
+  const catalog = JSON.parse((await execute([cli, 'operations', '--json'], { cwd: workspace })).stdout);
+  assert.ok(catalog.operations.some(operation => operation.name === 'resources.profiles.apply'));
+  const state = JSON.parse((await execute([cli, 'state', '--hub', f.hub.httpBase, '--json'], { cwd: workspace })).stdout);
+  assert.equal(state.csrfToken, undefined); assert.ok(state.hub);
+  const exported = await execute(['--input-type=module', '--eval', "import { ManagementClient } from 'world-hub/management'; const value = await new ManagementClient({url:process.argv[1]}).execute('hub.status'); process.stdout.write(JSON.stringify({hasStorage:!!value.storage}));", f.hub.httpBase], { cwd: workspace });
+  assert.equal(JSON.parse(exported.stdout).hasStorage, true);
+  await assert.rejects(access(join(installed, 'tools/mcp/node_modules')), 'management CLI and SDK need no MCP runtime installation');
   // Preparation is an explicit dependency download in the real CLI contract.
   // Windows runners may select a different npm cache inside npm-run than in
   // the prerequisite step. Do not silently require that unrelated cache state.
@@ -62,7 +70,7 @@ test('actual npm tarball prepares only optional production dependencies and serv
   const transport = new StdioClientTransport({ command: process.execPath, args: [entry, '--config', configFile], cwd: f.root, stderr: 'pipe' });
   let stderr = ''; transport.stderr?.on('data', bytes => { stderr += bytes.toString('utf8'); });
   await client.connect(transport, { timeout: 5000 });
-  assert.equal((await client.listTools()).tools.length, 14);
+  assert.equal((await client.listTools()).tools.length, 16);
   const identity = resultData(await client.callTool({ name: 'hub_identity', arguments: {} }, { timeout: 5000 }));
   assert.equal(identity.authenticated, true); assert.equal(identity.principal, 'mcp.tools');
   assert.ok(!stderr.includes(f.tokens['mcp.tools']));

@@ -89,8 +89,22 @@ export async function planNpmInvocation(args, { cwd = process.cwd(), packageRoot
 }
 
 export async function runNpmCli(argv = process.argv.slice(2), options = {}) {
+  if (argv.length === 1 && ['--version', '-V'].includes(argv[0])) {
+    const metadata = JSON.parse(await readFile(join(options.packageRoot ?? PACKAGE_ROOT, 'package.json'), 'utf8'));
+    process.stdout.write(metadata.version + '\n'); return;
+  }
+  if (argv[0] === 'start') argv = argv.slice(1);
+  else if (argv[0] && (!argv[0].startsWith('-') || ['--hub', '--json', '--raw', '--input', '--timeout', '--secrets-file'].includes(argv[0]))) {
+    const { runManagementCli } = await import('./management-cli.mjs');
+    const code = await runManagementCli(argv, options);
+    if (code) process.exitCode = code;
+    return;
+  }
   const args = parseNpmArgs(argv);
-  if (args.help) { process.stdout.write(HELP); return; }
+  if (args.help) {
+    const { MANAGEMENT_HELP } = await import('./management-cli.mjs');
+    process.stdout.write(HELP + '\n' + MANAGEMENT_HELP); return;
+  }
   const plan = await planNpmInvocation(args, options);
   if (args.check) { process.stdout.write(JSON.stringify(plan.checked, null, 2) + '\n'); return; }
   if (plan.materialize) {

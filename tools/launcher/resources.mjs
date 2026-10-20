@@ -24,6 +24,10 @@ const ordered = value => Array.isArray(value) ? value.map(ordered) : value && ty
 const same = (a, b) => JSON.stringify(ordered(a)) === JSON.stringify(ordered(b));
 const configOf = row => ({ topics: clone(row.topics), bridges: clone(row.bridges), settings: clone(row.settings), bindings: clone(row.bindings) });
 const running = row => ['running', 'starting', 'stopping', 'unknown'].includes(row.state);
+const membersEqual = (first, second) => first.length === second.length && first.every(id => second.includes(id));
+const translatedPlan = (profile, mapping) => { const plan = profile.manifest.startupPlan; return { ...clone(plan),
+  members: plan.members.map(row => ({ ...row, programId: mapping[row.programId], after: row.after.map(id => mapping[id]) })),
+  startupOrder: plan.startupOrder.map(id => mapping[id]) }; };
 
 export class ModuleResources {
   constructor(owner) {
@@ -40,6 +44,8 @@ export class ModuleResources {
       validateConfiguration(p.manifest);
       if (p.profileId !== 'c-' + hash(JSON.stringify(p.manifest)).slice(0, 32) || !p.mapping || typeof p.mapping !== 'object' || Array.isArray(p.mapping) || Object.keys(p.mapping).some(id => !p.manifest.modules.some(member => member.id === id)) || typeof p.retained !== 'boolean') throw fail('RESOURCE_REGISTRY_INVALID', 'Invalid saved configuration identity or mapping.');
       for (const id of Object.values(p.mapping)) safeId(id);
+      if (p.groupId !== undefined) safeId(p.groupId, 'configuration group ID');
+      if (p.ownsGroup !== undefined && typeof p.ownsGroup !== 'boolean') throw fail('RESOURCE_REGISTRY_INVALID', 'Invalid configuration group ownership.');
     }
     for (const d of value.data) { validateData(d.manifest); if (!/^[a-f0-9]{64}$/.test(d.contentDigest) || d.dataId !== 'd-' + d.contentDigest.slice(0, 32)) throw fail('RESOURCE_REGISTRY_INVALID', 'Invalid saved data identity.'); }
     for (const key of ['profiles', 'data']) if (new Set(value[key].map(row => `${row.manifest.id}@${row.manifest.version}`)).size !== value[key].length) throw fail('RESOURCE_REGISTRY_INVALID', 'Duplicate resource versions.');
@@ -152,7 +158,11 @@ export class ModuleResources {
     return this.local.enqueue(async () => {
       this.checkRevision(input.expectedRevision);
       if (!Array.isArray(input.profileIds) || !input.profileIds.length || new Set(input.profileIds).size !== input.profileIds.length || input.profileIds.some(id => !this.state.active.includes(id))) throw fail('CONFIGURATION_SELECTION_INVALID', 'Select currently active configuration versions.');
-      await this.save(state => { state.active = state.active.filter(id => !input.profileIds.includes(id)); });
+      const groups = this.local.groups;
+      try { await this.save(state => {
+        state.active = state.active.filter(id => !input.profileIds.includes(id));
+        this.local.groups = this.retainedProfileGroups(new Map(groups), state.active);
+      }); } catch (error) { this.local.groups = groups; throw error; }
       return { activeProfileIds: clone(this.state.active), preservesData: true, changesRunningState: false, revision: this.revision() };
     });
   }
@@ -228,6 +238,61 @@ export class ModuleResources {
     stage.records = new Map([...local.records].map(([id, row]) => [id, clone(row)])); stage.identities = new Map(local.identities); stage.groups = new Map(local.groups); stage.startupPlanData = clone(local.startupPlanData);
     stage.save = async () => {}; return stage;
   }
+  profileOwnsGroup(profile, group) {
+    // An ID prefix is never ownership evidence. Recognize old generated groups
+    // only when their exact saved recipe and publisher mapping also agree.
+    if (!group || !(profile.ownsGroup === true && profile.groupId === group.id
+      || group.id === `configuration-${hash(profile.manifest.id).slice(0, 24)}`)) return false;
+    const origin = group.origin, logical = profile.manifest.modules.map(member => member.id);
+    return origin?.id === profile.manifest.id && origin.version === profile.manifest.version
+      && membersEqual(Object.keys(origin.members), logical)
+      && group.memberProgramIds.every(id => Object.values(origin.members).includes(id))
+      && same(group.wiringBaseline, moduleGroupWiringBaseline(profile.manifest));
+  }
+  generatedProfileGroups() {
+    return new Set([...this.local.groups.values()].filter(group => this.state.profiles.some(profile => this.profileOwnsGroup(profile, group))).map(group => group.id));
+  }
+  retainedProfileGroups(groups, activeIds, keepGroupId, rebindProfileIds = []) {
+    for (const groupId of this.generatedProfileGroups()) {
+      if (groupId === keepGroupId) continue;
+      const group = groups.get(groupId);
+      const retained = group && activeIds.some(id => {
+        if (rebindProfileIds.includes(id)) return false;
+        const profile = this.profile(id);
+        return (profile.groupId === groupId || this.profileOwnsGroup(profile, group))
+          && membersEqual(Object.values(profile.mapping), group.memberProgramIds);
+      });
+      if (!retained) groups.delete(groupId);
+    }
+    return groups;
+  }
+  configurationGroup(profile, mapping, replacement, requestedGroupId) {
+    const ids = Object.values(mapping), generated = this.generatedProfileGroups();
+    const matches = [...this.local.groups.values()].filter(group => membersEqual(group.memberProgramIds, ids));
+    const business = matches.filter(group => !generated.has(group.id));
+    let target;
+    if (requestedGroupId !== undefined) {
+      safeId(requestedGroupId, 'configuration group ID');
+      target = matches.find(group => group.id === requestedGroupId);
+      if (!target) return { groupId: requestedGroupId, conflicts: [{ code: 'CONFIGURATION_GROUP_MEMBERS_MISMATCH', groupId: requestedGroupId }] };
+    } else if (business.length > 1) return { conflicts: [{ code: 'CONFIGURATION_GROUP_CHOICE_REQUIRED', groupIds: business.map(group => group.id).sort() }] };
+    else target = business[0] ?? matches.find(group => group.id === profile.groupId) ?? matches.sort((a, b) => a.id.localeCompare(b.id))[0];
+    const groupId = target?.id ?? `configuration-${hash(JSON.stringify([...ids].sort())).slice(0, 24)}`;
+    if (!target && this.local.groups.has(groupId)) return { groupId, conflicts: [{ code: 'CONFIGURATION_GROUP_ID_CONFLICT', groupId }] };
+    const retainedActive = this.state.active.filter(id => !replacement.includes(id) && id !== profile.profileId);
+    const plan = translatedPlan(profile, mapping), rebindProfileIds = [], conflicts = [];
+    for (const activeId of retainedActive) {
+      const active = this.profile(activeId);
+      if (!membersEqual(Object.values(active.mapping), ids)) continue;
+      if (!same(translatedPlan(active, active.mapping), plan)) conflicts.push({ code: 'ACTIVE_CONFIGURATION_GROUP_CONFLICT', groupId, profileId: activeId });
+      if (active.groupId !== groupId && [...this.local.groups.values()].some(group => generated.has(group.id)
+        && (active.groupId === group.id || this.profileOwnsGroup(active, group)))) rebindProfileIds.push(activeId);
+    }
+    const prospective = this.retainedProfileGroups(new Map(this.local.groups), retainedActive, groupId, rebindProfileIds);
+    if (!target && prospective.size >= 128) conflicts.push({ code: 'MODULE_GROUP_LIMIT' });
+    return { groupId, createsGroup: !target, ownsGroup: !target || generated.has(groupId), updatesGroup: Boolean(target), rebindProfileIds,
+      removesGroupIds: [...this.local.groups.keys()].filter(id => !prospective.has(id)), conflicts };
+  }
   async configurationPlan(input) {
     const profile = this.profile(input.profileId), manifest = profile.manifest, mapping = Object.assign(Object.create(null), profile.mapping, input.mapping), missingModules = await this.missing(profile), conflicts = [], changes = [], adds = [], requiresStop = [];
     if (input.mapping && (typeof input.mapping !== 'object' || Array.isArray(input.mapping) || Object.keys(input.mapping).some(id => !manifest.modules.some(member => member.id === id)))) throw fail('CONFIGURATION_MAPPING_INVALID', 'Map only this configuration’s logical instances.');
@@ -279,12 +344,14 @@ export class ModuleResources {
         executionPolicy: initialExecutionPolicy(found.deploymentReview?.deployment, member.configuration.executionDefaults), environment: {}, files: found.files, state: 'stopped' });
     }
     if (stage.records.size > 128) conflicts.push({ code: 'LOCAL_PROGRAM_LIMIT' });
-    const groupId = `configuration-${hash(manifest.id).slice(0, 24)}`;
-    if (!stage.groups.has(groupId) && stage.groups.size >= 128) conflicts.push({ code: 'MODULE_GROUP_LIMIT' });
+    const group = this.configurationGroup(profile, mapping, replacement, input.groupId);
+    conflicts.push(...group.conflicts);
     if (!missingModules.length && !conflicts.length) for (const member of manifest.modules) stage.validateBindings(mapping[member.id], inspected.get(mapping[member.id]).manifest, configured.get(mapping[member.id]).bindings);
     const retainedActiveInstances = new Set(this.state.active.filter(id => !replacement.includes(id)).flatMap(id => Object.values(this.profile(id).mapping)));
     for (const id of replacement.flatMap(id => Object.values(this.profile(id).mapping))) if (!Object.values(mapping).includes(id) && !retainedActiveInstances.has(id) && this.local.records.has(id) && running(this.local.row(id))) requiresStop.push(id);
     const review = { profileId: profile.profileId, scope: manifest.scope, mapping, replaceProfileIds: replacement, missingModules, conflicts, changes, adds, requiresStop: [...new Set(requiresStop)],
+      group: { groupId: group.groupId, createsGroup: group.createsGroup, ownsGroup: group.ownsGroup, updatesGroup: group.updatesGroup,
+        rebindProfileIds: group.rebindProfileIds ?? [], removesGroupIds: group.removesGroupIds ?? [] },
       restores: [...restored].map(([programId, value]) => ({ programId, module: value.row.module, metadataDigest: value.digest })), blocked: Boolean(missingModules.length || conflicts.length), preservesData: true, startsModules: false, removesInstances: false, revision: this.revision(), sourceReviews: [...inspected].map(([id, value]) => [id, value.digest]) };
     return { profile, stage, inspected, configured, restored, review, input: { ...clone(input), mapping, replaceProfileIds: replacement } };
   }
@@ -320,20 +387,26 @@ export class ModuleResources {
             }
           }
         }
-        const plan = profile.manifest.startupPlan, ids = profile.manifest.modules.map(member => fresh.review.mapping[member.id]);
-        const translated = { ...clone(plan), members: plan.members.map(row => ({ ...row, programId: fresh.review.mapping[row.programId], after: row.after.map(id => fresh.review.mapping[id]) })), startupOrder: plan.startupOrder.map(id => fresh.review.mapping[id]) };
+        const ids = profile.manifest.modules.map(member => fresh.review.mapping[member.id]);
+        const translated = translatedPlan(profile, fresh.review.mapping);
         if (profile.manifest.scope === 'global') {
           const all = [...stage.records.keys()]; stage.startupPlanData = publicStartupPlan({ ...translated, members: [...translated.members, ...all.filter(id => !ids.includes(id)).map(programId => ({ programId, enabled: false, after: [] }))], startupOrder: [...translated.startupOrder, ...all.filter(id => !ids.includes(id))] }, all);
         }
-        const groupId = `configuration-${hash(profile.manifest.id).slice(0, 24)}`;
-        stage.groups.set(groupId, normalizeModuleGroup({ id: groupId, title: profile.manifest.title, memberProgramIds: ids, startupPlan: translated,
-          origin: { id: profile.manifest.id, version: profile.manifest.version, members: fresh.review.mapping }, wiringBaseline: moduleGroupWiringBaseline(profile.manifest) }, [...stage.records.keys()]));
+        const { groupId, ownsGroup, rebindProfileIds } = fresh.review.group;
+        const remainingActive = this.state.active.filter(id => !fresh.review.replaceProfileIds.includes(id) && id !== profile.profileId);
+        stage.groups = this.retainedProfileGroups(stage.groups, remainingActive, groupId, rebindProfileIds);
+        const existingGroup = stage.groups.get(groupId);
+        stage.groups.set(groupId, normalizeModuleGroup(ownsGroup ? { id: groupId, title: profile.manifest.title, memberProgramIds: ids, startupPlan: translated,
+          origin: { id: profile.manifest.id, version: profile.manifest.version, members: fresh.review.mapping }, wiringBaseline: moduleGroupWiringBaseline(profile.manifest) }
+          : { ...existingGroup, startupPlan: translated }, [...stage.records.keys()]));
         // Runtime callbacks retain their row object. Never replace a live,
         // unchanged instance with a validation clone.
         const changedIds = new Set(fresh.review.changes.map(change => change.programId));
         for (const [id, row] of this.local.records) if (!additions.has(id) && !changedIds.has(id)) stage.records.set(id, row);
         this.local.records = stage.records; this.local.identities = stage.identities; this.local.groups = stage.groups; this.local.startupPlanData = stage.startupPlanData;
-        profile.mapping = clone(fresh.review.mapping); this.state.active = [...this.state.active.filter(id => !fresh.review.replaceProfileIds.includes(id) && id !== profile.profileId), profile.profileId];
+        profile.mapping = clone(fresh.review.mapping); profile.groupId = groupId; profile.ownsGroup = ownsGroup;
+        for (const id of rebindProfileIds) Object.assign(this.profile(id), { groupId, ownsGroup });
+        this.state.active = [...remainingActive, profile.profileId];
         await this.local.save(); this.reviews.delete(input.reviewId);
         return { profile: clone(profile), mapping: clone(profile.mapping), revision: this.revision(), preservesData: true, startsModules: false, stoppedProgramIds: fresh.review.requiresStop };
       } catch (error) { Object.assign(this.local, before); this.reviews.delete(input.reviewId); error.incompleteDestinations = [...additions].map(id => this.local.path(id)); error.stoppedProgramIds = stoppedProgramIds; error.credentialsMayBeRevoked = fresh.review.changes.length > 0; error.registrationsRetained = true; throw error; }

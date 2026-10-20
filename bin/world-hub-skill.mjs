@@ -6,7 +6,7 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDirectExecution } from '../scripts/cli-entry.mjs';
 
-export const SKILL_FILES = Object.freeze(['SKILL.md', 'references/setup.md', 'references/communication.md', 'references/modules.md', 'references/mcp.md']);
+export const SKILL_FILES = Object.freeze(['SKILL.md', 'references/setup.md', 'references/communication.md', 'references/modules.md', 'references/mcp.md', 'references/management.md']);
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 export const HELP = `World Hub Skill
 

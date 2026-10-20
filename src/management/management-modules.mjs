@@ -23,6 +23,9 @@ import { configurationRevision } from '../../tools/launcher/program-configuratio
 import { ManagementCommunity } from './management-community.mjs';
 
 const fail = (status, code, message) => Object.assign(new Error(message), { status, code });
+const groupsWithProfiles = (groups, state) => groups.map(group => ({ ...group,
+  activeProfiles: (state?.profiles ?? []).filter(profile => state.active.includes(profile.profileId) && profile.groupId === group.id)
+    .map(profile => ({ profileId: profile.profileId, id: profile.manifest.id, title: profile.manifest.title, version: profile.manifest.version, ownsGroup: profile.ownsGroup === true })) }));
 
 export class ManagementModules {
   constructor({ hub, config, root = null }) {
@@ -258,6 +261,10 @@ export class ManagementModules {
 
   async startGroup(groupId, options = {}) {
     const group = this.moduleGroups.row(groupId);
+    if (options.reviewId) {
+      const saved = this.localPrograms.reviewed(options.reviewId, 'startup-plan');
+      if (saved.review.groupId !== groupId || saved.review.groupRevision !== group.revision) throw fail(409, 'GROUP_REVIEW_TARGET_MISMATCH', 'Use the current startup review for this exact local group.');
+    }
     if (this.startupExecution?.active) throw fail(409, 'STARTUP_ACTIVE', '请等待当前启动计划结束');
     this.startupExecution = { active: true, currentProgramId: null, results: [] };
     try {
@@ -364,7 +371,7 @@ export class ManagementModules {
       return json(200, {
         programs,
         startupPlan: planOverview.plan,
-        groups: groupsList.groups,
+        groups: groupsWithProfiles(groupsList.groups, this.localPrograms.resourceState),
         dissolvedGroups: [...this.dissolvedGroups.values()],
         wiring,
         layout: this.layout
@@ -507,16 +514,34 @@ export class ManagementModules {
       const result = await this.moduleGroups.list();
       return json(200, {
         ...result,
+        groups: groupsWithProfiles(result.groups, this.localPrograms.resourceState),
         dissolvedGroups: [...this.dissolvedGroups.values()]
       });
     }
     if (method === 'POST' && pathname === '/manage/api/groups/save') {
-      const result = await this.moduleGroups.save(body);
+      let input = body;
+      if (body?.group && typeof body.group === 'object' && !Array.isArray(body.group)) {
+        // Snapshot metadata is derived from resources, never authored by a
+        // group editor. Round-tripping a public group cannot forge association.
+        const { activeProfiles: ignoredActiveProfiles, ...group } = body.group;
+        input = { ...body, group };
+      }
+      const result = await this.moduleGroups.save(input);
       if (body?.group?.id && this.dissolvedGroups.has(body.group.id)) {
         this.dissolvedGroups.delete(body.group.id);
         await this.saveDissolvedGroups();
       }
       return json(200, result);
+    }
+    const groupReviewMatch = pathname.match(/^\/manage\/api\/groups\/([a-z0-9][a-z0-9._-]{0,63})\/(review|stop-preview|stop-apply)$/);
+    if (groupReviewMatch) {
+      if (method !== 'POST') throw fail(405, 'METHOD_NOT_ALLOWED', 'Review and explicitly accept the selected local group operation.');
+      const [, groupId, action] = groupReviewMatch;
+      if (action === 'review') return json(200, await this.moduleGroups.reviewStart({ groupId, expectedRevision: body?.expectedRevision }));
+      if (action === 'stop-preview') return json(200, await this.moduleGroups.stopPreview({ groupId, expectedRevision: body?.expectedRevision }));
+      const saved = this.localPrograms.reviewed(body?.reviewId, 'group-stop');
+      if (saved.review.groupId !== groupId) throw fail(409, 'GROUP_REVIEW_TARGET_MISMATCH', 'Use the stop review for this exact local group.');
+      return json(200, await this.moduleGroups.applyStop(body ?? {}));
     }
     const groupActionMatch = pathname.match(/^\/manage\/api\/groups\/([a-z0-9][a-z0-9._-]{0,63})\/(remove|start|stop|restore|discard)$/);
     if (groupActionMatch && method === 'POST') {
@@ -553,11 +578,10 @@ export class ManagementModules {
             ...m,
             after: (m.after || []).filter(a => existingMembers.includes(a))
           }));
-          const keptOrder = (groupData.startupPlan.startupOrder || []).filter(mid => existingMembers.includes(mid));
           startupPlan = {
             ...groupData.startupPlan,
             members: keptMembers,
-            startupOrder: keptOrder
+            ...(Object.hasOwn(groupData.startupPlan, 'startupOrder') ? { startupOrder: groupData.startupPlan.startupOrder.filter(mid => existingMembers.includes(mid)) } : {})
           };
         }
         let origin = undefined;

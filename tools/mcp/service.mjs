@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { Bridge } from '../../sdk/javascript/bridge-kit.mjs';
 import { McpServer, fromJsonSchema } from '@modelcontextprotocol/server';
 import { validateConfig } from './config.mjs';
+import { ManagementClient } from '../../sdk/javascript/management-client.mjs';
+import { getManagementOperation } from '../../sdk/javascript/management-operations.mjs';
 
 const fail = (code, message) => Object.assign(new Error(message), { code });
 const bytesOf = value => Buffer.byteLength(JSON.stringify(value), 'utf8');
@@ -17,6 +19,26 @@ const optionsSchema = { type: 'object', properties: {
 const input = (properties = {}, required = []) => ({ type: 'object', properties, required, additionalProperties: false });
 const messageInput = input({ topic: topicSchema, body: {}, options: optionsSchema }, ['topic', 'body']);
 const directedInput = input({ target: targetSchema, topic: topicSchema, body: {}, options: optionsSchema }, ['target', 'topic', 'body']);
+const blobIdSchema = { type: 'string', pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' };
+const managementTools = new Set(['hub_manage_operations', 'hub_manage_read', 'hub_manage_write']);
+const managementSecretFields = new Set(['csrftoken', 'authorizationreceipt', 'token', 'credentialtokens', 'snippets', 'password', 'secret', 'privatekey']);
+
+// Keep only bounded operation identifiers when a successful result is too large
+// to return. Never retain arbitrary result text, configuration, or credentials.
+function receiptSummary(value) {
+  const receipt = {}, fields = ['seq', 'programId', 'groupId', 'profileId', 'dataId', 'reviewId', 'transactionId', 'revision'];
+  const candidates = [value?.result, value?.receipt, value?.request, value?.result?.profile, value?.result?.transaction];
+  for (const source of candidates) {
+    if (!source || typeof source !== 'object') continue;
+    for (const field of fields) {
+      if (Object.keys(receipt).length >= 4 || Object.hasOwn(receipt, field)) continue;
+      const item = source[field];
+      if (Number.isSafeInteger(item) && item >= 0 || typeof item === 'string' && item.length <= 128 && /^[a-zA-Z0-9._:-]+$/u.test(item)) receipt[field] = item;
+    }
+  }
+  if (Object.keys(receipt).length < 4 && typeof value?.blob?.id === 'string' && /^[0-9a-f-]{36}$/u.test(value.blob.id)) receipt.blobId = value.blob.id;
+  return receipt;
+}
 
 export const TOOL_DEFINITIONS = Object.freeze([
   ['hub_identity', 'Read the connected Hub identity, negotiated limits and local subscription state. No credentials are returned.', input(), true],
@@ -33,6 +55,8 @@ export const TOOL_DEFINITIONS = Object.freeze([
   ['hub_release', 'As provider, permit later capacity cleanup of recent messages successfully published through this MCP connection on locally allowed topics. This bounded local authorization does not cover another bridge, a prior connection, or an unknown timeout outcome. Release does not immediately delete information and is independent of consumer acknowledgment.', input({ seqs: { type: 'array', minItems: 1, maxItems: 128, uniqueItems: true, items: seqSchema } }, ['seqs'])],
   ['hub_blob_upload', 'Upload bounded base64 bytes using the Hub chunk protocol; returns an attachment descriptor. No local filesystem path or shell execution is available.', input({ data: { type: 'string' } }, ['data'])],
   ['hub_blob_read', 'Read one bounded base64 attachment chunk from a message actually received through this MCP connection on a locally permitted topic, including hub_call responses. Recent attachment authorizations are bounded; replay the message if it has expired from this local list. The Hub separately checks retained-message access. Offset/size/hash permit full-transfer verification. No local files are written.', input({ messageSeq: seqSchema, id: { type: 'string', minLength: 1, maxLength: 128 }, offset: { type: 'integer', minimum: 0 }, length: { type: 'integer', minimum: 1 } }, ['messageSeq', 'id']), true],
+  ['hub_blob_status', 'Read status only for a recent upload begun by this MCP connection. Upload ownership cannot be borrowed from another bridge or a prior connection. Status does not retry or resume an uncertain upload.', input({ id: blobIdSchema }, ['id']), true],
+  ['hub_blob_release', 'As provider, permit later capacity cleanup of a recent upload begun by this MCP connection. Release does not immediately delete bytes, remove retained message references, or decide another provider\'s retention policy. No automatic retry.', input({ id: blobIdSchema }, ['id'])],
 ]);
 
 function abortable(promise, signal, timeoutMs, onAbort) {
@@ -55,27 +79,30 @@ export class HubMcpService {
     this.subscriptionTokens = new Map(); this.subscriptionIds = new Map();
     this.attachmentReads = new Map();
     this.providerMessages = new Map();
+    this.providerBlobs = new Map();
+    this.management = this.config.management ? new ManagementClient({ url: this.config.management.url,
+      timeoutMs: this.config.limits.requestTimeoutMs, maxResponseBytes: this.config.limits.maxResultBytes }) : null;
   }
-  safe(value) {
-    const token = this.config.bridge.token;
+  safe(value, { management = false } = {}) {
+    const token = this.config.bridge?.token;
     // Known private credentials are never included, even if a remote error echoes them.
     // Redact JSON string values, never serialized JSON syntax or protocol
     // field names. Tokens may contain quotes/backslashes, and even a valid
     // one-character token such as "o" must not corrupt the fixed "ok" field.
     const redact = text => token ? text.split(token).join('[REDACTED]') : text;
     const copy = JSON.parse(JSON.stringify(value));
-    const visit = item => {
+    const visit = (item, opaque = false) => {
       if (typeof item === 'string') return redact(item);
-      if (Array.isArray(item)) return item.map(visit);
-      if (item && typeof item === 'object') return Object.fromEntries(Object.entries(item).map(([key, entry]) => [key, visit(entry)]));
+      if (Array.isArray(item)) return item.map(entry => visit(entry, opaque));
+      if (item && typeof item === 'object') return Object.fromEntries(Object.entries(item).filter(([key]) => opaque || !management || !managementSecretFields.has(key.toLowerCase())).map(([key, entry]) => [key, visit(entry, opaque || key === 'body' || key === 'bodyRaw')]));
       return item;
     };
     return visit(copy);
   }
   wake() { for (const notify of [...this.waiters]) notify(); }
-  check(signal) {
+  check(signal, communication = true) {
     if (this.closed) throw fail('CLOSED', 'MCP service is closed');
-    if (this.fault) throw fail(this.fault, 'Subscription buffering or connection integrity failed; restart this MCP connection before receiving again');
+    if (communication && this.fault) throw fail(this.fault, 'Subscription buffering or connection integrity failed; restart this MCP connection before receiving again');
     if (signal?.aborted) throw fail('CANCELLED', 'Local MCP wait cancelled');
   }
   topic(topic, direction) {
@@ -88,6 +115,7 @@ export class HubMcpService {
   }
   options(args) {
     const opts = { ...args.options };
+    if (opts.attachments) for (const id of opts.attachments) this.ownedBlob(id);
     if (opts.replyTo !== undefined) this.topic(opts.replyTo, 'subscribe');
     opts.timeoutMs = Math.min(opts.timeoutMs ?? this.config.limits.requestTimeoutMs, this.config.limits.requestTimeoutMs);
     return opts;
@@ -118,6 +146,7 @@ export class HubMcpService {
         // create a new, fully verified connection; no accepted work is retried.
         this.attachmentReads.clear();
         this.providerMessages.clear();
+        this.providerBlobs.clear();
         if (this.bridge === bridge) this.bridge = null;
         void bridge.close('MCP connection ended; a fresh handshake is required');
       });
@@ -209,17 +238,40 @@ export class HubMcpService {
     while (this.providerMessages.size > this.config.limits.maxBufferedMessages) this.providerMessages.delete(this.providerMessages.keys().next().value);
     return receipt;
   }
+  rememberBlob(id, bridge) {
+    this.providerBlobs.set(id, { principal: bridge.welcome.principal, session: bridge.welcome.session });
+    while (this.providerBlobs.size > this.config.limits.maxBufferedMessages) this.providerBlobs.delete(this.providerBlobs.keys().next().value);
+  }
+  ownedBlob(id) {
+    const owner = this.providerBlobs.get(id), welcome = this.bridge?.welcome;
+    if (!owner || owner.principal !== welcome?.principal || owner.session !== welcome?.session) throw fail('BLOB_NOT_UPLOADED', 'Use only recent uploads begun by this MCP connection; another bridge, a prior connection or an unknown upload ID is not authorized locally');
+  }
+  allowedManagementOperations() {
+    return (this.config.management?.operations ?? []).map(name => getManagementOperation(name));
+  }
+  async executeManagement(name, args, signal) {
+    if (!this.management) throw fail('MANAGEMENT_NOT_CONFIGURED', 'Management requires an explicit private management endpoint and operation allowlist; bridge credentials do not grant management authority');
+    const operations = this.allowedManagementOperations();
+    if (name === 'hub_manage_operations') return { ok: true, operations };
+    const operation = operations.find(item => item.name === args.operation);
+    if (!operation) throw fail('LOCAL_PERMISSION_DENIED', 'Management operation is not allowed by the private MCP configuration');
+    if ((name === 'hub_manage_read') !== operation.readOnly) throw fail('MANAGEMENT_OPERATION_KIND', 'Use the matching read or write management tool');
+    return { ok: true, operation: operation.name, result: await this.management.execute(operation.name, args.input ?? {}, { signal }) };
+  }
   getSub(id) {
     const sub = this.subscriptionIds.get(id);
     if (!sub) throw fail('SUBSCRIPTION_UNKNOWN', 'Subscription does not belong to this MCP connection');
     return sub;
   }
   async execute(name, args, signal) {
-    this.check(signal);
+    this.check(signal, !managementTools.has(name));
     if (!this.config.permissions.tools.includes(name)) throw fail('LOCAL_PERMISSION_DENIED', 'Tool is not allowed by the private MCP configuration');
     if (this.active >= this.config.limits.maxConcurrentTools) throw fail('TOOL_LIMIT', 'Too many concurrent MCP operations');
     this.active++;
     try {
+      // Management is a separate local authority. Do not open or trust a
+      // WebSocket bridge merely to execute an explicitly allowed HTTP action.
+      if (managementTools.has(name)) return await this.executeManagement(name, args, signal);
       const bridge = await this.connect(signal); this.check(signal);
       const opts = this.options(args);
       const wait = (promise, cleanup) => abortable(promise, signal, opts.timeoutMs + 100, cleanup);
@@ -328,9 +380,19 @@ export class HubMcpService {
           const bytes = Buffer.from(args.data, 'base64');
           if (bytes.toString('base64') !== args.data || bytes.length > this.config.limits.maxBlobBytes) throw fail('INPUT_INVALID', 'Expected canonical bounded base64');
           const source = async function* () { if (signal?.aborted) throw fail('CANCELLED', 'Local upload cancelled'); yield bytes; };
-          const blob = await wait(bridge.uploadStream(source(), { size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), timeoutMs: opts.timeoutMs, commitTimeoutMs: opts.timeoutMs }));
-          return { ok: true, blob };
+          let uploadId;
+          try {
+            const blob = await wait(bridge.uploadStream(source(), { size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), timeoutMs: opts.timeoutMs, commitTimeoutMs: opts.timeoutMs,
+              onProgress: progress => { uploadId = progress.id; if (this.bridge === bridge && bridge.connected) this.rememberBlob(progress.id, bridge); } }));
+            this.rememberBlob(blob.id, bridge);
+            return { ok: true, blob };
+          } catch (error) {
+            if (uploadId) error.details = { ...error.details, uploadId, outcome: 'Upload may be incomplete or committed. Inspect status explicitly; no automatic retry or release was performed.' };
+            throw error;
+          }
         }
+        case 'hub_blob_status': this.ownedBlob(args.id); return { ok: true, blob: await wait(bridge.blobStatus(args.id, opts)) };
+        case 'hub_blob_release': this.ownedBlob(args.id); return { ok: true, blob: await wait(bridge.releaseBlob(args.id, opts)) };
         case 'hub_blob_read': {
           const permission = this.attachmentReads.get(args.messageSeq);
           if (!permission?.ids.has(args.id)) throw fail('ATTACHMENT_NOT_RECEIVED', 'Read only attachments from messages recently received by this MCP connection; replay the message on an allowed topic first');
@@ -349,27 +411,51 @@ export class HubMcpService {
   async result(name, args, signal) {
     let value;
     try {
-      value = this.safe(await this.execute(name, args, signal));
-      if (bytesOf(value) * 2 + 512 > this.config.limits.maxResultBytes) throw fail('RESULT_LIMIT', 'MCP result exceeds the private limit; no Hub information was released');
+      value = this.safe(await this.execute(name, args, signal), { management: managementTools.has(name) });
+      if (bytesOf(value) * 2 + 512 > this.config.limits.maxResultBytes) {
+        const write = name === 'hub_manage_write' || !managementTools.has(name) && TOOL_DEFINITIONS.some(([tool, , , readOnly]) => tool === name && readOnly !== true);
+        const operation = name === 'hub_manage_write' ? args.operation : name;
+        throw Object.assign(fail('RESULT_LIMIT', write
+          ? 'Operation completed, but its result exceeds the private limit. Inspect current state; do not repeat the write.'
+          : 'MCP result exceeds the private limit.'), write ? { outcome: 'applied', retrySafe: false, details: { operation, receipt: receiptSummary(value) } } : {});
+      }
     } catch (error) {
       const message = String(error.message ?? 'Hub operation failed');
       const code = typeof error.code === 'string' ? error.code : /timed? ?out|timeout/i.test(message) ? 'LOCAL_TIMEOUT' : 'HUB_OPERATION_FAILED';
-      value = this.safe({ ok: false, error: { code, message: message.slice(0, 1024), ...(error.details ? { details: error.details } : {}) } });
+      value = this.safe({ ok: false, error: { code, message: message.slice(0, 1024), ...(error.details ? { details: error.details } : {}), ...(error.outcome ? { outcome: error.outcome } : {}), ...(typeof error.retrySafe === 'boolean' ? { retrySafe: error.retrySafe } : {}) } }, { management: managementTools.has(name) });
+      // Error diagnostics can themselves contain large server observations. Do
+      // not let them bypass the result limit or erase an uncertain write result.
+      if (bytesOf(value) * 2 + 512 > this.config.limits.maxResultBytes) {
+        const operation = managementTools.has(name) && getManagementOperation(args?.operation) ? args.operation : TOOL_DEFINITIONS.some(([tool]) => tool === name) ? name : undefined;
+        value.error = { code: value.error.code, message: value.error.message.slice(0, 160), ...(operation ? { operation } : {}),
+          ...(value.error.outcome ? { outcome: value.error.outcome } : {}), ...(typeof value.error.retrySafe === 'boolean' ? { retrySafe: value.error.retrySafe } : {}), diagnosticsOmitted: true };
+      }
     }
     return { content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value, ...(value.ok ? {} : { isError: true }) };
   }
   async close() {
     if (this.closed) return;
-    this.closed = true; this.wake(); this.clearBuffers(); this.subscriptions.clear(); this.subscriptionTokens.clear(); this.subscriptionIds.clear(); this.attachmentReads.clear(); this.providerMessages.clear(); await this.bridge?.close('MCP client disconnected');
+    this.closed = true; this.wake(); this.clearBuffers(); this.subscriptions.clear(); this.subscriptionTokens.clear(); this.subscriptionIds.clear(); this.attachmentReads.clear(); this.providerMessages.clear(); this.providerBlobs.clear(); await this.bridge?.close('MCP client disconnected');
   }
 }
 
 export function createHubMcpServer(config, service = new HubMcpService(config)) {
-  const server = new McpServer({ name: 'world-hub', version: '0.21.0', title: 'World Hub communication' }, { capabilities: { tools: {} } });
-  for (const [name, description, schema, readOnly = false] of TOOL_DEFINITIONS) {
+  const server = new McpServer({ name: 'world-hub', version: '0.21.0', title: 'World Hub communication and explicitly enabled local management' }, { capabilities: { tools: {} } });
+  const definitions = service.config.bridge ? [...TOOL_DEFINITIONS] : [];
+  if (service.config.management) {
+    const operations = service.allowedManagementOperations();
+    if (service.config.permissions.tools.includes('hub_manage_operations')) definitions.push(['hub_manage_operations', 'List only management operations explicitly permitted by this private MCP configuration. This does not connect a Hub bridge or grant additional operations.', input(), true]);
+    for (const [name, readOnly] of [['hub_manage_read', true], ['hub_manage_write', false]]) {
+      const names = operations.filter(operation => operation.readOnly === readOnly).map(operation => operation.name);
+      if (names.length && service.config.permissions.tools.includes(name)) definitions.push([name,
+        readOnly ? 'Execute one explicitly permitted local management read through the fixed private HTTP endpoint. No bridge connection or credential is used. Secrets are omitted.' : 'Execute one explicitly permitted local management write through the fixed private HTTP endpoint. Review/apply operations require the actual reviewId and explicit accepted:true; no automatic acceptance or retry. Results omit credentials and tokens.',
+        input({ operation: { type: 'string', enum: names }, input: { type: 'object', additionalProperties: true } }, ['operation']), readOnly]);
+    }
+  }
+  for (const [name, description, schema, readOnly = false] of definitions) {
     server.registerTool(name, {
       description, inputSchema: fromJsonSchema(schema),
-      annotations: { readOnlyHint: readOnly, destructiveHint: name === 'hub_release', idempotentHint: readOnly, openWorldHint: true },
+      annotations: { readOnlyHint: readOnly, destructiveHint: ['hub_release', 'hub_blob_release', 'hub_manage_write'].includes(name), idempotentHint: readOnly, openWorldHint: true },
     }, (args, context) => service.result(name, args, context.mcpReq.signal));
   }
   return { server, service };

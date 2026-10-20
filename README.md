@@ -72,6 +72,8 @@ Hub 负责接纳、寻址、留存和转交。信息何时释放由提供者策�
 
 本机管理 API 提供桥暂停／恢复／断开、程序接入、权限审阅、启动／停止、常驻／按需策略、接线、版本和模块资源管理。脚本、外部工具和独立 UI 使用同一套 API，保留回环、Host、Origin 与操作令牌检查。见[管理 API](docs/specs/management.md)。
 
+CLI 可直接使用这些管理功能。`world-hub operations --json` 查看完整目录；例如 `world-hub module list --hub http://127.0.0.1:8790 --json` 列出实例。复杂输入使用 JSON 文件，先审阅再显式应用；参见 [CLI 管理](docs/cli.md)。
+
 资源为独立版本的**模块本体、模块配置、模块数据**。全局／局部是范围，共用本体库；配置只引用精确本体。下载、应用配置、恢复数据和授权运行分别审阅，保留法清理不自动删除业务数据。见[模块资源](docs/specs/module-resources.md)。
 
 [Workshop](https://peros.cn/workshop/) 是可选的独立社区。此仓库提供账号、制品、来源与协作 API 后端，网页在 World Hub UI 项目。后端可不带网页单独启动；明确配置 `uiRoot` 时才挂载外部部署的静态目录。
@@ -84,7 +86,7 @@ world-hub-mcp --prepare
 world-hub-mcp --config ./private/world-hub-mcp.json
 ```
 
-Skill 提供公开文档；MCP 使用自己的枢纽桥、身份和授权通过 stdio 接入。两者不依赖界面，也不绕过通信权限。见[智能体接入](docs/ecosystem/agents.md)。
+Skill 提供公开文档与操作指引；MCP 通信使用自己的枢纽桥、身份和授权通过 stdio 接入。管理工具需另行明确配置本机 API 地址和精确操作名单，可独立于通信桥使用。两者不依赖界面，也不绕过对应权限。见[智能体接入](docs/ecosystem/agents.md)。
 
 ## 开发与验证
 

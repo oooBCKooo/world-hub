@@ -6,7 +6,7 @@ import { isDirectExecution } from '../../scripts/cli-entry.mjs';
 
 export async function runMcpCli(args = process.argv.slice(2)) {
   if (args.length === 1 && args[0] === '--help') {
-    process.stderr.write('World Hub MCP (2026-07-28, stdio)\nUsage: node tools/mcp/cli.mjs --config <private.json>\n'); return;
+    process.stderr.write('World Hub MCP (2026-07-28, stdio)\nUsage: node tools/mcp/cli.mjs --config <private.json>\nCommunication permissions and optional local HTTP management operations are explicitly selected in the private config. No TUI is started.\n'); return;
   }
   if (args.length !== 2 || args[0] !== '--config' || !args[1]) throw new Error('Usage: node tools/mcp/cli.mjs --config <private.json>');
   const config = await loadConfig(args[1]);

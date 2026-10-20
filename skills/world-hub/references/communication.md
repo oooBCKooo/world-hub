@@ -109,6 +109,10 @@ Allocate cursor files per logical Hub deployment and bridge instance. `instanceI
 
 For large objects, use the attachment/blob protocol and `world-hub/blob` helpers instead of enlarging a JSON body or inventing a URL download convention. Verify size/digest and the actual transfer result. A message receipt and the receiver's completion of a file transfer are different observations.
 
+`bridge.blobStatus(id)` observes an upload; `bridge.releaseBlob(id)` permits later capacity cleanup under its provider's policy. Neither confirms message consumption or immediately deletes bytes still referenced by retained information. In the MCP adapter, upload status, release and outgoing attachment IDs are further limited to that connection's recent own uploads; a received attachment remains a separate read authorization.
+
 Ordinary messages and `Bridge.call` do not wake a stopped managed program. An authorized local caller uses the runtime-provided lifecycle descriptor and `callManaged`, or holds an explicit lifecycle lease until actual completion. A timeout or lost lease leaves the outcome unknown; do not declare completion to force idle shutdown. The manager controls owned processes; Hub Core does not execute message contents.
+
+Use the CLI or the separately configured management MCP tools for deployment changes, as described in [management](management.md). Publishing a message that describes a command does not create management authority.
 
 Authoritative details: [JavaScript SDK](https://github.com/oooBCKooo/world-hub/blob/main/sdk/javascript/README.md), [Python SDK](https://github.com/oooBCKooo/world-hub/blob/main/sdk/python/README.md), [PowerShell SDK](https://github.com/oooBCKooo/world-hub/blob/main/sdk/powershell/README.md), [wire protocol](https://github.com/oooBCKooo/world-hub/blob/main/docs/specs/protocol.md), [directed calls and attachments](https://github.com/oooBCKooo/world-hub/blob/main/docs/specs/directed-and-bulk.md), and [managed lifecycle client](https://github.com/oooBCKooo/world-hub/blob/main/sdk/javascript/LIFECYCLE.md).

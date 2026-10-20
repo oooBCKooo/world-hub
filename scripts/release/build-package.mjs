@@ -13,13 +13,13 @@ export const APPLICATION_FILES = [
   ...['acl', 'address', 'blob-protocol', 'blob-store', 'hub', 'identity', 'router', 'store', 'topic', 'wire-json'].map(name => `src/hub/lib/${name}.mjs`),
   ...['management-http.mjs', 'management-modules.mjs', 'management-community.mjs', 'management-state.mjs'].map(name => `src/management/${name}`),
 ];
-export const SDK_FILES = ['sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-client.mjs', 'sdk/javascript/lifecycle-client.mjs',
+export const SDK_FILES = ['sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-client.mjs', 'sdk/javascript/lifecycle-client.mjs', 'sdk/javascript/management-client.mjs', 'sdk/javascript/management-operations.mjs',
   'sdk/python/hub_bridge.py', 'sdk/python/requirements.txt',
   'sdk/powershell/HubBridge.psm1', 'sdk/powershell/HubBridge.cs'];
 export const SDK_DOCUMENTATION_FILES = Object.freeze(['sdk/javascript/README.md', 'sdk/javascript/LIFECYCLE.md', 'sdk/python/README.md', 'sdk/powershell/README.md']);
 export const MODULE_CONTRACT_FILES = Object.freeze(['docs/modules/text-statistics.contract.json']);
 export const AGENT_FILES = Object.freeze(['bin/world-hub-skill.mjs', 'bin/world-hub-mcp.mjs',
-  ...['SKILL.md','references/setup.md','references/communication.md','references/modules.md','references/mcp.md'].map(name => `skills/world-hub/${name}`),
+  ...['SKILL.md','references/setup.md','references/communication.md','references/modules.md','references/mcp.md','references/management.md'].map(name => `skills/world-hub/${name}`),
   ...['package.json','package-lock.json','cli.mjs','config.mjs','service.mjs'].map(name => `tools/mcp/${name}`)]);
 export const ECOSYSTEM_SCHEMA_FILES = Object.freeze(['docs/ecosystem/module.schema.json', 'docs/ecosystem/module-group.schema.json', 'docs/ecosystem/configuration.schema.json', 'docs/ecosystem/data.schema.json', 'docs/ecosystem/deployment.schema.json', 'docs/ecosystem/publisher-vectors.json', 'docs/ecosystem/publisher-vector-check.py']);
 // No pack runtime or template entry is distributed. These files are retained
@@ -31,10 +31,10 @@ export const BUNDLED_TEMPLATE_FILES = Object.freeze([]);
 // The old Launcher UI and server are retired. These helpers are imported by
 // communication management and retain their internal paths without shipping
 // an additional user-facing application.
-export const LAUNCHER_FILES = Object.freeze(['bin/world-hub.mjs', 'scripts/cli-entry.mjs',
+export const LAUNCHER_FILES = Object.freeze(['bin/world-hub.mjs', 'bin/management-cli.mjs', 'scripts/cli-entry.mjs',
   ...['owner-lock','local-artifacts','local-programs','resources','program-configuration','module-groups','module-versions','module-uninstall','wiring-defaults','execution-policy','demand-lifecycle','global-external-programs','startup-plan','source-registry','paths-service','environment','topology'].map(name => `tools/launcher/${name}.mjs`)]);
 export const CURRENT_DOCUMENTATION_FILES = Object.freeze([
-  ...['README','deployment','development','npm','onboarding','releases','repository','verification'].map(name => `docs/${name}.md`),
+  ...['README','deployment','development','npm','cli','onboarding','releases','repository','verification'].map(name => `docs/${name}.md`),
   ...['modules','developer','developer.en','external-programs','external-programs.en','sources','trust','workshop','interop','agents','agents.en'].map(name => `docs/ecosystem/${name}.md`),
   ...['index','boundaries','protocol','reliability-access','directed-and-bulk','bridge-interoperability','management','module-resources','operations','ui-separation'].map(name => `docs/specs/${name}.md`),
   'docs/modules/provider-contract.md',
@@ -110,7 +110,7 @@ export async function buildPackage({ output, runtimeDirectory = null, sourceRoot
   await copy('scripts/release/verify-package.mjs', 'tooling');
   await copy('config/hub.json', 'configuration');
   await copy('LICENSE', 'license');
-  await add('package.json', JSON.stringify({ name: 'world-hub', version, private: true, type: 'module', license: 'MIT', engines: { node: '>=22.4.0' }, exports: { '.': './sdk/javascript/bridge-kit.mjs', './bridge': './sdk/javascript/bridge-kit.mjs', './blob': './sdk/javascript/blob-client.mjs', './lifecycle': './sdk/javascript/lifecycle-client.mjs', './workshop': './tools/workshop/server.mjs' }, scripts: { start: 'node scripts/launcher.mjs', check: 'node scripts/launcher.mjs --check', 'verify:package': 'node scripts/release/verify-package.mjs' } }, null, 2) + '\n', 'tooling');
+  await add('package.json', JSON.stringify({ name: 'world-hub', version, private: true, type: 'module', license: 'MIT', engines: { node: '>=22.4.0' }, exports: { '.': './sdk/javascript/bridge-kit.mjs', './bridge': './sdk/javascript/bridge-kit.mjs', './blob': './sdk/javascript/blob-client.mjs', './lifecycle': './sdk/javascript/lifecycle-client.mjs', './management': './sdk/javascript/management-client.mjs', './workshop': './tools/workshop/server.mjs' }, scripts: { start: 'node scripts/launcher.mjs', check: 'node scripts/launcher.mjs --check', 'verify:package': 'node scripts/release/verify-package.mjs' } }, null, 2) + '\n', 'tooling');
   await add('README.md', (await readFile(join(sourceRoot, 'README.md'), 'utf8')) + '\n' + portableReadme(version, kind), 'documentation');
   await copy('README.en.md', 'documentation');
   await add('start.cmd', wrapper('start'), 'tooling');
