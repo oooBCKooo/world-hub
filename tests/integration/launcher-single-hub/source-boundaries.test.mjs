@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cp, readFile, rename, writeFile } from 'node:fs/promises';
+import { cp, readFile, realpath, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createLauncherServer } from '../../../tools/launcher/server.mjs';
 import { publishArtifact, readSourceIndex, fetchSourceArtifact, validateSourceIndex } from '../../../scripts/runtime/sources.mjs';
@@ -112,15 +112,18 @@ test('hiding one module reference preserves all bytes, other versions, installed
   const fetched = await finish(await call('/api/sources/fetch', { sourceId, receiptId: inspected.body.receiptId, entryId: entry.entryId }));
   assert.equal(fetched.state, 'succeeded'); const directory = fetched.result.directory, before = await collectFiles(directory);
   const other = join(app.directory, 'other-version'); await cp(directory, other, { recursive: true });
+  // The registry returns canonical paths; Windows TEMP can use different case or an 8.3 name.
+  const canonicalOther = await realpath(other);
   const manifestFile = join(other, 'module.json'), manifest = JSON.parse(await readFile(manifestFile, 'utf8')); manifest.version = '2.0.0'; await writeFile(manifestFile, JSON.stringify(manifest));
-  await scene.server().manager.paths.remember({ path: other, purpose: 'module', library: true });
+  assert.equal((await scene.server().manager.paths.remember({ path: other, purpose: 'module', library: true })).path, canonicalOther);
   const registration = await call('/api/programs/preview', { directory, programId: 'retained-instance' }); assert.equal(registration.status, 200);
   assert.equal((await call('/api/programs/register', { reviewId: registration.body.reviewId, accepted: true })).status, 200);
   const removed = await call('/api/paths/forget', { path: directory, purpose: 'module' });
   assert.deepEqual([removed.body.deletesFiles, removed.body.removesInstances], [false, false]);
   await scene.restart(); await scene.server().manager.paths.discover({ directory: join(app.root, 'source-cache') });
   const known = (await call('/api/paths/known')).body.objects;
-  assert.equal(known.some(row => row.path === directory), false); assert.ok(known.some(row => row.path === other));
+  assert.equal(known.some(row => row.path === directory), false);
+  assert.ok(known.some(row => row.path === canonicalOther && row.version === '2.0.0' && row.libraryRegistered === true));
   assert.deepEqual(await collectFiles(directory), before); assert.equal((await call('/api/programs')).body.programs[0].programId, 'retained-instance');
   assert.equal(scene.server().manager.hub, null);
 });

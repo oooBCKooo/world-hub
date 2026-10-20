@@ -4,6 +4,15 @@ import { resolve, join, parse } from 'node:path';
 import { filteredEnv } from '../../scripts/runtime/package.mjs';
 import { processCwd, processPath, checkPythonExecutablePath } from '../../scripts/runtime/paths.mjs';
 
+// Interpreter aliases may be ordinary platform symlinks. Review and execute
+// their canonical regular-file target; module source trees keep their own
+// stricter no-link rules.
+async function canonicalExecutable(path) {
+  const executable = await realpath(resolve(path));
+  if (!(await lstat(executable)).isFile()) throw new Error('Interpreter is not a regular executable');
+  return executable;
+}
+
 export async function probe(command, kind) {
   try {
     let executable = command;
@@ -12,11 +21,11 @@ export async function probe(command, kind) {
       for (const directory of (process.env.PATH ?? '').split(process.platform === 'win32' ? ';' : ':')) {
         if (!directory) continue;
         const candidate = join(directory, command);
-        try { if ((await lstat(candidate)).isFile()) { executable = candidate; break; } } catch {}
+        try { executable = await canonicalExecutable(candidate); break; } catch {}
       }
       if (!executable) throw new Error(`Interpreter not found: ${command}`);
     }
-    executable = await realpath(resolve(executable));
+    executable = await canonicalExecutable(executable);
     if (kind === 'python') await checkPythonExecutablePath(executable);
     const code = kind === 'node'
       ? 'console.log(JSON.stringify({executable:process.execPath,version:process.versions.node,arch:process.arch,packages:{}}))'
@@ -26,7 +35,7 @@ export async function probe(command, kind) {
     if (result.error || result.status !== 0) throw new Error(result.error?.message ?? result.stderr.slice(0, 1024));
     const found = JSON.parse(result.stdout.trim());
     if (!/^\d+\.\d+\.\d+$/.test(found.version) || typeof found.executable !== 'string') throw new Error('Invalid interpreter response');
-    const actual = await realpath(found.executable);
+    const actual = await canonicalExecutable(found.executable);
     if ((process.platform === 'win32' ? actual.toLowerCase() !== executable.toLowerCase() : actual !== executable)) throw new Error('Interpreter wrappers are unsupported');
     return { available: true, executable, version: found.version, arch: found.arch, ...(kind === 'python' ? { pointerBits: found.pointerBits } : {}), packages: found.packages };
   } catch (error) { return { available: false, requested: command, error: String(error.message).slice(0, 1024) }; }
@@ -38,8 +47,8 @@ export async function discoverEnvironment(options = {}) {
   const add = async (kind, path, source) => {
     if (candidates.node.length + candidates.python.length >= 64) return;
     try {
-      const value = resolve(path), key = kind + ':' + (process.platform === 'win32' ? value.toLowerCase() : value);
-      if (seen.has(key) || !(await lstat(value)).isFile()) return;
+      const value = await canonicalExecutable(path), key = kind + ':' + (process.platform === 'win32' ? value.toLowerCase() : value);
+      if (seen.has(key)) return;
       seen.add(key); candidates[kind].push({ path: value, source, probed: false });
     } catch {}
   };

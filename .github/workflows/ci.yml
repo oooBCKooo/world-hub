@@ -22,6 +22,8 @@ jobs:
           python-version: '3.14.0'
       - name: Install the Python module bridge dependency
         run: python -m pip install -r sdk/python/requirements.txt
+      - name: Select the installed Python executable for runtime acceptance
+        run: python -c 'import os,sys; print("WORLD_HUB_RUNTIME_TEST_PYTHON=" + os.path.realpath(sys.executable))' >> "$GITHUB_ENV"
       - name: Linux Launcher ownership recovery and linked CLI entry paths
         run: node --test --test-timeout=120000 --test-concurrency=1 tests/integration/launcher/owner-lock.test.mjs tests/integration/npm/entry-paths.test.mjs
       - name: Linux owned program process-group retirement and local deployment lifecycle
