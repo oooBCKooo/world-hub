@@ -1034,9 +1034,9 @@ process.on('message', (msg) => {
     if (method === 'POST' && pathname === '/manage/api/workshop/inspect') {
       try {
         const source = body?.source?.trim() || 'https://peros.cn/workshop/index.json';
-        const result = await readSourceIndex(source, {
-          allowPrivateNetwork: body?.allowPrivateNetwork === true
-        });
+        const chosen = await this.sourceRegistry.resolve({ source, ...(body?.allowPrivateNetwork !== undefined ? { allowPrivateNetwork: body.allowPrivateNetwork === true } : {}) });
+        const result = await readSourceIndex(chosen.source, chosen);
+        await this.sourceRegistry.assertCurrent(chosen);
         const entries = result.index.entries.filter(entry => ['module', 'configuration', 'data'].includes(entry.kind));
         let catalog = null;
         try {
@@ -1204,10 +1204,9 @@ process.on('message', (msg) => {
       try {
         const cache = join(this.root, 'source-cache');
         await mkdir(cache, { recursive: true, mode: 0o700 });
-        const result = await fetchSourceArtifact(body.source, body.digest, body.entryId, {
-          cacheRoot: cache,
-          allowPrivateNetwork: body.allowPrivateNetwork === true
-        });
+        const chosen = await this.sourceRegistry.resolve({ source: body.source, ...(body.allowPrivateNetwork !== undefined ? { allowPrivateNetwork: body.allowPrivateNetwork === true } : {}) });
+        const result = await fetchSourceArtifact(chosen.source, body.digest, body.entryId, { ...chosen, cacheRoot: cache });
+        await this.sourceRegistry.assertCurrent(chosen);
         await this.pathsService.remember({ path: result.directory, purpose: result.kind, library: true });
         if (!['module', 'configuration', 'data'].includes(result.kind)) throw fail(400, 'RESOURCE_KIND_INVALID', 'Choose a module, configuration or data artifact.');
         const resource = await this.resources.import({ path: result.directory }, result.kind);

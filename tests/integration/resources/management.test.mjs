@@ -180,6 +180,11 @@ test('configuration preparation downloads exact pins only from enabled configure
   const sourceRecord = okay(await second.call(api)).sources[0];
   okay(await second.call(api + '/sources/save', { ...sourceRecord, enabled: false }));
   assert.equal(okay(await second.call(api)).sources[0].enabled, false);
+  const index = JSON.parse(await readFile(bodies.indexPath));
+  const inspectedDisabled = okay(await second.call('/manage/api/workshop/inspect', { source: bodies.indexPath }));
+  assert.equal(inspectedDisabled.ok, false); assert.equal(inspectedDisabled.error.code, 'SOURCE_DISABLED');
+  const refusedDisabled = refused(await second.call('/manage/api/workshop/fetch', { source: bodies.indexPath, digest: '0'.repeat(64), entryId: index.entries[0].entryId }));
+  assert.equal(refusedDisabled.error, 'SOURCE_DISABLED');
   okay(await second.call(api + '/sources/remove', { sourceId: source.source.id }));
   assert.deepEqual(okay(await second.call(api)).sources, []); assert.equal(second.owner.resources.state.bodies.length, 1);
 });
