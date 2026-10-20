@@ -198,8 +198,8 @@ test('structured context preserves system and history roles, appends current use
   await until(() => env.commands.filter((message) => message.topic === env.settings.channels.contextResponse && message.body.requestId === second.requestId).length >= 2);
   assert.equal(provider.state.value.conversations[first.sessionId].messages.length, 5, 'replayed request and assistant notification cannot append history twice');
   assert.deepEqual(env.commands.filter((message) => message.topic === env.settings.channels.contextResponse && message.body.requestId === second.requestId).at(-1).body.context.messages, expected);
-  const html = await (await fetch(env.ui.url)).text();
-  assert.ok(html.includes('系统提示词') && html.includes('本次交互之前的对话历史') && html.includes('选定附加材料'));
+  const service = await fetch(env.ui.url).then(response => response.json());
+  assert.deepEqual(service, { service: 'distributed-context-controller', interface: 'api', state: '/api/state' });
 });
 
 test('invalid selected JSON is an explicit context business error without plain-text fallback', async (t) => {
@@ -467,9 +467,9 @@ test('UI HTTP accepts local CLI and same-origin token, rejects cross-origin, mis
   assert.equal((await post(env.ui, { text: 'x'.repeat(32769) })).status, 413);
   assert.equal((await post(env.ui, { text: '浏览器同来源请求' }, { Origin: env.ui.url, 'X-UI-Token': data.csrfToken, 'Sec-Fetch-Site': 'same-origin' })).status, 202);
   assert.equal(env.ui.state.value.requests.length, 1);
-  const html = await (await fetch(env.ui.url)).text();
-  assert.ok(html.includes('node.textContent=text'));
-  assert.ok(!html.includes('innerHTML'));
+  const description = await fetch(env.ui.url);
+  assert.match(description.headers.get('content-type'), /^application\/json/);
+  assert.equal((await description.json()).interface, 'api');
 });
 
 test('application persistence failure leaves context delivery unacknowledged and does not publish a harness call', async (t) => {

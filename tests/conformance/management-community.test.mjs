@@ -178,14 +178,14 @@ test('management community: failed configuration commit retains the previous reg
   } finally { local.save = save; }
 });
 
-test('management community: community top-level link opens the local page while cross-site API requests stay blocked', async t => {
+test('management community: cross-site navigation cannot bypass local API gates and the UI is a separate project', async t => {
   const scene = await setup(t);
   const read = (path, extra = {}) => new Promise((done, reject) => {
     const req = request(scene.base + path, { headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document', ...extra } }, response => {
       response.resume(); response.on('end', () => done(response.statusCode));
     }); req.on('error', reject); req.end();
   });
-  assert.equal(await read('/manage'), 200);
+  assert.equal(await read('/manage'), 403);
   assert.equal(await read('/manage/api/programs'), 403);
   assert.equal(await read('/manage', { origin: 'https://peros.cn' }), 403);
   assert.equal(await read('/manage', { 'sec-fetch-mode': 'cors' }), 403);

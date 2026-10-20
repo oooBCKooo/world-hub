@@ -68,12 +68,11 @@ test('entry identification handles missing entries, unrelated modules and both a
 const guardedEntries = [
   ...new Set(checks.map(row => row.entry)),
   'scripts/deploy/workshop-deployment.mjs',
-  ...['build-demo-packages', 'build-ecosystem-package', 'build-independent-author-kit', 'build-package',
-    'demo-package-acceptance', 'ecosystem-package-acceptance', 'npm-package-acceptance', 'prepare-runtime',
-    'verify-demo-package', 'verify-package'].map(name => `scripts/release/${name}.mjs`),
+  ...['build-community-modules', 'build-independent-author-kit', 'build-package',
+    'npm-package-acceptance', 'prepare-runtime',
+    'verify-package'].map(name => `scripts/release/${name}.mjs`),
   ...['composition', 'directory', 'processor-a', 'processor-b'].map(name => `examples/capability-directory/${name}.mjs`),
   ...['context-program', 'ui-program'].map(name => `examples/distributed-context/${name}.mjs`),
-  ...['checklist-harness', 'explorer', 'extension-material', 'peer', 'run-demo', 'traffic-source'].map(name => `examples/purpose-demos/${name}.mjs`),
 ];
 for (const flags of [[], ['--preserve-symlinks-main', '--preserve-symlinks']]) {
   test(`importing CLI modules has no output, state or command execution (${flags.length ? 'preserved links' : 'default'})`, async () => {
@@ -130,7 +129,8 @@ test('the linked npm entry serves the actual Hub and stops its owned process cle
   try {
     const status = await fetch(`http://127.0.0.1:${program.ready.port}/status`, { signal: AbortSignal.timeout(5000) });
     assert.equal(status.status, 200);
-    assert.equal((await fetch(`http://127.0.0.1:${program.ready.port}/manage`, { signal: AbortSignal.timeout(5000) })).status, 200);
+    assert.equal((await fetch(`http://127.0.0.1:${program.ready.port}/manage/api/state`, { signal: AbortSignal.timeout(5000) })).status, 200);
+    assert.equal((await fetch(`http://127.0.0.1:${program.ready.port}/manage`, { signal: AbortSignal.timeout(5000) })).status, 404);
     const config = JSON.parse(await readFile(join(runtimeCwd, 'world-hub-data/hub.json'), 'utf8'));
     assert.equal(config.log.dir, './log');
   } finally {

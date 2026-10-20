@@ -112,7 +112,7 @@ try {
 }
 ```
 
-The manager sends newline-delimited JSON on stdin: `{"command":"health","id":"..."}` and `{"command":"stop"}`. The entry emits newline-delimited JSON on stdout: `module-ready`, and `module-health` with the original `id` and a boolean `ready`. Report readiness after connecting, subscribing and initializing application resources; close the bridge and your resources when stopping. This sample's readiness condition covers communication only; check any additional application resources too. The [Soft UI counter entry](../../examples/soft-ui-modules/counter/program.mjs) demonstrates settings, capability bindings, application state and directed messages.
+The manager sends newline-delimited JSON on stdin: `{"command":"health","id":"..."}` and `{"command":"stop"}`. The entry emits newline-delimited JSON on stdout: `module-ready`, and `module-health` with the original `id` and a boolean `ready`. Report readiness after connecting, subscribing and initializing application resources; close the bridge and your resources when stopping. This sample's readiness condition covers communication only; check any additional application resources too. The [text statistics module entry](../../examples/ecosystem-pack/modules/stats/program.py) demonstrates settings, capability bindings, application state and directed messages.
 
 This is the startup interface between the separate management layer and its managed child processes. The Hub wire protocol does not require this program structure. Independent programs may connect using their own arguments, configuration and lifecycle; application processing, pages and business storage remain inside those programs.
 

@@ -8,7 +8,6 @@ import { sourceFilesDigest } from '../../../scripts/runtime/resource-artifacts.m
 import { validateArtifactBytes, validateSourceIndex } from '../../../scripts/runtime/sources.mjs';
 import { createWorkshopServer } from '../../../tools/workshop/server.mjs';
 import { WorkshopStore, MAX_UPLOAD } from '../../../tools/workshop/store.mjs';
-import { renderArtifactConfiguration } from '../../../tools/workshop/public/artifact-config-view.mjs';
 import { workshopCall, registerMember } from './phase18-helpers.mjs';
 
 const password = 'resource-tests-local-password';
@@ -135,23 +134,4 @@ test('a dataset with two individually bounded files uploads and downloads more t
   assert.equal(preview.byteSize,9*1024*1024); assert.equal(preview.fileCount,2);
   const response = await fetch(`${service.baseURL}/artifacts/${publication.sha256}.json`), downloaded = Buffer.from(await response.arrayBuffer());
   assert.equal(response.status,200); assert.equal(hash(downloaded),publication.sha256); assert.deepEqual(downloaded,original);
-});
-
-class Element {
-  constructor(tag,value = '') { this.tag = tag; this.textContent = value; this.children = []; this.attributes = {}; }
-  setAttribute(key,value) { this.attributes[key] = String(value); }
-  append(...children) { this.children.push(...children); }
-}
-const document = {createElement:tag => new Element(tag),createTextNode:value => new Element('#text',String(value))};
-const text = node => [node.textContent,...node.children.map(text)].join('\n');
-test('validated configuration and dataset previews show scopes, exact dependencies and data sizes in both languages', async t => {
-  const {service,actor} = await fixture(t);
-  for (const [kind,required] of [['configuration',['Logical instances','resource.example@1.0.0','On demand','events','public dataset']],['data',['Ready-to-use dataset','reader.raw@1.0.0','records.bin','5 B']]]) {
-    const configuration = (await workshopCall(service,'api/artifacts/preview',{artifact:resources()[kind]},actor)).data.configuration;
-    const english = text(renderArtifactConfiguration(configuration,{language:'en',document}));
-    for (const phrase of required) assert.ok(english.toLowerCase().includes(phrase.toLowerCase()),phrase);
-    assert.match(english,/Global/); assert.doesNotMatch(english,/Module group|Group startup/);
-    const chinese = text(renderArtifactConfiguration(configuration,{language:'zh',document})); assert.match(chinese,/全局/);
-    assert.equal(text(renderArtifactConfiguration({...configuration,scope:'local'},{language:'zh',document})).includes('局部'),true);
-  }
 });

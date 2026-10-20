@@ -46,6 +46,6 @@ Report the endpoint and operation actually checked, whether a business response 
 
 ## Current product surface
 
-The communication management interface is `/manage` on the local Hub. Managed modules and module groups share that Hub. Programs can also run independently and connect without `module.json`. Packs, templates, per-pack Hubs, `world-hub-pack`, and the `world-hub/runtime` export are not current integration entry points.
+World Hub is headless. Local management is provided by `/manage/api/**`; `/manage` serves no page. World Hub UI is a separate optional project and is not needed by SDK or MCP clients. Managed module instances share the Hub. Programs can also run independently and connect without `module.json`. Packs, templates, per-pack Hubs, `world-hub-pack`, and the `world-hub/runtime` export are not current integration entry points.
 
 Use documentation matching the installed release. Public source and SDK documentation are in the [World Hub repository](https://github.com/oooBCKooo/world-hub); do not copy historical commands merely because an old file still exists in a checkout.

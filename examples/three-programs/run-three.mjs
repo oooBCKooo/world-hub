@@ -91,7 +91,7 @@ try {
   const info = JSON.parse(ready.text);
   console.log(`  ready: ${info.endpoint}  (pid ${info.pid})`);
   console.log(`  已登记桥: ${info.registeredBridges.join(', ')}`);
-  console.log(`  人看的调试页: ${info.debugUrl}`);
+  console.log(`  状态 API: ${info.statusUrl}`);
 
   console.log('\n▶ 2. 起 C（审计，只订 "#"，从 0 读全部历史）');
   const c = start('C.audit', [join(HERE, './c-audit.mjs')], { ...baseEnv, HUB_CURSOR_FILE: join(workDir, 'cursor-c.json') }, lines, 'app.audit');

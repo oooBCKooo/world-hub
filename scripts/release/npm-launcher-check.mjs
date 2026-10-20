@@ -5,18 +5,16 @@ import { spawn } from 'node:child_process';
 import { readFile, access } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash } from 'node:crypto';
 
 const workspace = dirname(fileURLToPath(import.meta.url));
 const packageRoot = dirname(fileURLToPath(import.meta.resolve('world-hub/package.json')));
 const pkg = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
-const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 assert.equal(pkg.exports['./runtime'], undefined);
 await assert.rejects(import('world-hub/runtime'), { code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' });
 for (const file of ['bin/world-hub-pack.mjs', 'tools/launcher/cli.mjs', 'tools/launcher/server.mjs', 'tools/launcher/manager.mjs', 'tools/launcher/public/index.html']) {
   await assert.rejects(access(join(packageRoot, file)), { code: 'ENOENT' });
 }
-const child = spawn(process.execPath, [join(packageRoot, 'bin/world-hub.mjs'), '--port', '0', '--data-dir', join(workspace, 'native-ui-data')], {
+const child = spawn(process.execPath, [join(packageRoot, 'bin/world-hub.mjs'), '--port', '0', '--data-dir', join(workspace, 'headless-data')], {
   cwd: workspace, shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc']
 });
 let stderr = '', readyObserved = false, resolveReady, rejectReady;
@@ -53,23 +51,14 @@ try {
     });
     const value = await response.json(); assert.equal(response.status, expected, JSON.stringify(value)); return value;
   };
-  const page = await fetch(endpoint + '/manage', { signal: AbortSignal.timeout(5000) });
-  assert.equal(page.status, 200); assert.match(page.headers.get('content-security-policy'), /frame-ancestors 'none'/);
-  assert.equal(hash(Buffer.from(await page.arrayBuffer())), hash(await readFile(join(packageRoot, 'src/management/console.html'))));
-  const assets = [
-    ['/ui/language.mjs', 'src/ui/language.mjs'],
-    ['/manage/canvas-i18n.mjs', 'src/management/canvas-i18n.mjs'],
-    ['/manage/canvas-modes.mjs', 'src/management/canvas-modes.mjs'],
-    ['/manage/manual-i18n.mjs', 'src/management/manual-i18n.mjs'],
-    ['/manage/manual-bridge.mjs', 'src/management/manual-bridge.mjs'],
-    ['/manage/manual-console.mjs', 'src/management/manual-console.mjs'],
-    ['/manage/manual-experience-state.mjs', 'src/management/manual-experience-state.mjs'],
-    ['/manage/manual-console.css', 'src/management/manual-console.css']
-  ];
-  for (const [path, source] of assets) {
+  assert.equal(receipt.managementUrl, undefined);
+  assert.equal(receipt.debugUrl, undefined);
+  assert.equal(receipt.statusUrl, endpoint + '/status');
+  assert.equal(receipt.managementApiUrl, endpoint + '/manage/api');
+  const removedRoutes = ['/manage', '/debug', '/ui/language.mjs', '/manage/canvas-modes.mjs', '/manage/manual-console.mjs'];
+  for (const path of removedRoutes) {
     const response = await fetch(endpoint + path, { signal: AbortSignal.timeout(5000) });
-    assert.equal(response.status, 200, path); assert.equal(response.headers.get('cache-control'), 'no-store');
-    assert.equal(hash(Buffer.from(await response.arrayBuffer())), hash(await readFile(join(packageRoot, source))), source);
+    assert.equal(response.status, 404, path);
   }
   const snapshot = await request('/manage/api/state');
   assert.equal(typeof snapshot.csrfToken, 'string');
@@ -82,7 +71,7 @@ try {
   assert.deepEqual((await request('/manage/api/layout')).layout.nodes['npm-native-probe'], { x: 25, y: -50 });
   const crossOrigin = await fetch(endpoint + '/manage/api/programs', { headers: { origin: 'https://external.invalid' }, signal: AbortSignal.timeout(5000) });
   assert.equal(crossOrigin.status, 403);
-  result = { passed: true, version: pkg.version, nativeManagement: true, exactAssets: assets.length + 1, csrfRejected: true, crossOriginRejected: true, removedEntries: true };
+  result = { passed: true, version: pkg.version, nativeManagement: true, rejectedUiRoutes: removedRoutes.length, csrfRejected: true, crossOriginRejected: true, removedEntries: true };
 } finally {
   clearTimeout(startupTimer);
   const stopped = await stop(); assert.equal(stopped.code, 0, stderr);

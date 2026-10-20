@@ -22,15 +22,15 @@ Run from the chosen writable deployment directory:
 
 ```sh
 world-hub --check --data-dir ./my-hub-data
-world-hub --data-dir ./my-hub-data --open
+world-hub --data-dir ./my-hub-data
 ```
 
-`--check` is read-only: it does not create configuration, data, or locks, and it does not start a service. It cannot be combined with `--open`. The second command runs the Hub in the foreground. Keep that process alive and use its printed address for `/manage` and communication. Stop it with Ctrl+C and wait for `stopped`.
+`--check` is read-only: it does not create configuration, data, or locks, and it does not start a service. The second command runs the Hub in the foreground. Keep that process alive and use the printed endpoint, statusUrl and managementApiUrl. Stop it with Ctrl+C and wait for `stopped`.
 
-The reference deployment listens on `127.0.0.1:8790`, with `/bridge` for WebSocket communication and `/manage` for the management interface. These are defaults, not discovered addresses. If the port is occupied, select another port or use:
+The reference deployment listens on `127.0.0.1:8790`, with `/bridge` for WebSocket communication and `/manage/api` for local management APIs. These are defaults, not discovered addresses. If the port is occupied, select another port or use:
 
 ```sh
-world-hub --data-dir ./my-hub-data --port 0 --open
+world-hub --data-dir ./my-hub-data --port 0
 ```
 
 Port `0` requests a system-assigned port. Read the actual listening address from this process's output; do not keep using `8790`.
@@ -39,7 +39,7 @@ From a source checkout, the corresponding executable is:
 
 ```sh
 node bin/world-hub.mjs --check --data-dir ./my-hub-data
-node bin/world-hub.mjs --data-dir ./my-hub-data --open
+node bin/world-hub.mjs --data-dir ./my-hub-data
 ```
 
 ## Configuration and data
@@ -48,12 +48,12 @@ Without `--config`, first startup creates `hub.json` in the selected data root; 
 
 ```sh
 world-hub --check --config ./hub.local.json
-world-hub --config ./hub.local.json --open
+world-hub --config ./hub.local.json
 ```
 
 Configuration-relative storage paths are resolved against the configuration's directory. An explicit `--data-dir` overrides storage locations. With both options and an existing source configuration, the CLI writes a derived configuration under the selected data root without overwriting the source. Preserve the actual effective configuration when diagnosing identity or storage.
 
-The packaged reference is a trusted loopback configuration: only registered identities may connect, and it predeclares the manual workbench's `ui.manual` credential without a token. It is not an authorization grant for a new program. Register the program's bridges or credentials, topic ACLs, token policy, and connection limits in the actual deployment; configuration changes require a Hub restart. Authenticated and explicitly trusted unauthenticated loopback deployments have different trust assumptions. Do not weaken an existing deployment to make an example connect.
+The packaged reference denies unconfigured bridges and contains no UI-specific credential. It is not an authorization grant for a new program. Register the program's bridges or credentials, topic ACLs, token policy, and connection limits in the actual deployment; configuration changes require a Hub restart. Authenticated and explicitly trusted unauthenticated loopback deployments have different trust assumptions. Do not weaken an existing deployment to make an example connect.
 
 For two new authenticated peers, merge the following entries into the existing `acl.credentials` of the effective private configuration; preserve the other entries, ACL policy, listening address, and storage. Generate a different private random token for each placeholder, for example with `node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('base64url'))"` in a private terminal. Never publish that output:
 
@@ -73,6 +73,10 @@ For two new authenticated peers, merge the following entries into the existing `
 ```
 
 Restart the owned Hub. Pass `credential: 'agent.tools'` and its token to the first peer's Bridge/MCP private configuration; pass `credential: 'example.provider'` and the other token to the provider. Use distinct bridge IDs, such as `agent.tools.main` and `example.provider.main`; these do not replace credential identities. Check `welcome.authenticated === true` and the expected `welcome.principal` for each. The topic and names are examples, not built-in Hub channels. For MCP use the complete private configuration in [MCP setup](mcp.md); for SDK communication select and register the actual topics used in [communication](communication.md).
+
+## Separate optional UI
+
+Hub is headless: its root is JSON, `/manage` serves no page, and `--open` is not a Hub option. Read `ready.endpoint`, `ready.statusUrl` and `ready.managementApiUrl`. World Hub UI is installed and started separately with an explicit Hub address; never require it for SDK or MCP communication.
 
 ## Diagnose with the narrowest check
 

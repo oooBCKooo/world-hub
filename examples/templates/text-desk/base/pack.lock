@@ -5,7 +5,7 @@
     "version": "1.1.5",
     "sha256": "83910166aab54370909b2b02fe10fbaf038fb82705fab4352c2ba073b4370274"
   },
-  "hubVersion": "0.19.0",
+  "hubVersion": "0.21.0",
   "hubCompatibility": {
     "wireVersion": "0.1",
     "runtimeApi": "world-hub.run/v1"
@@ -44,10 +44,6 @@
           "sha256": "3fea92e9f5740f5d25577c508331f70f4cd8e8b4a446427ac02bf8f877503b6b"
         },
         {
-          "path": "index.html",
-          "sha256": "36987f2dcd96c2845d3683d7b3f0d162771fe94ee067f88e865dbc047a3bd192"
-        },
-        {
           "path": "LICENSE",
           "sha256": "e8ea5d5d1c47a3e1987afb046d86b55f4d3ef5bcb56ca0eb37ac7c7830a768c8"
         },
@@ -57,11 +53,7 @@
         },
         {
           "path": "program.mjs",
-          "sha256": "50ba329460f724c5c7444e4eac02dab3174137f1dde76e0712f569deeacfa692"
-        },
-        {
-          "path": "ui.js",
-          "sha256": "9dc31f4fdee092a158c1ba3602b8611683a385aceb3fd43a6903ffde4723df9e"
+          "sha256": "b847bbcaeb68177a8745bbf69d288f3a28e00247d18a295b45c26eb629c7a916"
         }
       ]
     },

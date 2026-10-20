@@ -20,7 +20,7 @@ export async function main(args = process.argv.slice(2)) {
   if (flags.help) { console.log('World Hub Workshop\n  --config <private config.json>\n  --initialize-admin <username>  (--password-stdin, or WORLD_HUB_WORKSHOP_ADMIN_PASSWORD)\n  --stop  (gracefully release the current owned data root)\n  --export <new private directory>  (stop the service first)\n\nAn independent invite-only hosted artifact catalog. Uploaded programs are never executed.'); return; }
   if (!flags.config || [flags['initialize-admin'], flags.export, flags.stop].filter(Boolean).length > 1 || (flags['password-stdin'] && !flags['initialize-admin'])) throw new Error('Use --config and at most one maintenance operation.');
   const options = JSON.parse((await readBounded(flags.config, 16384)).toString('utf8'));
-  const allowed = ['root', 'baseURL', 'bind', 'port', 'allowedHosts', 'diskQuota', 'allowInsecureLoopback', 'secureCookie'];
+  const allowed = ['root', 'baseURL', 'bind', 'port', 'allowedHosts', 'diskQuota', 'allowInsecureLoopback', 'secureCookie', 'uiRoot'];
   if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(k => !allowed.includes(k))) throw new Error('Unsupported Workshop configuration.');
   if (flags.stop) {
     const root = await ordinaryPath(resolve(options.root)), ownerPath = join(root, 'workshop-owner.lock'), stopPath = join(root, 'workshop-stop.json');

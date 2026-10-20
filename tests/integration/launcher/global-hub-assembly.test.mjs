@@ -127,7 +127,7 @@ test('Global Hub topology observes real external sessions without claiming their
   const managed = topology.bridges.find(bridge => bridge.ownership === 'managed'), foreign = topology.bridges.find(bridge => bridge.ownership === 'external');
   assert.equal(managed.componentId, 'owned-source'); assert.equal(managed.pid, owned.pid);
   assert.equal(foreign.principal, 'local.external'); assert.equal(foreign.process, 'unknown'); assert.equal(foreign.pid, undefined);
-  assert.equal(foreign.componentId, undefined); assert.ok(foreign.managementUrl); assert.equal(foreign.authenticated, true);
+  assert.equal(foreign.componentId, undefined); assert.ok(foreign.managementApiUrl); assert.equal(foreign.authenticated, true);
   const identity = manager.localPrograms.identities.get('owned-source');
   assert.ok(!JSON.stringify(topology).includes(identity.token));
   const snapshot = await call('/api/programs/assembly', {});

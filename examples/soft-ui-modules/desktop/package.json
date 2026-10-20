@@ -1,9 +1,0 @@
-{
-  "name": "world-hub-example-soft-ui-desktop",
-  "version": "0.3.0",
-  "private": true,
-  "type": "module",
-  "license": "MIT",
-  "engines": { "node": ">=22.12.0" },
-  "dependencies": { "electron": "44.7.1" }
-}

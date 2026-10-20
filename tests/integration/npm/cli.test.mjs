@@ -87,13 +87,14 @@ test('malformed existing default configuration is rejected instead of replaced w
   assert.deepEqual(await readdir(cwd), ['supplied.json', 'world-hub-data']);
 });
 
-test('npm default start creates workspace config and serves the real management UI, then stops cleanly', async () => {
+test('npm default start creates workspace config and serves headless APIs, then stops cleanly', async () => {
   const cwd = await workspace('真实 启停'); const record = await startOwnedProgram(cli, { cwd, args: ['--port', '0'] });
   const port = record.ready.port;
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/manage`);
-    assert.equal(response.status, 200); assert.match(response.headers.get('content-type'), /text\/html/);
-    assert.match(await response.text(), /world-hub|世界枢纽/i);
+    const response = await fetch(`http://127.0.0.1:${port}/manage/api/state`);
+    assert.equal(response.status, 200); assert.match(response.headers.get('content-type'), /application\/json/);
+    assert.equal(typeof (await response.json()).csrfToken, 'string');
+    assert.equal((await fetch(`http://127.0.0.1:${port}/manage`)).status, 404);
     assert.equal((await fetch(`http://127.0.0.1:${port}/status`)).status, 200);
     const raw = JSON.parse(await readFile(join(cwd, 'world-hub-data/hub.json'), 'utf8'));
     assert.equal(raw.log.dir, './log'); assert.equal(raw.blobs.dir, './blobs'); assert.equal(raw.management.stateFile, './management.json');

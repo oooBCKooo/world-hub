@@ -165,7 +165,7 @@ async function run() {
     const ready = processRecord.record.ready;
     const port = ready?.port;
     assert.ok(Number.isInteger(port) && port > 0);
-    const base = ready.httpUrl ? new URL(ready.httpUrl).origin : ready.managementUrl ? new URL(ready.managementUrl).origin : `http://127.0.0.1:${port}`;
+    const base = ready.httpUrl ? new URL(ready.httpUrl).origin : ready.managementApiUrl ? new URL(ready.managementApiUrl).origin : `http://127.0.0.1:${port}`;
     return { base, ws: ready.wsUrl ?? ready.endpoint ?? `ws://127.0.0.1:${port}/bridge`, port };
   };
   async function json(base, path) {
@@ -264,7 +264,7 @@ async function run() {
       assert.ok(running.record.ready.logDir ? inside(dataDir, resolve(running.record.ready.logDir)) : true);
       for (const kind of ['log', 'blobs', 'management']) assert.ok(inside(dataDir, resolve(running.record.ready.storage[kind].path)), `${kind} path stays package-local`);
       const assets = [];
-      for (const [path, mime] of [['/manage', 'text/html'], ['/manage/manual-bridge.mjs', 'javascript'], ['/manage/manual-console.mjs', 'javascript'], ['/manage/manual-console.css', 'text/css']]) {
+      for (const [path, mime] of [['/status', 'application/json'], ['/manage/api/state', 'application/json']]) {
         const response = await fetch(endpoint.base + path, { signal: AbortSignal.timeout(TIMEOUT) });
         const body = await response.text(); assert.equal(response.status, 200, path); assert.ok((response.headers.get('content-type') ?? '').includes(mime)); assert.ok(body.length > 0);
         assets.push({ path, status: response.status, bytes: Buffer.byteLength(body), sha256: createHash('sha256').update(body).digest('hex') });
@@ -409,7 +409,7 @@ async function run() {
       const corrupt = await start(negativeBundle, ['--check']); assert.notEqual(corrupt.record.exit.code, 0); assert.deepEqual(await inventory(negativeBundle, { includeDirectories: true }), corruptBefore);
       await writeFile(negativeConfig, originalConfig);
       const manifest = JSON.parse(await readFile(join(negativeBundle, 'manifest.json'), 'utf8'));
-      const asset = manifest.files.find(file => file.path === 'src/management/manual-console.mjs'); assert.ok(asset, 'manifest names the manual UI module');
+      const asset = manifest.files.find(file => file.path === 'src/management/management-http.mjs'); assert.ok(asset, 'manifest names the management API backend');
       await unlink(join(negativeBundle, asset.path));
       const missingBefore = await inventory(negativeBundle, { includeDirectories: true });
       const missing = await start(negativeBundle, ['--check']); assert.notEqual(missing.record.exit.code, 0); assert.deepEqual(await inventory(negativeBundle, { includeDirectories: true }), missingBefore);

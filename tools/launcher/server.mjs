@@ -48,20 +48,16 @@ export async function createLauncherServer(options = {}) {
         || (request.headers.origin !== undefined && request.headers.origin !== url.slice(0, -1))) throw launcherError('LOCAL_ORIGIN_REQUIRED', 'Only this Launcher origin is accepted.', 403);
       const target = new URL(request.url, url);
       if (target.origin !== new URL(url).origin) throw launcherError('LOCAL_ORIGIN_REQUIRED', 'Invalid request origin.', 403);
-      const document = request.method === 'GET' && ['/', '/index.html'].includes(target.pathname);
-      if (['cross-site', 'same-site'].includes(request.headers['sec-fetch-site'])
-        && !(document && request.headers['sec-fetch-mode'] === 'navigate' && request.headers['sec-fetch-dest'] === 'document'))
+      if (['cross-site', 'same-site'].includes(request.headers['sec-fetch-site']))
         throw launcherError('LOCAL_ORIGIN_REQUIRED', 'Only same-origin API and resource requests are accepted.', 403);
-      if (request.method === 'GET' && ["/","/index.html","/app.mjs","/module-workbench.mjs","/asset-versions.mjs","/global-dynamic-modules-tab.mjs","/path-ui.mjs","/icons.mjs","/style.css","/i18n.mjs"].includes(target.pathname)) {
-        const navigationKeys = document ? ['hubOrigin','bridgeId','session'] : [];
-        if ([...target.searchParams.keys()].some(key => !navigationKeys.includes(key) || target.searchParams.getAll(key).length !== 1
-          || target.searchParams.get(key).length > 4096)) throw launcherError('INVALID_INPUT', 'Unsupported navigation query.', 400);
-        const file = target.pathname === '/' ? 'index.html' : target.pathname.slice(1);
-        const bytes = await readFile(new URL('./public/' + file, import.meta.url));
-        response.writeHead(200, { 'content-type': file.endsWith('.html') ? 'text/html; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8',
-          'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY',
-          'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" });
-        response.end(bytes); return;
+      if (request.method === 'GET' && target.pathname === '/') {
+        if (target.search) throw launcherError('INVALID_INPUT', 'Unsupported API navigation query.', 400);
+        send(response, 200, { service: 'world-hub-local-management', interface: 'headless', ui: { project: 'world-hub-ui', bundled: false } });
+        return;
+      }
+      if (!target.pathname.startsWith('/api/')) {
+        send(response, 404, { ok: false, error: { code: 'UI_SEPARATE_PROJECT', message: 'This server provides management JSON APIs. Use the separate world-hub-ui project for a user interface.' } });
+        return;
       }
       const authorization = request.headers.authorization;
       const authenticated = typeof authorization === 'string' && [...tokens].some(value => equals(authorization, 'Bearer ' + value));

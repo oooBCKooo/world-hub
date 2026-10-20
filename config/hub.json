@@ -39,18 +39,6 @@
     "defaultDeny": true,
     "allowUnlistedBridges": false,
     "bridges": {},
-    "credentials": {
-      "ui.manual": {
-        "maxConnections": 4,
-        "allow": {
-          "publish": [
-            "#"
-          ],
-          "subscribe": [
-            "#"
-          ]
-        }
-      }
-    }
+    "credentials": {}
   }
 }

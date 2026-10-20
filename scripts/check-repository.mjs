@@ -11,12 +11,10 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const directories = ['bin', 'src', 'sdk', 'skills', 'config', 'examples', 'tests', 'scripts', 'tools', 'docs', '.github'];
 const rootFiles = ['README.md', 'README.en.md', 'LICENSE', 'package.json', '.gitignore', '.gitattributes'];
 const required = [...rootFiles, 'config/hub.json', 'src/hub/hub-server.mjs', 'src/hub/ws-server.mjs',
-  'src/management/console.html', 'sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-client.mjs',
-  'src/ui/language.mjs', 'src/management/canvas-i18n.mjs', 'src/management/manual-i18n.mjs',
+  'src/management/management-http.mjs', 'sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-client.mjs',
   'sdk/python/hub_bridge.py', 'sdk/python/requirements.txt', 'sdk/powershell/HubBridge.psm1',
   'sdk/powershell/HubBridge.cs', 'docs/specs/index.md', 'docs/onboarding.md',
-  'bin/world-hub.mjs', 'tools/launcher/cli.mjs', 'tools/launcher/server.mjs', 'tools/launcher/public/index.html',
-  'src/management/launcher-link.mjs', 'docs/ecosystem/launcher.md',
+  'bin/world-hub.mjs', 'tools/launcher/local-programs.mjs', 'tools/launcher/resources.mjs',
   'scripts/launcher.mjs', 'scripts/verify.mjs', 'scripts/release/build-package.mjs', '.github/workflows/ci.yml'];
 const extensions = new Set(['.mjs', '.js', '.cjs', '.html', '.css', '.json', '.md', '.py', '.txt', '.psm1', '.cs', '.ps1', '.yml', '.yaml']);
 const forbiddenSegments = new Set(['.local', '.artifacts', 'dist', 'data', 'world-hub-data', '.hub', '.state', 'node_modules', '__pycache__', '.venv']);
@@ -102,6 +100,9 @@ async function checkReference(path, target, label) {
 
 for (const path of paths) {
   const segments = path.split('/');
+  if (/^(?:src\/(?:ui|debug)\/|tools\/(?:launcher|workshop)\/public\/|docs\/images\/|examples\/soft-ui-modules\/)/.test(path)
+      || path.startsWith('src/management/') && !['management-http.mjs', 'management-modules.mjs', 'management-community.mjs', 'management-state.mjs'].includes(segments.at(-1))
+      || /\.(?:html|css|png|jpe?g)$/i.test(path)) reject(path, 'UI belongs to the independent world-hub-ui project');
   if (!rootFiles.includes(path) && !directories.includes(segments[0])) reject(path, 'Outside the final repository allowlist');
   if (segments.some(segment => forbiddenSegments.has(segment)) || /(?:\.bak|\.tmp|\.log|\.zip|\.py[co]|\.local\.json)$/i.test(path)
       || /(?:^|\/)(?:\.env(?:\..*)?|smoke-results\.json|self-check-result\.json|local[^/]*\.json)$/i.test(path)) reject(path, 'Local, generated or private file');

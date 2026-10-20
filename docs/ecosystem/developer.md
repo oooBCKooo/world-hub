@@ -112,7 +112,7 @@ try {
 }
 ```
 
-管理器通过 stdin 发送逐行 JSON 的 `{"command":"health","id":"..."}` 与 `{"command":"stop"}`；入口通过 stdout 输出逐行 JSON 的 `module-ready`，以及带原 `id` 和布尔 `ready` 的 `module-health`。完成连接、订阅和自身业务初始化后再报告就绪，停止时关闭桥与自己的资源。示例中的就绪条件仅覆盖通信；有额外业务资源时一并检查。完整的设置、能力绑定、业务状态与定向消息实现可参考[软界面计数器入口](../../examples/soft-ui-modules/counter/program.mjs)。
+管理器通过 stdin 发送逐行 JSON 的 `{"command":"health","id":"..."}` 与 `{"command":"stop"}`；入口通过 stdout 输出逐行 JSON 的 `module-ready`，以及带原 `id` 和布尔 `ready` 的 `module-health`。完成连接、订阅和自身业务初始化后再报告就绪，停止时关闭桥与自己的资源。示例中的就绪条件仅覆盖通信；有额外业务资源时一并检查。完整的设置、能力绑定、业务状态与定向消息实现可参考[文本统计模块入口](../../examples/ecosystem-pack/modules/stats/program.py)。
 
 这是独立管理层与其受管子进程之间的启动接口，不是 Hub 线协议强制的程序形态。独立程序仍可用自己的参数、配置和生命周期接入 Hub；业务处理、页面和业务存储始终留在程序自身。
 

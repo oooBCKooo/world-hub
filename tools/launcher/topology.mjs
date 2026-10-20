@@ -14,17 +14,9 @@ export function observedBridge(bridge) {
     channels: (bridge.channels ?? []).map(channel => ({ name: channel.name, publish: channel.publish === true, subscribe: channel.subscribe === true })),
     subscriptions: [...(bridge.subscriptions ?? [])], published: bridge.published ?? 0, delivered: bridge.delivered ?? 0 };
 }
-export function managementLink({ hubUrl, launcherUrl, instanceId, runId, bridge, principal, workbench = false }) {
-  const hub = loopbackUrl(hubUrl), launcher = loopbackUrl(launcherUrl, { rootOnly: true });
-  if (!hub || !launcher) return null;
-  const link = new URL('/manage', hub);
-  const params = new URLSearchParams({ launcher: launcher.href, hubOrigin: hub.origin + '/' });
-  if (instanceId && runId) { params.set('instanceId', instanceId); params.set('runId', runId); }
-  if (bridge) { params.set('bridgeId', bridge.bridgeId); params.set('session', bridge.session); }
-  else if (principal) params.set('principal', principal);
-  // Workbench is already part of the existing Hub console; no duplicate editor.
-  if (workbench) params.set('workbench', '1');
-  link.hash = params.toString(); return link.href;
+export function managementApiLink({ hubUrl }) {
+  const hub = loopbackUrl(hubUrl);
+  return hub ? new URL('/manage/api', hub).href : null;
 }
 export function mapTopology({ instanceId, status, snapshot, launcherUrl }) {
   const hub = loopbackUrl(status.hub?.url), live = status.observation !== 'stale' && !status.stoppedAt && Boolean(hub);
@@ -36,10 +28,10 @@ export function mapTopology({ instanceId, status, snapshot, launcherUrl }) {
     const entry = { ...observedBridge(bridge), ownership: owner ? 'managed' : 'external',
       ...(owner ? { componentId: owner.id, moduleId: owner.module, pid: owner.pid, process: owner.process,
         health: owner.health, readiness: owner.readiness } : { process: 'unknown', readiness: 'unknown' }) };
-    entry.managementUrl = live ? managementLink({ hubUrl: hub.href, launcherUrl, instanceId, runId: status.runId, bridge: entry }) : null;
+    entry.managementApiUrl = live ? managementApiLink({ hubUrl: hub.href }) : null;
     return entry;
   });
   return { instanceId, runId: status.runId ?? null, observedAt: new Date().toISOString(), observation: live ? 'live' : 'unavailable',
-    hub: hub ? { url: hub.origin, managementUrl: live ? managementLink({ hubUrl: hub.href, launcherUrl, instanceId, runId: status.runId }) : null,
-      workbenchUrl: live ? managementLink({ hubUrl: hub.href, launcherUrl, instanceId, runId: status.runId, workbench: true }) : null } : null, bridges };
+    hub: hub ? { url: hub.origin, managementApiUrl: live ? managementApiLink({ hubUrl: hub.href }) : null,
+      statusUrl: live ? new URL('/status', hub).href : null } : null, bridges };
 }

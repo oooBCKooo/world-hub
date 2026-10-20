@@ -5,7 +5,7 @@ import { readBounded, hash } from '../../scripts/runtime/paths.mjs';
 import { collectSourceFiles } from '../../scripts/runtime/source-guidance.mjs';
 import { deploymentTopics } from '../../scripts/runtime/deployment.mjs';
 import { previewComposition, createComposition } from './composition.mjs';
-import { loopbackUrl, managementLink, observedBridge } from './topology.mjs';
+import { loopbackUrl, managementApiLink, observedBridge } from './topology.mjs';
 import { globalAssemblyComposition } from './global-hub-update.mjs';
 
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -75,10 +75,10 @@ export async function observeGlobalHubPrograms({ hub, localPrograms, launcherUrl
     const result = { ...observedBridge(bridge),
       ownership: owner ? 'managed' : 'external', process: owner ? 'running' : 'unknown', readiness: 'unknown',
       ...(owner ? { componentId: owner.programId, moduleId: owner.module.id, pid: localPrograms.handles.get(owner.programId).pid } : {}) };
-    result.managementUrl = managementLink({ hubUrl: hubUrl.href, launcherUrl, bridge: result });
+    result.managementApiUrl = managementApiLink({ hubUrl: hubUrl.href });
     return result;
   });
   return { instanceId: 'launcher.default', runId: null, observedAt: new Date().toISOString(), observation: 'live',
-    hub: { url: hubUrl.origin, managementUrl: managementLink({ hubUrl: hubUrl.href, launcherUrl }),
-      workbenchUrl: managementLink({ hubUrl: hubUrl.href, launcherUrl, workbench: true }) }, bridges };
+    hub: { url: hubUrl.origin, managementApiUrl: managementApiLink({ hubUrl: hubUrl.href }),
+      statusUrl: new URL('/status', hubUrl).href }, bridges };
 }

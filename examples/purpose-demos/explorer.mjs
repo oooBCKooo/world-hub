@@ -8,11 +8,6 @@ import { fileURLToPath } from 'node:url';
 import { Bridge } from '../../sdk/javascript/bridge-kit.mjs';
 import { getProfile, principalFor, bridgeFor } from './profiles.mjs';
 
-const assets = fileURLToPath(new URL('./', import.meta.url));
-const MIME = { '/': ['explorer.html', 'text/html; charset=utf-8'],
-  '/explorer.css': ['explorer.css', 'text/css; charset=utf-8'], '/explorer.js': ['explorer.js', 'text/javascript; charset=utf-8'],
-  '/explorer-i18n.mjs': ['explorer-i18n.mjs', 'text/javascript; charset=utf-8'],
-  '/src/ui/language.mjs': ['../../src/ui/language.mjs', 'text/javascript; charset=utf-8'] };
 const fault = (status, message) => Object.assign(new Error(message), { status });
 const safeEqual = (a, b) => typeof a === 'string' && typeof b === 'string' &&
   Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -62,10 +57,7 @@ export async function startExplorer(settings) {
     try {
       sameSite(req);
       const path = new URL(req.url, origin).pathname;
-      if (req.method === 'GET' && MIME[path]) {
-        const [file, type] = MIME[path]; const body = await readFile(join(assets, file));
-        res.writeHead(200, { ...headers, 'content-type': type }); res.end(body); return;
-      }
+      if (req.method === 'GET' && path === '/') { res.writeHead(200, { ...headers, 'content-type':'application/json' }); res.end(JSON.stringify({service:'purpose-demo-controller',interface:'api',state:'/api/state'})); return; }
       if (req.method === 'GET' && path === '/api/state') {
         let status = null, statusError = null;
         try {

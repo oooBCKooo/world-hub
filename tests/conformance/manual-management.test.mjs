@@ -1,10 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
-import { runInNewContext } from 'node:vm';
 import { Hub } from '../../src/hub/lib/hub.mjs';
 import { normalizeConfig } from '../../src/hub/lib/store.mjs';
 import { createManagementHttp } from '../../src/management/management-http.mjs';
@@ -112,70 +111,24 @@ async function invoke(management, { path = '/manage', remote = '127.0.0.1', host
   assert.equal(await management.handle(req, res, new URL(path, 'http://127.0.0.1:8790')), true);
   return result;
 }
-function directive(csp, name) {
-  const text = csp.split(';').map(item => item.trim()).find(item => item.startsWith(name + ' '));
-  assert.ok(text, `missing CSP ${name}`);
-  return text.split(/\s+/).slice(1);
-}
-
-test('phase8 manual form: cooked HTML patterns compile with browser v semantics and enforce stable identities', () => {
-  const source = readFileSync(new URL('../../src/management/manual-console.mjs', import.meta.url), 'utf8');
-  const assignment = 'dialog.innerHTML = ';
-  const start = source.indexOf(assignment);
-  const end = source.indexOf('\ndocument.body.append(dialog)', start);
-  assert.ok(start >= 0 && end > start, 'locate the actual dialog HTML assignment');
-  const expression = source.slice(start + assignment.length, end).trim();
-  assert.ok(expression.startsWith('`') && expression.endsWith('`;'), 'evaluate only the repository static template expression');
-  // Evaluate the JS template first: a single source backslash can disappear in
-  // cooked HTML. Compiling the source literal alone would miss this defect.
-  const html = runInNewContext(expression.slice(0, -1), { tabs: [], icon: '' }, { timeout: 100 });
-  assert.equal(typeof html, 'string');
-  const decodeAttribute = (value) => value.replace(/&(?:amp|quot|apos|lt|gt|#\d+|#x[0-9a-f]+);/gi, (entity) => {
-    const named = { '&amp;': '&', '&quot;': '"', '&apos;': "'", '&lt;': '<', '&gt;': '>' };
-    if (named[entity.toLowerCase()] !== undefined) return named[entity.toLowerCase()];
-    return String.fromCodePoint(entity[2].toLowerCase() === 'x' ? Number.parseInt(entity.slice(3, -1), 16) : Number.parseInt(entity.slice(2, -1), 10));
-  });
-  const inputs = [...html.matchAll(/<input\b[^>]*>/g)].map(([tag]) => {
-    const attributes = new Map([...tag.matchAll(/\b([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)].map(([, key, double, single]) => [key, decodeAttribute(double ?? single)]));
-    return { tag, attributes };
-  });
-  const patterned = inputs.filter(({ attributes }) => attributes.has('pattern'));
-  assert.ok(patterned.length >= 3, 'identity and SHA-256 constraints must be present in cooked HTML');
-  for (const { attributes } of patterned) assert.doesNotThrow(() => new RegExp(`^(?:${attributes.get('pattern')})$`, 'v'), `invalid runtime pattern on ${attributes.get('id')}`);
-  for (const id of ['mc-bridge', 'mc-credential']) {
-    const input = inputs.find(({ attributes }) => attributes.get('id') === id);
-    assert.ok(input?.attributes.has('pattern'), `${id} retains its actual HTML constraint`);
-    const pattern = new RegExp(`^(?:${input.attributes.get('pattern')})$`, 'v');
-    for (const valid of ['a', '0', 'source.sensor-a', 'manual_mod.bridge-1', 'a'.repeat(64)]) assert.equal(pattern.test(valid), true, `${id} must allow ${valid}`);
-    for (const invalid of ['BAD_ID', '.abc', '_abc', '-abc', 'a b', 'a/b', '中文', 'a'.repeat(65)]) assert.equal(pattern.test(invalid), false, `${id} must reject ${invalid}`);
-    assert.equal(input.attributes.get('maxlength'), '64');
-  }
-  const bridge = inputs.find(({ attributes }) => attributes.get('id') === 'mc-bridge');
-  const credential = inputs.find(({ attributes }) => attributes.get('id') === 'mc-credential');
-  assert.match(bridge.tag, /\brequired(?:\s|>)/, 'bridge identity cannot be empty');
-  assert.doesNotMatch(credential.tag, /\brequired(?:\s|>)/, 'optional credential permits empty input under browser validation');
-  // Browser checkValidity/reportValidity for empty optional fields is verified
-  // through the real UI; a RegExp empty-string match does not model required.
-});
-
-test('phase8 management assets: real HTTP serves only explicit modules/styles with safe MIME and cache headers', async t => {
+test('headless management: former UI asset paths return explicit JSON errors with safe MIME and cache headers', async t => {
   const run = await realFixture(t);
-  for (const [path, mime] of ASSETS) {
+  for (const [path] of ASSETS) {
     const response = await fetch(run.harness.httpBase + path, { signal: AbortSignal.timeout(5000) });
-    assert.equal(response.status, 200, path);
-    assert.match(response.headers.get('content-type') ?? '', mime, path);
+    assert.equal(response.status, 404, path);
+    assert.match(response.headers.get('content-type') ?? '', /^application\/json/, path);
     assert.equal(response.headers.get('x-content-type-options'), 'nosniff', path);
     assert.equal(response.headers.get('cache-control'), 'no-store', path);
-    assert.ok((await response.text()).trim().length > 0, path);
+    assert.equal((await response.json()).error.code, 'UI_SEPARATE_PROJECT', path);
   }
   for (const path of ['/manage/unknown-module.mjs', '/manage/lib/hub.mjs', '/manage/manual-console.css.map']) {
     const response = await fetch(run.harness.httpBase + path, { signal: AbortSignal.timeout(5000) });
     assert.equal(response.status, 404, path);
-    assert.equal((await response.json()).error.code, 'MANAGEMENT_ROUTE_UNKNOWN');
+    assert.equal((await response.json()).error.code, 'UI_SEPARATE_PROJECT');
   }
 });
 
-test('phase8 management assets: loopback, Host and Origin gates apply to every new asset', async t => {
+test('headless management: loopback, Host and Origin gates apply even to removed UI routes', async t => {
   const management = await pureFixture(t);
   const cases = [
     { remote: '192.0.2.7', code: 'MANAGEMENT_LOCAL_ONLY' },
@@ -192,24 +145,18 @@ test('phase8 management assets: loopback, Host and Origin gates apply to every n
     assert.equal(JSON.parse(response.text).error.code, code);
   }
   for (const [path] of ASSETS) {
-    assert.equal((await invoke(management, { path, remote: '::1', host: '[::1]:8790', headers: { origin: 'http://[::1]:8790' } })).status, 200);
+    assert.equal((await invoke(management, { path, remote: '::1', host: '[::1]:8790', headers: { origin: 'http://[::1]:8790' } })).status, 404);
   }
 });
 
-test('phase8 management page: CSP permits same-origin modules and only its precise WebSocket origin', async t => {
+test('headless management: valid local entry requests return JSON rather than injecting a UI or redirect', async t => {
   const management = await pureFixture(t);
   for (const host of ['127.0.0.1:8790', 'localhost:8790', '[::1]:8790']) {
     const response = await invoke(management, { host });
-    assert.equal(response.status, 200);
-    const csp = response.headers['content-security-policy'];
-    assert.equal(typeof csp, 'string');
-    assert.ok(directive(csp, 'script-src').includes("'self'"));
-    const connections = directive(csp, 'connect-src');
-    assert.ok(connections.includes(`ws://${host}`), `CSP must name exact endpoint origin for ${host}`);
-    assert.ok(connections.includes("'self'"));
-    assert.ok(connections.every(value => value === "'self'" || value === `ws://${host}` || value === `wss://${host}`),
-      'no wildcard, scheme-wide or foreign endpoint permission');
-    assert.deepEqual(directive(csp, 'frame-ancestors'), ["'none'"]);
+    assert.equal(response.status, 404);
+    assert.match(response.headers['content-type'], /^application\/json/);
+    assert.equal(response.headers.location, undefined);
+    assert.equal(JSON.parse(response.text).ui.project, 'world-hub-ui');
   }
 });
 

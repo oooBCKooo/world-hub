@@ -3,7 +3,6 @@ import { access, lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { isDirectExecution } from '../../scripts/cli-entry.mjs';
 import { constants } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { spawn } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startOwnedProgram } from '../../tests/helpers/owned-program.mjs';
@@ -13,12 +12,11 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 export const DEMO_TOKEN = 'world-hub-purpose-demo'; // Public loopback demonstration credential.
 const required = ['package.json', 'config/hub.json', 'src/hub/hub-server.mjs', 'src/hub/ws-server.mjs',
   ...['acl', 'address', 'blob-protocol', 'blob-store', 'hub', 'identity', 'router', 'store', 'topic', 'wire-json'].map(name => `src/hub/lib/${name}.mjs`),
-  'src/debug/page.mjs', 'src/ui/language.mjs',
-  ...['console.html', 'canvas-i18n.mjs', 'management-http.mjs', 'management-state.mjs', 'manual-bridge.mjs', 'manual-console.mjs', 'manual-i18n.mjs', 'manual-experience-state.mjs', 'manual-console.css'].map(name => `src/management/${name}`),
+  ...['management-http.mjs', 'management-state.mjs', 'management-modules.mjs', 'management-community.mjs'].map(name => `src/management/${name}`),
   'sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-client.mjs',
   'tests/helpers/owned-program.mjs', 'examples/distributed-context/hub-process.mjs',
   ...['profiles.mjs', 'peer.mjs', 'common.mjs', 'event-desk.mjs', 'modular-assistant.mjs', 'digital-world.mjs',
-    'traffic-source.mjs', 'extension-material.mjs', 'checklist-harness.mjs', 'explorer.mjs', 'explorer.html', 'explorer.css', 'explorer.js', 'explorer-i18n.mjs']
+    'traffic-source.mjs', 'extension-material.mjs', 'checklist-harness.mjs', 'explorer.mjs']
     .map(name => `examples/purpose-demos/${name}`),
   ...['directory.mjs', 'composition.mjs', 'processor-a.mjs', 'processor-b.mjs', 'contract.json']
     .map(name => `examples/capability-directory/${name}`)];
@@ -28,7 +26,7 @@ export function parseDemoArgs(argv) {
   const seen = new Set();
   for (let index = 0; index < argv.length; index++) {
     const key = argv[index];
-    if (!['--profile', '--state-dir', '--check', '--open', '--help'].includes(key) || seen.has(key)) throw new Error(`未知或重复参数：${key}`);
+    if (!['--profile', '--state-dir', '--check', '--help'].includes(key) || seen.has(key)) throw new Error(`未知或重复参数：${key}`);
     seen.add(key);
     if (key === '--profile' || key === '--state-dir') {
       const value = argv[++index];
@@ -81,17 +79,7 @@ export async function checkDemo({ profile: id, stateDirectory } = {}) {
     writableAncestor: ancestor, startsPrograms: false, persisted: false };
 }
 
-function openBrowser(url) {
-  // Only the HTTP URL produced by our loopback server reaches the OS launcher.
-  if (!/^http:\/\/127\.0\.0\.1:\d+\/$/.test(url)) throw new Error('演示浏览器地址无效');
-  const command = process.platform === 'win32' ? 'cmd.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open';
-  const args = process.platform === 'win32' ? ['/d', '/c', 'start', '', url] : [url];
-  const child = spawn(command, args, { shell: false, windowsHide: true, stdio: 'ignore' });
-  child.once('error', error => console.error(`自动打开失败，请手动打开 ${url}：${error.message}`));
-  child.unref();
-}
-
-export async function startPurposeDemo({ profile: id, stateDirectory = null, open = false } = {}) {
+export async function startPurposeDemo({ profile: id, stateDirectory = null } = {}) {
   await checkDemo({ profile: id, stateDirectory });
   const profile = await selectProfile(id);
   const sessionDir = resolve(stateDirectory ?? join(root, 'data/purpose-demos', profile.id,
@@ -112,7 +100,6 @@ export async function startPurposeDemo({ profile: id, stateDirectory = null, ope
   const explorerPrincipal = principalFor(profile.id, 'explorer');
   credentials[explorerPrincipal] = { token: profile.isolatedCredentials ? randomUUID() : DEMO_TOKEN, maxConnections: profile.explorerMaxConnections ?? 1,
     allow: { publish: [`demo/${profile.id}/#`], subscribe: [`demo/${profile.id}/#`] } };
-  credentials['ui.manual'] = { maxConnections: 4, allow: { publish: ['#'], subscribe: ['#'] } };
   annotations[explorerPrincipal] = { bridgeName: '探索界面 · 双向桥',
     programs: [{ id: explorerPrincipal, name: '用途探索界面' }] };
   const configFile = join(sessionDir, 'hub.json');
@@ -145,20 +132,19 @@ export async function startPurposeDemo({ profile: id, stateDirectory = null, ope
     }
     const settingsFile = join(sessionDir, 'explorer-settings.json');
     await writeFile(settingsFile, JSON.stringify({ profile: profile.id, endpoint: hub.ready.endpoint,
-      managementUrl: hub.ready.managementUrl, credential: credentials[explorerPrincipal].token, stateDirectory: sessionDir, peers,
+      managementUrl: hub.ready.managementApiUrl, credential: credentials[explorerPrincipal].token, stateDirectory: sessionDir, peers,
       hubPid: hub.child.pid }, null, 2) + '\n', { flag: 'wx' });
     const explorer = await startOwnedProgram(join(root, 'examples/purpose-demos/explorer.mjs'),
       { args: ['--settings', settingsFile], cwd: root }); children.push(explorer);
     const ready = { event: 'ready', profile: profile.id, title: profile.title, pid: process.pid,
       nodeExecutable: process.execPath, node: process.versions.node,
-      url: explorer.ready.url, managementUrl: hub.ready.managementUrl, endpoint: hub.ready.endpoint,
+      url: explorer.ready.url, managementUrl: hub.ready.managementApiUrl, endpoint: hub.ready.endpoint,
       stateDirectory: sessionDir, pids: children.map(child => child.child.pid), peers };
     await writeFile(join(sessionDir, 'session.json'), JSON.stringify(ready, null, 2) + '\n', { flag: 'wx' });
     for (const child of children) child.child.once('exit', () => {
       if (!closing) { console.error(`演示程序退出：${child.child.pid}`); process.exitCode = 1; void close().catch(error => console.error(error.message)); }
     });
     if (children.some(child => child.exited)) throw new Error('有演示程序在准备完成前退出');
-    if (open) openBrowser(ready.url);
     return { ready, profile, children, close };
   } catch (error) { await close(); throw error; }
 }
@@ -179,7 +165,7 @@ if (isDirectExecution(import.meta.url)) {
   try {
     const options = parseDemoArgs(process.argv.slice(2));
     if (options.help) {
-      console.log('node examples/purpose-demos/run-demo.mjs [--profile event-desk|modular-assistant|digital-world|capability-directory] [--state-dir 新目录] [--check | --open]');
+      console.log('node examples/purpose-demos/run-session.mjs [--profile event-desk|modular-assistant|digital-world|capability-directory] [--state-dir 新目录] [--check]');
       if (process.connected) process.disconnect();
     } else if (options.check) {
       console.log(JSON.stringify(await checkDemo(options)));
@@ -190,7 +176,7 @@ if (isDirectExecution(import.meta.url)) {
       else {
         console.log(JSON.stringify(session.ready));
         if (process.send) process.send(session.ready);
-        console.log(`打开 ${session.ready.url} 探索 ${session.ready.title}；Ctrl+C 停止所属程序。记录保留于 ${session.ready.stateDirectory}`);
+        console.log(`API ${session.ready.url}，场景 ${session.ready.title}；Ctrl+C 停止所属程序。记录保留于 ${session.ready.stateDirectory}`);
       }
     }
   } catch (error) { console.error(error.stack ?? error.message); process.exitCode = 1; if (session) await session.close(); if (process.connected) process.disconnect(); }

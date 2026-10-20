@@ -1,9 +1,0 @@
-{
-  "format": "world-hub.deployment/v1",
-  "title": { "zh": "软界面桌面宿主", "en": "Soft UI Desktop" },
-  "description": { "zh": "接收其他模块的界面描述，创建独立原生窗口，并把操作传回业务模块。", "en": "Creates native windows from other modules' view descriptions and returns user actions to their owners." },
-  "topics": { "commands": "soft-ui/v1/commands", "events": "soft-ui/v1/events" },
-  "bridges": { "main": { "publish": ["events"], "subscribe": ["commands"] } },
-  "settings": [],
-  "dependencies": { "kind": "npm-lock", "manifest": "package.json", "lock": "package-lock.json", "recipes": ["electron"] }
-}

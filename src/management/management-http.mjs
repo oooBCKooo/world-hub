@@ -1,5 +1,4 @@
 import { randomBytes } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
 import { isValidBridgeId } from '../hub/lib/acl.mjs';
 import { safeEqual } from '../hub/lib/store.mjs';
 import { stringifyEnvelope } from '../hub/lib/wire-json.mjs';
@@ -19,8 +18,6 @@ export async function createManagementHttp(hub, config) {
   const modules = new ManagementModules({ hub, config });
   await modules.initialize();
   const csrfToken = randomBytes(32).toString('base64url');
-  // Validate the bundled page at startup; request-time reads can fail independently.
-  await readFile(new URL('./console.html', import.meta.url), 'utf8');
   function known(key) {
     return Object.hasOwn(config.acl.bridges, key) || Object.hasOwn(config.acl.credentials, key)
       || state.value.paused.includes(key) || hub.snapshot().bridges.some(bridge => principalOf(bridge) === key);
@@ -70,17 +67,15 @@ export async function createManagementHttp(hub, config) {
       }) } };
   }
   function access(req) {
-    if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) throw fail(403, 'MANAGEMENT_LOCAL_ONLY', '管理界面仅允许本机回环访问');
+    if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) throw fail(403, 'MANAGEMENT_LOCAL_ONLY', '管理 API 仅允许本机回环访问');
     const expectedPort = String(req.socket.localPort);
     let host;
     try { host = new URL(`http://${req.headers.host}`); } catch { throw fail(403, 'HOST_REJECTED', '管理地址无效'); }
     if (!['127.0.0.1', 'localhost', '[::1]'].includes(host.hostname) || (host.port || '80') !== expectedPort
       || host.username || host.password || host.pathname !== '/') throw fail(403, 'HOST_REJECTED', '管理服务仅接受本机地址');
-    if (req.headers.origin && req.headers.origin !== host.origin) throw fail(403, 'ORIGIN_REJECTED', '管理请求必须来自当前界面');
-    const entryNavigation = req.method === 'GET' && /^\/manage\/?(?:\?|$)/.test(req.url ?? '')
-      && req.headers['sec-fetch-mode'] === 'navigate' && req.headers['sec-fetch-dest'] === 'document' && !req.headers.origin;
-    if (req.headers['sec-fetch-site'] === 'cross-site' && !entryNavigation) throw fail(403, 'ORIGIN_REJECTED', '跨站管理请求被拒绝');
-    if (req.method === 'POST' && !safeEqual(csrfToken, req.headers['x-management-token'] ?? '')) throw fail(403, 'MANAGEMENT_TOKEN_REQUIRED', '需要当前管理界面的操作令牌');
+    if (req.headers.origin && req.headers.origin !== host.origin) throw fail(403, 'ORIGIN_REJECTED', '管理请求必须来自当前 API 地址');
+    if (req.headers['sec-fetch-site'] === 'cross-site') throw fail(403, 'ORIGIN_REJECTED', '跨站管理请求被拒绝');
+    if (req.method === 'POST' && !safeEqual(csrfToken, req.headers['x-management-token'] ?? '')) throw fail(403, 'MANAGEMENT_TOKEN_REQUIRED', '需要当前管理 API 的操作令牌');
   }
   async function body(req, maxBytes = 16 * 1024) {
     if (!String(req.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) throw fail(415, 'CONTENT_TYPE_REJECTED', '管理操作需要application/json');
@@ -103,32 +98,16 @@ export async function createManagementHttp(hub, config) {
     return value;
   }
   return { state, modules, snapshot, async handle(req, res, url) {
-    if (!(url.pathname === '/manage' || url.pathname.startsWith('/manage/') || url.pathname === '/ui/language.mjs')) return false;
+    if (!(url.pathname === '/manage' || url.pathname.startsWith('/manage/') || url.pathname.startsWith('/ui/'))) return false;
     try {
       access(req);
-      const asset = {
-        '/ui/language.mjs': ['../ui/language.mjs', 'text/javascript; charset=utf-8'],
-        '/manage/canvas-i18n.mjs': ['./canvas-i18n.mjs', 'text/javascript; charset=utf-8'],
-        '/manage/manual-i18n.mjs': ['./manual-i18n.mjs', 'text/javascript; charset=utf-8'],
-        '/manage/manual-bridge.mjs': ['./manual-bridge.mjs', 'text/javascript; charset=utf-8'],
-        '/manage/manual-console.mjs': ['./manual-console.mjs', 'text/javascript; charset=utf-8'],
-        '/manage/resource-console.mjs': ['./resource-console.mjs', 'text/javascript; charset=utf-8'],
-        '/manage/manual-experience-state.mjs': ['./manual-experience-state.mjs', 'text/javascript; charset=utf-8'],
-        '/manage/launcher-link.mjs': ['./launcher-link.mjs', 'text/javascript; charset=utf-8'],
-        '/manage/canvas-modes.mjs': ['./canvas-modes.mjs', 'text/javascript; charset=utf-8'],
-        '/manage/manual-console.css': ['./manual-console.css', 'text/css; charset=utf-8'],
-      }[url.pathname];
-      if (req.method === 'GET' && asset) {
-        const content = await readFile(new URL('./' + asset[0], import.meta.url), 'utf8');
-        res.writeHead(200, { 'content-type': asset[1], 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
-        res.end(content); return true;
+      if (req.method === 'GET' && url.pathname === '/manage/api') {
+        json(res, 200, { service: 'world-hub', interface: 'management-api', state: '/manage/api/state', programs: '/manage/api/programs', resources: '/manage/api/resources' });
+        return true;
       }
-      if (req.method === 'GET' && ['/manage', '/manage/', '/manage/index.html'].includes(url.pathname)) {
-        // Finish fallible file I/O before committing a successful response header.
-        const latestPage = await readFile(new URL('./console.html', import.meta.url), 'utf8');
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
-          'content-security-policy': `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ws://${req.headers.host}; frame-ancestors 'none'; base-uri 'none'; form-action 'self'` });
-        res.end(latestPage); return true;
+      if (!url.pathname.startsWith('/manage/api/')) {
+        json(res, 404, { error: { code: 'UI_SEPARATE_PROJECT', message: 'world-hub provides JSON APIs and bridge transport. Use the separate world-hub-ui project for a user interface.' }, ui: { project: 'world-hub-ui', bundled: false } });
+        return true;
       }
       if (req.method === 'GET' && url.pathname === '/manage/api/state') { json(res, 200, snapshot()); return true; }
       if (req.method === 'GET' && url.pathname === '/manage/api/message') {

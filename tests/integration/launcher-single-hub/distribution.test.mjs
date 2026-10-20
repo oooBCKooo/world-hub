@@ -58,10 +58,8 @@ test('current documentation navigation and bilingual readmes describe module ins
 });
 
 test('new Workshop distribution offers modules while retaining unrelated account and collaboration functionality', async () => {
-  const source = await read('tools/workshop/public/app.mjs');
-  assert.match(source, /!\['module',\s*'configuration',\s*'data'\]\.includes\(artifact\.kind\)/);
-  assert.match(source, /configuration\.json/);
-  assert.doesNotMatch(source, /\['pack',t\('pack'\)\]|\['template',t\('template'\)\]/);
+  assert.ok(WORKSHOP_FILES.every(path => !path.startsWith('tools/workshop/public/')));
+  await assert.rejects(access(resolve(root, 'tools/workshop/public/app.mjs')), { code: 'ENOENT' });
   const store = await read('tools/workshop/store.mjs');
   assert.match(store, /const distributedKinds = new Set\(\['module',\s*'configuration',\s*'data'\]\)/);
   assert.match(store, /this\.state\.publications\.filter\(p => distributedKinds\.has\(p\.kind\)/);

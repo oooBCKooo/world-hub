@@ -91,6 +91,10 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
     assert.equal(pkg.exports?.['./blob'], './sdk/javascript/blob-client.mjs');
     assert.equal(pkg.exports?.['./lifecycle'], './sdk/javascript/lifecycle-client.mjs');
     assert.equal(pkg.exports?.['./runtime'], undefined);
+    assert.equal(pkg.scripts?.ui, undefined);
+    assert.ok(pkg.files.every(path => !/\.(?:html|css|png|jpe?g)$/i.test(path)));
+    assert.ok(pkg.files.every(path => !/^(?:src\/(?:ui|debug)\/|tools\/workshop\/public\/|examples\/soft-ui-modules\/|docs\/images\/)/.test(path)));
+
     assert.equal(pkg.bin?.['world-hub-pack'], undefined);
     assert.equal(pkg.bin?.['world-hub-interop'], 'bin/world-hub-interop.mjs');
     assert.equal(pkg.exports?.['./workshop'], './tools/workshop/server.mjs');
@@ -187,26 +191,20 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
     assert.deepEqual(await readdir(workspace), []);
     const server = await startOwnedProgram(join(localPackage, 'bin/world-hub.mjs'), { cwd: workspace, args: ['--port', '0'] });
     owned.push(server); report.processes.push({ role: 'installed-default-hub', pid: server.child.pid, port: server.ready.port });
-    const manage = await fetch(`http://127.0.0.1:${server.ready.port}/manage`, { signal: AbortSignal.timeout(5000) });
-    assert.equal(manage.status, 200); assert.match(manage.headers.get('content-type'), /text\/html/);
-    assert.match(await manage.text(), /世界枢纽|world-hub/i);
-    report.checks.push({ label: 'Installed default Hub serves its real management interface', passed: true, port: server.ready.port });
-    for (const [url, path] of [
-      ['/ui/language.mjs', 'src/ui/language.mjs'],
-      ['/manage/canvas-i18n.mjs', 'src/management/canvas-i18n.mjs'],
-      ['/manage/manual-i18n.mjs', 'src/management/manual-i18n.mjs'],
-    ]) {
-      const asset = await fetch(`http://127.0.0.1:${server.ready.port}${url}`, { signal: AbortSignal.timeout(5000) });
-      assert.equal(asset.status, 200); assert.match(asset.headers.get('content-type'), /text\/javascript/);
-      assert.equal(await asset.text(), await readFile(join(sourceRoot, path), 'utf8'), `Installed UI asset differs: ${path}`);
+    const status = await fetch(`http://127.0.0.1:${server.ready.port}/status`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(status.status, 200); assert.match(status.headers.get('content-type'), /application\/json/);
+    const state = await fetch(`http://127.0.0.1:${server.ready.port}/manage/api/state`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(state.status, 200); assert.equal(typeof (await state.json()).csrfToken, 'string');
+    for (const path of ['/manage', '/debug', '/ui/language.mjs', '/manage/console.html', '/manage/manual-console.mjs']) {
+      assert.equal((await fetch(`http://127.0.0.1:${server.ready.port}${path}`, { signal: AbortSignal.timeout(5000) })).status, 404, path);
     }
-    report.checks.push({ label: 'Installed bilingual UI serves the exact shared language module and both dictionaries', passed: true });
+    report.checks.push({ label: 'Installed Hub serves status and management APIs without embedded UI', passed: true, port: server.ready.port });
     await execute('Installed public interoperability CLI runs from an independent workspace', process.execPath, [join(localPackage, 'bin/world-hub-interop.mjs'), '--help'], { cwd: workspace });
     const nativeHelp = await execute('Installed native management CLI exposes its current command contract', process.execPath, [join(localPackage, 'bin/world-hub.mjs'), '--help'], { cwd: workspace });
     assert.match(nativeHelp, /world-hub \[--config/); assert.doesNotMatch(nativeHelp, /world-hub ui/);
     const launcherCheckPath = join(localApp, 'launcher-check.mjs');
     await writeFile(launcherCheckPath, await readFile(join(sourceRoot, 'scripts/release/npm-launcher-check.mjs')));
-    const launcherCheck = JSON.parse(await execute('Installed native communication management serves exact assets, protects mutations and releases its listener', process.execPath,
+    const launcherCheck = JSON.parse(await execute('Installed headless management protects mutations, rejects UI routes and releases its listener', process.execPath,
       [launcherCheckPath], { cwd: workspace }));
     assert.equal(launcherCheck.passed, true); assert.equal(launcherCheck.version, pkg.version); assert.equal(launcherCheck.stopped, true);
     assert.equal(launcherCheck.nativeManagement, true); assert.equal(launcherCheck.csrfRejected, true);
@@ -270,8 +268,9 @@ try {
   assert.equal((await api('health')).value.ok, true); assert.equal((await api('api/me')).value.user, null);
   const index = (await api('index.json')).value; assert.equal(index.format, 'world-hub.source-index/v1'); assert.ok(Array.isArray(index.entries));
   assert.deepEqual((await api('api/catalog')).value.publications, []);
-  for (const [path, file] of [['', 'index.html'], ['app.mjs', 'app.mjs'], ['style.css', 'style.css'], ['artifact-config-view.mjs', 'artifact-config-view.mjs']]) {
-    const response = await fetch(new URL(path, service.url), { redirect: 'error', signal: AbortSignal.timeout(5000) }); assert.equal(response.status, 200); assert.match(response.headers.get('content-security-policy'), /script-src 'self'/); assert.equal(sha(Buffer.from(await response.arrayBuffer())), sha(await readFile(join(packageRoot, 'tools/workshop/public', file))));
+  const serviceDescription = (await api('')).value; assert.equal(serviceDescription.interface, 'api'); assert.equal(serviceDescription.service, 'world-hub-workshop');
+  for (const path of ['app.mjs', 'style.css', 'artifact-config-view.mjs']) {
+    const response = await fetch(new URL(path, service.url), { redirect: 'error', signal: AbortSignal.timeout(5000) }); assert.equal(response.status, 404);
   }
   const authenticated = await api('api/login', { username: 'npmadmin', password });
   assert.equal(authenticated.value.user.role, 'admin'); assert.match(authenticated.headers.get('set-cookie'), /HttpOnly/); assert.match(authenticated.headers.get('set-cookie'), /SameSite=Strict/);
@@ -290,18 +289,28 @@ try {
   const listener = service.url; await service.close(); await service.closed; service = null;
   await assert.rejects(access(join(dataRoot, 'workshop-owner.lock')), { code: 'ENOENT' });
   await assert.rejects(fetch(new URL('health', listener), { signal: AbortSignal.timeout(1000) }));
-  console.log(JSON.stringify({ passed: true, version: pkg.version, publicExport: 'world-hub/workshop', cliInitialized: true, stdinSecretLogged: false, bootstrapPid, bootstrapExit, exactUiAssets: 4, configurationPreview: true, csrfRejected: true, stopped: true }));
+  console.log(JSON.stringify({ passed: true, version: pkg.version, publicExport: 'world-hub/workshop', cliInitialized: true, stdinSecretLogged: false, bootstrapPid, bootstrapExit, rejectedUiRoutes: 3, configurationPreview: true, csrfRejected: true, stopped: true }));
 } finally {
   await service?.close();
   assert.equal(dirname(resolve(dataRoot)), temporaryParent); assert.ok(basename(dataRoot).startsWith('wh-npm-workshop-'));
   await rm(dataRoot, { recursive: true, force: false });
 }
 `);
-    const workshopCheck = JSON.parse(await execute('Installed public Workshop API serves exact UI and authenticated accounts initialized by the real CLI stdin, then releases its owner and listener', process.execPath,
+    const workshopCheck = JSON.parse(await execute('Installed headless Workshop API authenticates accounts initialized by the real CLI stdin, then releases its owner and listener', process.execPath,
       [workshopCheckPath], { cwd: workspace }));
     assert.equal(workshopCheck.passed, true); assert.equal(workshopCheck.version, pkg.version); assert.equal(workshopCheck.stopped, true);
-    assert.equal(workshopCheck.cliInitialized, true); assert.equal(workshopCheck.stdinSecretLogged, false); assert.equal(workshopCheck.exactUiAssets, 4); assert.equal(workshopCheck.configurationPreview, true);
+    assert.equal(workshopCheck.cliInitialized, true); assert.equal(workshopCheck.stdinSecretLogged, false); assert.equal(workshopCheck.rejectedUiRoutes, 3); assert.equal(workshopCheck.configurationPreview, true);
     report.workshop = workshopCheck;
+    const sdkConfig = JSON.parse(await readFile(join(localPackage, 'config/hub.json'), 'utf8'));
+    assert.deepEqual(sdkConfig.acl.credentials, {}, 'Stock Hub must not grant a UI identity implicit access');
+    const sdkToken = randomUUID();
+    sdkConfig.transport.port = 0;
+    sdkConfig.acl.credentials['npm-acceptance'] = { token: sdkToken, allow: { publish: ['npm/test/#'], subscribe: ['npm/test/#'] } };
+    const sdkConfigPath = join(workspace, 'sdk-test-config.json');
+    await writeFile(sdkConfigPath, JSON.stringify(sdkConfig));
+    const sdkServer = await startOwnedProgram(join(localPackage, 'bin/world-hub.mjs'), { cwd: workspace,
+      args: ['--config', sdkConfigPath, '--data-dir', 'sdk-test-data', '--port', '0'] });
+    owned.push(sdkServer); report.processes.push({ role: 'explicit-sdk-test-hub', pid: sdkServer.child.pid, port: sdkServer.ready.port });
     const probe = join(localApp, 'sdk-probe.mjs');
     await writeFile(probe, `import assert from 'node:assert/strict';
 import { Bridge, WIRE_VERSION } from ${JSON.stringify(pkg.name)};
@@ -309,7 +318,7 @@ import { Bridge as SubpathBridge } from ${JSON.stringify(pkg.name + '/bridge')};
 import { uploadFile, uploadStream, downloadFile, readAttachment } from ${JSON.stringify(pkg.name + '/blob')};
 assert.equal(Bridge, SubpathBridge); assert.equal(WIRE_VERSION, '0.1');
 for (const value of [uploadFile, uploadStream, downloadFile, readAttachment]) assert.equal(typeof value, 'function');
-const bridge = new Bridge({ url: process.argv[2], bridgeId: 'npm-test', credential: 'ui.manual', reconnectMs: 100 });
+const bridge = new Bridge({ url: process.argv[2], bridgeId: 'npm-test', credential: 'npm-acceptance', token: process.argv[3], reconnectMs: 100 });
 bridge.on('error', () => {}); bridge.on('denied', () => {});
 let resolveDelivery; const delivered = new Promise(resolve => { resolveDelivery = resolve; });
 const deadline = setTimeout(() => { process.stderr.write('SDK delivery timeout\\n'); process.exitCode = 1; bridge.close(); }, 5000);
@@ -321,7 +330,7 @@ try { await bridge.connect(); await bridge.registerChannels([{ name: 'npm/test/r
 } finally { clearTimeout(deadline); await bridge.close(); }
 `);
     const sdk = JSON.parse(await execute('Import package exports and exchange information through a real installed bridge', process.execPath,
-      [probe, `ws://127.0.0.1:${server.ready.port}/bridge`], { cwd: localApp }));
+      [probe, `ws://127.0.0.1:${sdkServer.ready.port}/bridge`, sdkToken], { cwd: localApp }));
     assert.equal(sdk.passed, true);
     const custom = JSON.parse(await readFile(join(sourceRoot, 'config/hub.json'), 'utf8'));
     custom.transport.port = 0; custom.hub.id = 'npm-custom-config';

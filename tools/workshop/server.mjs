@@ -1,8 +1,7 @@
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
 import { unlink } from 'node:fs/promises';
-import { join } from 'node:path';
-import { readBounded } from '../../scripts/runtime/paths.mjs';
+import { join, isAbsolute } from 'node:path';
+import { readBounded, ordinaryPath } from '../../scripts/runtime/paths.mjs';
 import { WorkshopStore, workshopError, MAX_UPLOAD } from './store.mjs';
 import { MAX_PUBLICATION_REQUEST, MAX_PRESENTATION_REQUEST } from './media.mjs';
 import { validateSourceIndex } from '../../scripts/runtime/sources.mjs';
@@ -43,6 +42,10 @@ function config(options) {
   return { base, insecure, bind, port, allowedHosts: new Set(allowedHosts), secureCookie: options.secureCookie !== false };
 }
 export async function createWorkshopServer(options = {}) {
+  // Optional external static assets belong to the independently deployed UI.
+  // No browser source is bundled with, or required to start, this backend.
+  if (options.uiRoot !== undefined && (typeof options.uiRoot !== 'string' || !isAbsolute(options.uiRoot))) throw workshopError('INVALID_CONFIG', 'uiRoot must be an explicit absolute directory for the separate UI deployment.');
+  const uiRoot = options.uiRoot === undefined ? null : await ordinaryPath(options.uiRoot);
   const settings = config(options), store = await WorkshopStore.open(options); let uploadBusy = false, downloads = 0, configurationReads = 0, closing, baseURL, origin, stopPoll, pollBusy = false, resolveClosed;
   const closed = new Promise(resolveClosure => { resolveClosed = resolveClosure; });
   const rates = new Map();
@@ -67,11 +70,12 @@ export async function createWorkshopServer(options = {}) {
       const rawToken = sessionCookie(request), user = store.userForSession(rawToken);
       const path = target.pathname;
       const staticFiles = new Map([['/workshop', 'index.html'], ['/workshop/', 'index.html'], ['/workshop/index.html', 'index.html'], ['/workshop/app.mjs', 'app.mjs'], ['/workshop/style.css', 'style.css'], ['/workshop/artifact-config-view.mjs', 'artifact-config-view.mjs']]);
-      if (staticFiles.has(path) && ['GET', 'HEAD'].includes(request.method)) {
+      if (uiRoot && staticFiles.has(path) && ['GET', 'HEAD'].includes(request.method)) {
         if (target.search) throw workshopError('INVALID_INPUT', 'Static pages do not accept query parameters.');
-        const file = staticFiles.get(path), bytes = await readFile(new URL('./public/' + file, import.meta.url));
+        const file = staticFiles.get(path), asset = await ordinaryPath(join(uiRoot, file)), bytes = await readBounded(asset, 2 * 1024 * 1024);
         response.writeHead(200, { ...securityHeaders, 'content-type': file.endsWith('.html') ? 'text/html; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8', 'content-length': bytes.length }); response.end(request.method === 'HEAD' ? undefined : bytes); return;
       }
+      if (!uiRoot && request.method === 'GET' && ['/workshop', '/workshop/'].includes(path)) { send(response, 200, { service: 'world-hub-workshop', interface: 'api', catalog: '/workshop/api/catalog', source: '/workshop/index.json', ui: 'world-hub-ui' }); return; }
       if (request.method === 'GET' && ['/health', '/workshop/health'].includes(path)) { send(response, 200, { ok: true, service: 'world-hub-workshop', format: 'world-hub.workshop/v1' }); return; }
       if (!path.startsWith('/workshop/')) throw workshopError('NOT_FOUND', 'Route not found.', 404);
       const allowedQuery = path === '/workshop/api/catalog' ? ['search', 'kind', 'contract', 'offset', 'limit'] : [];

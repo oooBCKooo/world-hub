@@ -140,21 +140,12 @@ try {
     await save({ version: 1, results: [...state.results, result].slice(-20) });
     return result;
   }
-  const html = await readFile(new URL('./index.html', import.meta.url));
-  const script = await readFile(new URL('./ui.js', import.meta.url));
   if (stopping) throw fault('MODULE_STOPPED');
   let origin;
   server = createServer((req, res) => { void (async () => {
     if (!['127.0.0.1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress) || req.headers.host !== new URL(origin).host) return json(res, 403, { ok: false, error: { code: 'LOOPBACK_REQUIRED' } });
     const path = new URL(req.url, origin).pathname;
-    if (req.method === 'GET' && path === '/') {
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store',
-        'content-security-policy': "default-src 'self'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'", 'x-content-type-options': 'nosniff' });
-      return res.end(html);
-    }
-    if (req.method === 'GET' && path === '/ui.js') {
-      res.writeHead(200, { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }); return res.end(script);
-    }
+    if (req.method === 'GET' && path === '/') return json(res, 200, { ok: true, service: 'text-desk-controller', interface: 'api', state: '/state' });
     if (req.method === 'GET' && path === '/state') return json(res, 200, { ok: true, instanceId: config.instanceId, busy, ...state });
     if (req.method === 'POST' && path === '/analyze') {
       if (req.headers.origin !== undefined && req.headers.origin !== origin) return json(res, 403, { ok: false, error: { code: 'ORIGIN_REJECTED' } });

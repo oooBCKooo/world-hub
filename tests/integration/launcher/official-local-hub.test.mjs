@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 import { cp } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createLauncherServer } from '../../../tools/launcher/server.mjs';
-import { createDeploymentUi } from '../../../tools/launcher/public/deployment-ui.mjs';
-import { element } from './ui-dom.mjs';
 import { workspace, environment, ROOT, until, expectedText, requestJson } from './helpers.mjs';
 
 const moduleSources = process.env.WORLD_HUB_OFFICIAL_ACCEPTANCE_MODULE_ROOT ?? join(ROOT, 'examples/ecosystem-pack/modules');
@@ -55,62 +53,21 @@ test('OFFICIAL-LOCAL-HUB real author defaults connect three separately imported 
     const settings = Object.fromEntries(modules[kind].deployment.settings.map(field => [field.key, field.default]));
     if (kind === 'source') settings.text = initialText;
     const preview = await call('/api/programs/preview', { programId: ids[kind], directory: modules[kind].directory, settings, bindings });
-    assert.equal(preview.review.createsPack, false); assert.equal(preview.review.startsModules, false);
+    assert.equal(preview.review.startsModules, false);
+    assert.equal(server.manager.hub, null);
     const registration = await call('/api/programs/register', { reviewId: preview.reviewId, accepted: true });
     assert.equal(registration.program.state, 'stopped');
     assert.deepEqual(registration.program.bindings, bindings);
   }
-  assert.deepEqual((await call('/api/instances')).instances, []);
+  assert.equal((await call('/api/instances', undefined, 404)).error.code, 'NOT_FOUND');
   app.record('three-modules-imported-and-registered-with-author-defaults', { programs: ids, createsPack: false });
 
-  // Exercise the actual UI's provider fields and review click with real HTTP.
-  // Preview is read-only; the fourth consumer is never registered or started.
-  const previousDocument = globalThis.document;
-  try {
-    for (const language of ['zh', 'en']) {
-      const sourceBody = element('body'), sourceRequests = [];
-      globalThis.document = { body: sourceBody, querySelector: selector => sourceBody.querySelector(selector) };
-      const sourceUi = createDeploymentUi({ state: { language }, api: async (path, input) => { sourceRequests.push({ path, input }); return call(path, input); }, el: element,
-        button: (label, callback, className) => element('button', { type: 'button', class: className, onclick: callback }, label), toast() {}, refresh: async () => {}, navigate() {} });
-      await sourceUi.register({ path: modules.source.directory });
-      const sourceView = sourceBody.querySelector('dialog'); sourceView.querySelector('input').value = 'source-preview-' + language;
-      const textSetting = modules.source.deployment.settings.find(field => field.key === 'text'); assert.ok(textSetting);
-      const textInput = sourceView.querySelectorAll('textarea').find(input => input.attributes['aria-label'] === textSetting.label[language]); assert.ok(textInput);
-      assert.equal(textInput.attributes.rows, '4');
-      assert.equal(textInput.value, textSetting.default);
-      textInput.value = initialText; await textInput.dispatch('change');
-      await sourceView.querySelectorAll('button').find(button => button.textContent === (language === 'zh' ? '审阅接入' : 'Review connection')).dispatch('click');
-      const sourcePreview = sourceRequests.find(request => request.path === '/api/programs/preview'); assert.ok(sourcePreview);
-      assert.equal(sourcePreview.input.settings.text, initialText); assert.deepEqual(sourcePreview.input.bindings, []);
-      assert.equal(sourceBody.querySelectorAll('dialog').length, 2);
-      const body = element('body'), requests = [];
-      globalThis.document = { body, querySelector: selector => body.querySelector(selector) };
-      const ui = createDeploymentUi({ state: { language }, api: async (path, input) => { requests.push({ path, input }); return call(path, input); }, el: element,
-        button: (label, callback, className) => element('button', { type: 'button', class: className, onclick: callback }, label), toast() {}, refresh: async () => {}, navigate() {} });
-      await ui.register({ path: modules.desk.directory });
-      const view = body.querySelector('dialog');
-      assert.doesNotMatch(view.textContent, /需要作者提供接入默认值|author must supply deployment defaults/i);
-      const input = view.querySelector('input'); input.value = 'preview-only-' + language;
-      for (const contract of modules.desk.inspection.manifest.requires) {
-        const selector = view.querySelector(`select[aria-label="${contract.id}"]`); assert.ok(selector);
-        const chosen = contract.id === 'text.read' ? ids.source : ids.stats;
-        selector.value = ''; await selector.dispatch('change'); selector.value = chosen; await selector.dispatch('change');
-      }
-      const reviewButton = view.querySelectorAll('button').find(button => button.textContent === (language === 'zh' ? '审阅接入' : 'Review connection'));
-      await reviewButton.dispatch('click');
-      const previewRequest = requests.find(request => request.path === '/api/programs/preview'); assert.ok(previewRequest);
-      assert.deepEqual(previewRequest.input.bindings.map(binding => binding.providerId).sort(), [ids.source, ids.stats].sort());
-      assert.deepEqual(previewRequest.input.settings, Object.fromEntries(modules.desk.deployment.settings.map(field => [field.key, field.default])));
-      assert.equal(body.querySelectorAll('dialog').length, 2);
-      assert.ok(body.querySelectorAll('dialog')[1].textContent.includes(modules.desk.inspection.manifest.id));
-    }
-  } finally { globalThis.document = previousDocument; }
   assert.equal((await call('/api/programs')).programs.length, 3);
-  app.record('actual-bilingual-ui-provider-selection-and-http-review', { previewsOnly: true });
+  app.record('author-defaults-and-explicit-providers-reviewed-through-http-without-starting');
 
   for (const kind of ['source', 'stats', 'desk']) {
     const reviewed = await call(`/api/programs/${ids[kind]}/review`, {});
-    assert.equal(reviewed.review.createsPack, false);
+    assert.equal(reviewed.review.startsModules, false);
     await operate(ids[kind], 'start', { reviewId: reviewed.reviewId, accepted: true });
   }
   const programs = (await call('/api/programs')).programs;
@@ -148,7 +105,7 @@ test('OFFICIAL-LOCAL-HUB real author defaults connect three separately imported 
   const restartedDesk = (await call('/api/programs')).programs.find(program => program.programId === ids.desk);
   const restoredDesk = await requestJson(restartedDesk.entryUrl, '/state'); assert.ok(restoredDesk.results.some(result => result.text === text));
   assert.equal(server.manager.hub, sharedHubHandle); assert.equal(sharedHubHandle.exit, null);
-  assert.deepEqual((await call('/api/instances')).instances, []);
+  assert.equal((await call('/api/instances', undefined, 404)).error.code, 'NOT_FOUND');
   app.record('independent-restarts-preserve-provider-text-and-consumer-results-without-a-pack');
   for (const kind of ['desk', 'stats', 'source']) await operate(ids[kind], 'stop');
   await server.close();

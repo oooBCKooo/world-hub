@@ -21,8 +21,8 @@ const capture = run => {
   catch (error) { if (error.code === 'ENOENT') return []; throw error; }
 };
 const state = run => fetch(`${run.ui.ready.url}/api/state`).then(response => response.json());
-const log = run => fetch(`${run.hub.ready.debugUrl}log?limit=500`).then(response => response.json());
-const snapshot = run => fetch(`${run.hub.ready.debugUrl}status`).then(response => response.json());
+const log = run => fetch(new URL('/log?limit=500', run.hub.ready.statusUrl)).then(response => response.json());
+const snapshot = run => fetch(run.hub.ready.statusUrl).then(response => response.json());
 async function setup(t) {
   const configDir = mkdtempSync(join(tmpdir(), 'peros-phase2-test-config-'));
   const config = structuredClone(configTemplate);
@@ -88,9 +88,9 @@ test('phase 2: distributed context providers, browser UI and genuine DSH communi
     assert.equal(delivered.body.kind, 'a-new-kind-from-this-mod');
     await assert.rejects(observer.registerChannels([{ name: 'ungranted/topic', publish: true, subscribe: false }]), /CHANNEL_DENIED|PUBLISH_DENIED/);
   });
-  await check('UI uses its own page/API and denies cross-origin invocation', async () => {
-    const page = await fetch(run.ui.ready.url).then(response => response.text());
-    assert.ok(page.includes('/api/prompt')); assert.ok(page.includes('textContent'));
+  await check('the independent controller exposes its own API and denies cross-origin invocation', async () => {
+    const service = await fetch(run.ui.ready.url).then(response => response.json());
+    assert.deepEqual(service, { service: 'distributed-context-controller', interface: 'api', state: '/api/state' });
     const denied = await fetch(`${run.ui.ready.url}/api/prompt`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://foreign.example' }, body: JSON.stringify({ text: 'do not dispatch' }) });
     assert.equal(denied.status, 403); assert.equal(capture(run).length, 0);
     const bad = await fetch(`${run.ui.ready.url}/api/prompt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: '' }) });

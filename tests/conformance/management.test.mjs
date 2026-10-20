@@ -6,8 +6,6 @@ import { spawn } from 'node:child_process';
 import { createServer, request as httpRequest } from 'node:http';
 import { createConnection as tcpConnect } from 'node:net';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
-import fsPromises from 'node:fs/promises';
-import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { Hub } from '../../src/hub/lib/hub.mjs';
@@ -399,7 +397,7 @@ test('management malformed request URL returns 400 while the hub remains availab
 });
 
 for (const code of ['ENOENT', 'EACCES']) {
-  test(`management page: request-time ${code} returns 500 while bridge traffic continues and the page can recover`, async t => {
+  test(`management API: request-time ${code} stays isolated from bridge traffic and can recover without a UI`, async t => {
     const root = temporary(t);
     const config = normalizeConfig({ acl: acl(), log: { enabled: false, dir: root } }, null);
     const hub = await Hub.create(config);
@@ -414,9 +412,9 @@ for (const code of ['ENOENT', 'EACCES']) {
     });
     const wss = attachWebSocketServer(server, { path: config.transport.path, maxPayload: 4 * 1024 * 1024 });
     wss.on('connection', connection => hub.onConnection(connection));
-    const originalReadFile = fsPromises.readFile;
+    const originalHandle = management.modules.handle.bind(management.modules);
     t.after(async () => {
-      fsPromises.readFile = originalReadFile; syncBuiltinESMExports();
+      management.modules.handle = originalHandle;
       await Promise.all(bridges.map(bridge => bridge.close()));
       wss.closeAll(1001, 'test finished');
       await new Promise(resolveClose => server.close(resolveClose));
@@ -435,40 +433,41 @@ for (const code of ['ENOENT', 'EACCES']) {
     const before = await source.publishConfirmed('stream/before-page-failure', { stage: 'before' });
     await until(() => deliveries.some(frame => frame.seq === before.seq));
 
-    // Fault only this page read in the isolated test process. No production
-    // injection option is added and no workspace HTML is moved or rewritten.
-    const pageUrl = new URL('../../src/management/console.html', import.meta.url).href;
-    let failing = true, failedReads = 0;
-    fsPromises.readFile = async (path, ...args) => {
-      if (failing && path instanceof URL && path.href === pageUrl) {
-        failedReads++;
-        throw Object.assign(new Error(`injected ${code} for the management page`), { code });
+    // Inject only one management operation in this isolated test fixture.
+    // Communication and the other JSON APIs remain independently available.
+    let failing = true, failedRequests = 0;
+    management.modules.handle = async (req, res, url, ...args) => {
+      if (failing && url.pathname === '/manage/api/programs') {
+        failedRequests++;
+        throw Object.assign(new Error(`injected ${code} for the management operation`), { code });
       }
-      return originalReadFile(path, ...args);
+      return originalHandle(req, res, url, ...args);
     };
-    syncBuiltinESMExports();
 
-    const failure = await fetch(`${base}/manage`, { signal: AbortSignal.timeout(5000) });
+    const failure = await fetch(`${base}/manage/api/programs`, { signal: AbortSignal.timeout(5000) });
     assert.equal(failure.status, 500);
     assert.match(failure.headers.get('content-type'), /^application\/json/);
     assert.equal((await failure.json()).error.code, code);
-    assert.equal(failedReads, 1);
-    assert.deepEqual(escapedErrors, [], 'the page error must stay inside the HTTP handler');
+    assert.equal(failedRequests, 1);
+    assert.deepEqual(escapedErrors, [], 'the operation error must stay inside the HTTP handler');
     const during = await source.publishConfirmed('stream/during-page-failure', { stage: 'during' });
     await until(() => deliveries.some(frame => frame.seq === during.seq));
     const stateResponse = await fetch(`${base}/manage/api/state`);
     assert.equal(stateResponse.status, 200);
     const current = await stateResponse.json();
     assert.equal(current.bridges.filter(bridge => bridge.instances.length).length, 2);
-    assert.equal(current.log.protectedCount, 2, 'a page fault must not release or remove messages');
+    assert.equal(current.log.protectedCount, 2, 'a management fault must not release or remove messages');
     assert.deepEqual(management.state.value.paused, []);
     assert.equal(source.connected, true); assert.equal(reader.connected, true);
 
     failing = false;
+    const recovered = await fetch(`${base}/manage/api/programs`, { signal: AbortSignal.timeout(5000) });
+    assert.equal(recovered.status, 200);
+    assert.match(recovered.headers.get('content-type'), /^application\/json/);
+    assert.ok(Array.isArray((await recovered.json()).programs));
     const page = await fetch(`${base}/manage`, { signal: AbortSignal.timeout(5000) });
-    assert.equal(page.status, 200);
-    assert.match(page.headers.get('content-type'), /^text\/html/);
-    assert.match(await page.text(), /<html(?:\s|>)/i);
+    assert.equal(page.status, 404);
+    assert.equal((await page.json()).error.code, 'UI_SEPARATE_PROJECT');
     const inspected = await fetch(`${base}/manage/api/message?seq=${during.seq}`).then(response => response.json());
     assert.deepEqual(inspected.record.body, { stage: 'during' });
     const after = await source.publishConfirmed('stream/after-page-recovery', { stage: 'after' });

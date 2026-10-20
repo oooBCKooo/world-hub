@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// This external UI owns workflow and presentation. All peer traffic uses its mod.
+// This external controller owns its workflow. Presentation belongs to the separate UI project.
 import { createServer } from 'node:http';
 import { isDirectExecution } from '../../scripts/cli-entry.mjs';
 import { readFile } from 'node:fs/promises';
@@ -252,9 +252,6 @@ async function startLeasedUi(settings, lease) {
   diagnostics.connected = bridge.connected;
   diagnostics.bridge = bridge.bridgeId;
   ready();
-  let page;
-  try { page = await readFile(new URL('./ui.html', import.meta.url)); }
-  catch (error) { await bridge.close(); throw error; }
   let actualPort;
   let closing = false;
   const server = createServer(async (request, response) => {
@@ -270,7 +267,7 @@ async function startLeasedUi(settings, lease) {
       const acceptedHosts = new Set([`127.0.0.1:${actualPort}`, `[::1]:${actualPort}`, `localhost:${actualPort}`]);
       if (!acceptedHosts.has(request.headers.host?.toLowerCase())) throw httpFault(403, 'HOST_DENIED', '界面只接受本机访问');
       const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
-      if (request.method === 'GET' && pathname === '/') { send(200, page, 'text/html; charset=utf-8'); return; }
+      if (request.method === 'GET' && pathname === '/') { send(200, { service: 'distributed-context-controller', interface: 'api', state: '/api/state' }); return; }
       if (request.method === 'GET' && pathname === '/api/state') {
         send(200, { ...state.value, diagnostics: { ...diagnostics, connected: bridge.connected }, csrfToken }); return;
       }

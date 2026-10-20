@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { buildPackage, AGENT_FILES, APPLICATION_FILES, SDK_FILES, SDK_DOCUMENTATION_FILES, MODULE_CONTRACT_FILES, DOCUMENTATION_IMAGE_FILES,
   ECOSYSTEM_SCHEMA_FILES, ECOSYSTEM_RUNTIME_FILES, LAUNCHER_FILES, WORKSHOP_FILES, BUNDLED_TEMPLATE_FILES } from './build-package.mjs';
 import { verifyPackage } from './verify-package.mjs';
+import { inspectPackageZip } from './inspect-package-zip.mjs';
 
 const repository = fileURLToPath(new URL('../../', import.meta.url));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -33,6 +34,9 @@ test('source distribution is independent of local runtime caches and copies only
   assert.equal(manifest.runtime, null);
   assert.equal(built.runtimeVerified, false);
   assert.equal((await verifyPackage(bundle)).passed, true);
+  const zip = inspectPackageZip(await readFile(built.archive));
+  assert.equal(zip.root, basename(bundle));
+  assert.equal(zip.entries.length, manifest.files.length + 1);
   for (const path of [...APPLICATION_FILES, ...SDK_FILES, ...DOCUMENTATION_IMAGE_FILES, ...ECOSYSTEM_SCHEMA_FILES, ...ECOSYSTEM_RUNTIME_FILES, ...LAUNCHER_FILES, ...WORKSHOP_FILES, ...BUNDLED_TEMPLATE_FILES, ...AGENT_FILES]) {
     assert.equal(hash(await readFile(join(bundle, path))), hash(await readFile(join(repository, path))), path);
   }
@@ -49,12 +53,13 @@ test('source distribution is independent of local runtime caches and copies only
   }
   const start = await readFile(join(bundle, 'start.cmd'), 'utf8');
   const verify = await readFile(join(bundle, 'verify.cmd'), 'utf8');
-  const demo = await readFile(join(bundle, 'demo.cmd'), 'utf8');
-  const ui = await readFile(join(bundle, 'ui.cmd'), 'utf8');
   assert.ok(start.includes('%~dp0scripts\\launcher.mjs'));
   assert.ok(verify.includes('%~dp0scripts\\release\\verify-package.mjs'));
-  assert.ok(demo.includes('%~dp0examples\\management\\run-management-demo.mjs'));
-  assert.ok(ui.includes('%~dp0bin\\world-hub.mjs" --open'));
+  assert.doesNotMatch(start, /--open/);
+  for (const path of ['ui.cmd', 'demo.cmd']) await assert.rejects(access(join(bundle, path)), { code: 'ENOENT' });
+  assert.ok(manifest.files.every(item => !/\.(?:html|css|png|jpe?g)$/i.test(item.path)));
+  assert.ok(manifest.files.every(item => !/^(?:src\/(?:ui|debug)\/|tools\/workshop\/public\/)/.test(item.path)));
+  assert.equal(JSON.parse(await readFile(join(bundle, 'package.json'), 'utf8')).scripts.ui, undefined);
   const uiHelp = spawnSync(process.execPath, [join(bundle, 'bin/world-hub.mjs'), '--help'],
     { shell: false, windowsHide: true, encoding: 'utf8', timeout: 10_000 });
   assert.equal(uiHelp.error, undefined);
@@ -105,7 +110,7 @@ test('current distribution ships native management and excludes retired product 
   }
   for (const path of ['tools/launcher/module-groups.mjs', 'tools/launcher/module-versions.mjs', 'tools/launcher/module-uninstall.mjs', 'tools/launcher/wiring-defaults.mjs', 'tools/launcher/execution-policy.mjs', 'tools/launcher/demand-lifecycle.mjs', 'sdk/javascript/lifecycle-client.mjs'])
     assert.ok(manifest.files.some(item => item.path === path));
-  for (const path of ['src/management/management-modules.mjs', 'src/management/management-community.mjs', 'src/management/canvas-modes.mjs', 'scripts/runtime/module-group.mjs']) {
+  for (const path of ['src/management/management-modules.mjs', 'src/management/management-community.mjs', 'scripts/runtime/module-group.mjs']) {
     assert.ok(manifest.files.some(item => item.path === path), path);
   }
 });
@@ -127,10 +132,10 @@ test('config opt-in cannot hide runtime damage and unsafe manifest paths are rej
   await writeFile(config, (await readFile(config, 'utf8')) + '\n');
   assert.equal((await verifyPackage(changed)).passed, false);
   assert.equal((await verifyPackage(changed, { allowConfigChange: true })).passed, true);
-  await writeFile(join(changed, 'src/management/manual-console.mjs'), '\n// damaged test copy\n', { flag: 'a' });
+  await writeFile(join(changed, 'src/management/management-http.mjs'), '\n// damaged test copy\n', { flag: 'a' });
   const damaged = await verifyPackage(changed, { allowConfigChange: true });
   assert.equal(damaged.passed, false);
-  assert.ok(damaged.failed.some(item => item.path === 'src/management/manual-console.mjs'));
+  assert.ok(damaged.failed.some(item => item.path === 'src/management/management-http.mjs'));
   const manifest = JSON.parse(await readFile(join(changed, 'manifest.json'), 'utf8'));
   manifest.files[0].path = '../outside.mjs';
   await writeFile(join(changed, 'manifest.json'), JSON.stringify(manifest));

@@ -54,7 +54,7 @@ release只能操作当前通讯身份归属的保留消息。读取主题权限�
 
 ## 本机通讯管理
 
-`GET /manage` 与 `/manage/api/state` 提供通讯管理界面与元数据；选择记录时通过 `/manage/api/message?seq=N` 按需查看保留中的原文。`POST /manage/api/bridge` 只接受暂停、恢复和精确连接断开；`POST /manage/api/annotation` 只保存桥名称与 N:M 程序关系注记。管理不执行程序、不修改 ACL、不代发 ACK 或 release。暂停凭据主体会断开其全部实例并拒绝新实例；恢复仍采用原 ACL，程序由自己的枢纽桥决定是否重连。
+`GET /manage/api/state` 提供通讯管理元数据，界面由独立World Hub UI提供；选择记录时通过 `/manage/api/message?seq=N` 按需查看保留中的原文。`POST /manage/api/bridge` 只接受暂停、恢复和精确连接断开；`POST /manage/api/annotation` 只保存桥名称与 N:M 程序关系注记。管理不执行程序、不修改 ACL、不代发 ACK 或 release。暂停凭据主体会断开其全部实例并拒绝新实例；恢复仍采用原 ACL，程序由自己的枢纽桥决定是否重连。
 
 这些入口仅接受回环来源，校验本机 Host、同源 Origin 与跨站请求标记；变更必须携带当前管理操作令牌，JSON 请求体上限 16KiB。不返回 ACL token 或配置秘密。它面向可信本机运维，不提供同机不同账号或程序的权限隔离。畸形请求 URL 返回 400，不导致枢纽退出。
 
@@ -86,6 +86,6 @@ release只能操作当前通讯身份归属的保留消息。读取主题权限�
 
 大对象强制独立磁盘保存，消息日志只缓存附件描述符；普通消息正文的现有内存限制仍存在。blobs 默认单对象 1 GiB、总预约 2 GiB、128 个对象、块 256 KiB（可配到 512 KiB），预约包括 partial。对象释放与消息释放独立，新消息不能引用已释放对象；发布提交期间使用短期通讯 pin 防止并发容量回收，提交结束后继续尊重提供者的明确释放决定。
 
-`blob_release` 不立即删除：已有保留消息授权的读者在实际回收前仍可读取，对象回收后原消息可能仍在而读取返回 `BLOB_NOT_FOUND`。读者以 `blob_read(messageSeq,id)` 的实际结果为准，不能使用只允许提供者调用的 `blob_status`。附件池满时提供者释放、后续 `blob_begin` 可按需回收，调高配置上限才需重启。启动输出、`/status.storage.blobs` 与 `/manage` 显示预约、空闲对象位／字节、已释放及无 pin 的可回收预约量；这些不授予释放权。
+`blob_release` 不立即删除：已有保留消息授权的读者在实际回收前仍可读取，对象回收后原消息可能仍在而读取返回 `BLOB_NOT_FOUND`。读者以 `blob_read(messageSeq,id)` 的实际结果为准，不能使用只允许提供者调用的 `blob_status`。附件池满时提供者释放、后续 `blob_begin` 可按需回收，调高配置上限才需重启。启动输出、`/status.storage.blobs` 与 `/manage/api/state` 提供预约、空闲对象位／字节、已释放及无 pin 的可回收预约量；这些不授予释放权。
 
 WebSocket 出站缓冲默认限 8 MiB，超过上限立即断连；对象读取逐块响应而不是排队整个文件。大对象读/写/校验在独立对象存储队列中串行，普通消息发布不依赖该队列；附件发布和其他对象操作可能等待已有对象操作完成，不承诺公平调度或高并发吞吐。详见[请求／大体积协议](directed-and-bulk.md)，验证范围见[验证说明](../verification.md)。
