@@ -71,6 +71,8 @@ Hub admits, addresses, retains and forwards information. Providers decide retent
 
 Local APIs provide bridge admission control, registration, execution review, start/stop, resident/on-demand policies, wiring, versions and resources. Scripts, tools and the separate UI use the same APIs. Loopback, Host, Origin and operation-token checks remain in place; see [management APIs](docs/specs/management.md).
 
+The CLI exposes these controls directly. Inspect `world-hub operations --json`, then use commands such as `world-hub module list --hub http://127.0.0.1:8790 --json`. Structured input uses JSON files; review changes before explicitly applying them. See [CLI management](docs/cli.md).
+
 Independent module instances and reference groups are all connected to **the same Hub**. Groups organize deployment without creating a separate communication world. Module bodies, configurations and data have independent versions. Global/local describe scope in a shared pool. Configurations pin exact bodies; downloading, configuration application, data restoration and execution grants are separate actions. Retention cleanup preserves business data. See [module resources](docs/specs/module-resources.md).
 
 [Workshop](https://peros.cn/workshop/) is optional. This repository supplies account, artifact, source and collaboration APIs; pages live in World Hub UI. Its backend starts without pages. Explicit `uiRoot` can mount a separately deployed frontend directory.
@@ -83,7 +85,7 @@ world-hub-mcp --prepare
 world-hub-mcp --config ./private/world-hub-mcp.json
 ```
 
-The Skill supplies documentation. MCP uses its own bridge, identity and permissions over stdio. Neither needs a UI or bypasses authorization. See [agent integration](docs/ecosystem/agents.en.md).
+The Skill supplies documentation and operational guidance. MCP communication uses its own bridge, identity and permissions over stdio. Optional management tools require a separately configured local API address and exact operation allowlist, and can run without a communication bridge. Neither needs a UI or bypasses its corresponding authorization. See [agent integration](docs/ecosystem/agents.en.md).
 
 ## Develop and verify
 

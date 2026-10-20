@@ -1,6 +1,6 @@
 {
   "name": "world-hub",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "license": "MIT",
   "author": "oooBCKooo",
   "repository": {
@@ -30,6 +30,7 @@
     "./bridge": "./sdk/javascript/bridge-kit.mjs",
     "./blob": "./sdk/javascript/blob-client.mjs",
     "./lifecycle": "./sdk/javascript/lifecycle-client.mjs",
+    "./management": "./sdk/javascript/management-client.mjs",
     "./workshop": "./tools/workshop/server.mjs",
     "./package.json": "./package.json"
   },
@@ -39,6 +40,7 @@
     "bin/world-hub-mcp.mjs",
     "bin/world-hub-skill.mjs",
     "bin/world-hub.mjs",
+    "bin/management-cli.mjs",
     "config/hub.json",
     "docs/README.md",
     "docs/deployment.md",
@@ -67,6 +69,7 @@
     "docs/modules/provider-contract.md",
     "docs/modules/text-statistics.contract.json",
     "docs/npm.md",
+    "docs/cli.md",
     "docs/onboarding.md",
     "docs/releases.md",
     "docs/repository.md",
@@ -111,6 +114,8 @@
     "sdk/javascript/blob-client.mjs",
     "sdk/javascript/bridge-kit.mjs",
     "sdk/javascript/lifecycle-client.mjs",
+    "sdk/javascript/management-client.mjs",
+    "sdk/javascript/management-operations.mjs",
     "sdk/powershell/HubBridge.cs",
     "sdk/powershell/HubBridge.psm1",
     "sdk/powershell/README.md",
@@ -120,6 +125,7 @@
     "skills/world-hub/SKILL.md",
     "skills/world-hub/references/communication.md",
     "skills/world-hub/references/mcp.md",
+    "skills/world-hub/references/management.md",
     "skills/world-hub/references/modules.md",
     "skills/world-hub/references/setup.md",
     "src/hub/hub-server.mjs",
@@ -209,6 +215,7 @@
     "workshop": "node tools/workshop/cli.mjs",
     "test:workshop": "node scripts/verify.mjs --suite workshop",
     "test:agents": "node scripts/verify.mjs --suite agents",
+    "test:cli": "node scripts/verify.mjs --suite cli",
     "test:resources": "node scripts/verify.mjs --suite resources",
     "test:demos": "node scripts/verify.mjs --suite demos"
   }

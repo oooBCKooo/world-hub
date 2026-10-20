@@ -24,6 +24,8 @@ jobs:
         run: npm ci --prefix tools/mcp --ignore-scripts --no-audit --no-fund
       - name: Skill installation and real independent MCP stdio acceptance
         run: npm run test:agents
+      - name: CLI management and shared HTTP client acceptance
+        run: npm run test:cli
   ownership-linux:
     runs-on: ubuntu-latest
     timeout-minutes: 20

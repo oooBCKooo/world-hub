@@ -15,11 +15,14 @@ export const HELP = `World Hub MCP service (stdio)
 --prepare  Install only the optional MCP service's locked production dependencies
            using npm ci --omit=dev --ignore-scripts. Run once before configuring
            an MCP client; it downloads dependencies but starts no service.
---config   Serve World Hub communication tools through an independent Hub bridge.
+--config   Serve communication through an independent bridge and/or explicitly
+           allowlisted local management through the public HTTP API.
            stdin/stdout carry MCP; diagnostics go to stderr.
 
 Node.js 22.4+ and npm are required. The Hub must be separately configured and
-running. This service uses MCP 2026-07-28 and the configured bridge permissions.
+running for tools that contact it. This service uses MCP 2026-07-28. Communication
+uses configured bridge permissions; management requires its own fixed origin,
+exact operation allowlist and tool permissions. Management-only mode needs no bridge.
 No credentials are accepted as tool arguments or included in normal results.
 `;
 

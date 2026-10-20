@@ -1,11 +1,14 @@
 import { open } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { getManagementOperation } from '../../sdk/javascript/management-operations.mjs';
 
 export const TOOL_NAMES = Object.freeze([
   'hub_identity', 'hub_register_channels', 'hub_publish', 'hub_subscribe', 'hub_pull',
   'hub_ack', 'hub_unsubscribe', 'hub_request', 'hub_call', 'hub_inject',
-  'hub_respond', 'hub_release', 'hub_blob_upload', 'hub_blob_read',
+  'hub_respond', 'hub_release', 'hub_blob_upload', 'hub_blob_read', 'hub_blob_status', 'hub_blob_release',
+  'hub_manage_operations', 'hub_manage_read', 'hub_manage_write',
 ]);
+export const MANAGEMENT_TOOL_NAMES = Object.freeze(['hub_manage_operations', 'hub_manage_read', 'hub_manage_write']);
 export const DEFAULT_LIMITS = Object.freeze({
   connectTimeoutMs: 8000, requestTimeoutMs: 8000, maxBufferedMessages: 256,
   maxBufferedBytes: 8 * 1024 * 1024, maxResultBytes: 2 * 1024 * 1024,
@@ -31,19 +34,22 @@ function list(value, label, { exact = false, allowed } = {}) {
 }
 
 export function validateConfig(input) {
-  keys(input, ['format', 'bridge', 'permissions', 'limits'], 'config');
+  keys(input, ['format', 'bridge', 'permissions', 'limits', 'management'], 'config');
   if (input.format !== 'world-hub.mcp/v1') throw new Error('config format must be world-hub.mcp/v1');
-  keys(input.bridge, ['url', 'bridgeId', 'credential', 'token', 'expectedPrincipal', 'requireAuthenticated'], 'bridge');
-  const bridge = { ...input.bridge };
-  let url;
-  try { url = new URL(string(bridge.url, 'bridge.url', 2048)); } catch { throw new Error('bridge.url must be a WebSocket endpoint'); }
-  if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('bridge.url must not contain credentials, a query, or a fragment');
-  if (url.protocol === 'ws:' && !['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname)) throw new Error('unencrypted bridge.url is limited to loopback');
-  string(bridge.bridgeId, 'bridge.bridgeId', 64);
-  for (const key of ['credential', 'expectedPrincipal']) if (bridge[key] !== undefined) string(bridge[key], `bridge.${key}`, 128);
-  if (bridge.token !== undefined) string(bridge.token, 'bridge.token', 8192);
-  if (bridge.requireAuthenticated !== undefined && typeof bridge.requireAuthenticated !== 'boolean') throw new Error('bridge.requireAuthenticated must be boolean');
-  bridge.requireAuthenticated ??= true;
+  let bridge;
+  if (input.bridge !== undefined) {
+    keys(input.bridge, ['url', 'bridgeId', 'credential', 'token', 'expectedPrincipal', 'requireAuthenticated'], 'bridge');
+    bridge = { ...input.bridge };
+    let url;
+    try { url = new URL(string(bridge.url, 'bridge.url', 2048)); } catch { throw new Error('bridge.url must be a WebSocket endpoint'); }
+    if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('bridge.url must not contain credentials, a query, or a fragment');
+    if (url.protocol === 'ws:' && !['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname)) throw new Error('unencrypted bridge.url is limited to loopback');
+    string(bridge.bridgeId, 'bridge.bridgeId', 64);
+    for (const key of ['credential', 'expectedPrincipal']) if (bridge[key] !== undefined) string(bridge[key], `bridge.${key}`, 128);
+    if (bridge.token !== undefined) string(bridge.token, 'bridge.token', 8192);
+    if (bridge.requireAuthenticated !== undefined && typeof bridge.requireAuthenticated !== 'boolean') throw new Error('bridge.requireAuthenticated must be boolean');
+    bridge.requireAuthenticated ??= true;
+  }
   const source = input.permissions ?? { tools: ['hub_identity'] };
   keys(source, ['tools', 'publishTopics', 'subscribeTopics', 'targetPrincipals'], 'permissions');
   const permissions = {
@@ -62,7 +68,22 @@ export function validateConfig(input) {
     }
   }
   if (limits.maxReadMessages > limits.maxBufferedMessages) throw new Error('maxReadMessages must not exceed maxBufferedMessages');
-  return { format: input.format, bridge, permissions, limits };
+  let management;
+  if (input.management !== undefined) {
+    keys(input.management, ['url', 'operations'], 'management');
+    let endpoint;
+    try { endpoint = new URL(string(input.management.url, 'management.url', 2048)); } catch { throw new Error('management.url must be an explicit loopback HTTP origin'); }
+    if (endpoint.protocol !== 'http:' || !['127.0.0.1', '[::1]', 'localhost'].includes(endpoint.hostname) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash || endpoint.pathname !== '/' || !/^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?\/?$/u.test(input.management.url)) throw new Error('management.url must be an explicit loopback HTTP origin without credentials or a path');
+    const operations = list(input.management.operations, 'management.operations', { exact: true });
+    for (const name of operations) {
+      let operation;
+      try { operation = getManagementOperation(name); } catch { /* Unknown operations fail closed. */ }
+      if (!operation) throw new Error('management.operations contains an unsupported operation');
+    }
+    management = { url: endpoint.origin, operations };
+  }
+  if (!bridge && (!management || permissions.tools.some(name => !MANAGEMENT_TOOL_NAMES.includes(name)))) throw new Error('bridge is required for communication tools; only explicitly configured management-only clients may omit it');
+  return { format: input.format, ...(bridge ? { bridge } : {}), permissions, limits, ...(management ? { management } : {}) };
 }
 
 export async function loadConfig(path) {

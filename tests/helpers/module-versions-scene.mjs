@@ -122,7 +122,7 @@ async function importGroup(scene, source) {
   // Group lifecycle/version tests need a local reference group, not a retired
   // downloadable bundle. Assemble it through independent body/configuration APIs.
   const { readModuleGroup } = await import('../../scripts/runtime/module-group.mjs');
-  const { moduleGroupWiringBaseline } = await import('../../tools/launcher/module-groups.mjs');
+  const { moduleGroupWiringBaseline, normalizeModuleGroup } = await import('../../tools/launcher/module-groups.mjs');
   const { sourceFilesDigest } = await import('../../scripts/runtime/resource-artifacts.mjs');
   const { collectSourceFiles } = await import('../../scripts/runtime/source-guidance.mjs');
   const { manifest, modules } = await readModuleGroup(source.directory);
@@ -136,9 +136,19 @@ async function importGroup(scene, source) {
   const imported = okay(await scene.call('/manage/api/resources/profiles/import', { path: directory }));
   const review = okay(await scene.call('/manage/api/resources/profiles/preview', { profileId: imported.profile.profileId }));
   const result = okay(await scene.call('/manage/api/resources/profiles/apply', { reviewId: review.reviewId, accepted: true }));
+  // Establish a durable user group explicitly. Profile-owned helper groups are
+  // removed when their last active configuration is detached.
+  const ids = Object.values(result.mapping);
+  const groupId = 'versions-group-' + hash(manifest.id).slice(0, 24);
+  const startup = { ...manifest.startupPlan, members: manifest.startupPlan.members.map(member => ({ ...member, programId: result.mapping[member.programId], after: member.after.map(id => result.mapping[id]) })), startupOrder: manifest.startupPlan.startupOrder.map(id => result.mapping[id]) };
+  const saved = okay(await scene.call('/manage/api/groups/save', { group: { id: groupId, title: manifest.title, memberProgramIds: ids, startupPlan: startup,
+    origin: { id: manifest.id, version: manifest.version, members: result.mapping }, wiringBaseline: moduleGroupWiringBaseline(manifest) } }));
+  // The public editor cannot author a publisher baseline. Seed that verified
+  // fixture baseline explicitly for version/reset conformance scenarios.
+  saved.group = normalizeModuleGroup({ ...saved.group, wiringBaseline: moduleGroupWiringBaseline(manifest) }, ids);
+  scene.owner.localPrograms.groups.set(groupId, saved.group);
+  await scene.owner.localPrograms.save();
   okay(await scene.call('/manage/api/resources/profiles/deactivate', { profileIds: [imported.profile.profileId], accepted: true }));
-  const groupId = 'configuration-' + hash(manifest.id).slice(0, 24), group = scene.owner.localPrograms.groups.get(groupId);
-  const saved = okay(await scene.call('/manage/api/groups/save', { expectedRevision: group.revision, group: { ...group, origin: { id: manifest.id, version: manifest.version, members: result.mapping }, wiringBaseline: moduleGroupWiringBaseline(manifest) } }));
   return { group: saved.group, programs: Object.values(result.mapping).map(id => scene.owner.localPrograms.public(scene.owner.localPrograms.row(id))), startsModules: false, createsHub: false };
 }
 async function stateFile(scene, id, value) {

@@ -43,7 +43,7 @@ export async function hubFixture(t, { mcpAllow, limits, log } = {}) {
       return { format: 'world-hub.mcp/v1', bridge: { url: hub.endpoint,
         bridgeId: 'external.mcp.tools', credential: 'mcp.tools', token: tokens['mcp.tools'], expectedPrincipal: 'mcp.tools' },
         permissions: { tools: ['hub_identity', 'hub_register_channels', 'hub_publish', 'hub_subscribe', 'hub_pull', 'hub_ack', 'hub_unsubscribe',
-          'hub_request', 'hub_call', 'hub_inject', 'hub_respond', 'hub_release', 'hub_blob_upload', 'hub_blob_read'],
+          'hub_request', 'hub_call', 'hub_inject', 'hub_respond', 'hub_release', 'hub_blob_upload', 'hub_blob_read', 'hub_blob_status', 'hub_blob_release'],
           publishTopics: [allowedTopic, secondTopic], subscribeTopics: [allowedTopic, secondTopic], targetPrincipals: ['provider', 'source'] },
         limits: { connectTimeoutMs: 1500, requestTimeoutMs: 1500, maxReadWaitMs: 2000 }, ...overrides };
     },

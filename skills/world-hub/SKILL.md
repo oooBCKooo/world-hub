@@ -1,6 +1,6 @@
 ---
 name: world-hub
-description: Install and connect to World Hub, communicate through its MCP server or hub bridge SDKs, and develop independent modules or module groups. Use when an agent needs to connect programs, exchange retained messages, call or inject information into a program, transfer attachments, or manage World Hub module instances.
+description: Install, operate and connect to World Hub through its CLI, MCP adapter or hub bridge SDKs. Use for module resources and lifecycle, wiring, configuration selection, retained messages, directed communication and attachments.
 license: MIT
 metadata:
   project: https://github.com/oooBCKooo/world-hub
@@ -15,9 +15,10 @@ Keep application behavior in the programs. The Hub does not interpret business p
 ## Choose the needed reference
 
 - **Install, start, or diagnose a Hub:** read [references/setup.md](references/setup.md).
+- **Manage an existing Hub from CLI or an agent:** read [references/management.md](references/management.md).
 - **Use World Hub from an MCP client:** read [references/mcp.md](references/mcp.md).
 - **Write or debug a communicating program:** read [references/communication.md](references/communication.md).
-- **Develop, import, wire, or update modules and groups:** read [references/modules.md](references/modules.md).
+- **Develop, import, wire, or update module resources:** read [references/modules.md](references/modules.md).
 
 Load only the reference needed for the current request. Installation is optional when an existing endpoint or MCP connection already serves the task.
 
@@ -47,5 +48,7 @@ Report the endpoint and operation actually checked, whether a business response 
 ## Current product surface
 
 World Hub is headless. Local management is provided by `/manage/api/**`; `/manage` serves no page. World Hub UI is a separate optional project and is not needed by SDK or MCP clients. Managed module instances share the Hub. Programs can also run independently and connect without `module.json`. Packs, templates, per-pack Hubs, `world-hub-pack`, and the `world-hub/runtime` export are not current integration entry points.
+
+The CLI and explicitly enabled management MCP tools operate the local deployment through the same public management API. Bridge credentials authorize communication, not deployment management. Preview and apply remain separate operations; inspect the returned review and apply only within the user's requested scope. A write timeout can leave a changed deployment; query current state and recovery information before deciding whether another write is appropriate.
 
 Use documentation matching the installed release. Public source and SDK documentation are in the [World Hub repository](https://github.com/oooBCKooo/world-hub); do not copy historical commands merely because an old file still exists in a checkout.

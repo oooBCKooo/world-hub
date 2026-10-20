@@ -200,6 +200,29 @@ try {
 
 等待提供者打印 ready 后调用。call 自己完成 response 订阅建立屏障；没有全局 delivery handler 也可以自动 ACK 它匹配的回应。默认 ACK 清理可能在 call 返回后继续进行，调用方 close 会完成本地清理。上例没有文件游标或持久幂等；重新执行可能再次调用。启动失败、ACL 拒绝、授权失败和本地等待失败应分别观察，打印 request 接纳序号本身不代表 echo 业务成功。
 
+## 本机管理客户端 / Local management client
+
+`world-hub/management` 是独立的 HTTP 管理客户端，不建立枢纽桥或读取后端私有类。它与 CLI、MCP 使用同一份[操作目录](management-operations.mjs)。管理端点来自服务的 `ready.statusUrl` origin，仅接受字面的 HTTP 回环地址，不含路径、凭据、查询或 fragment；不跟随重定向。桥的 token 不授予管理权限。
+
+```js
+import { ManagementClient, MANAGEMENT_OPERATIONS } from 'world-hub/management';
+const management = new ManagementClient({ url: 'http://127.0.0.1:8790', timeoutMs: 30000 });
+const modules = await management.execute('programs.list');
+// Inspect the returned execution review separately before applying it.
+const review = await management.execute('programs.review', { programId: 'example' });
+await management.execute('programs.start', {
+  programId: 'example', reviewId: review.reviewId, accepted: true,
+});
+```
+
+`execute(name, input?, {signal?})` 返回管理 API 的 JSON。POST 内部获取当前 CSRF 令牌，不把它放入结果。可选 `maxResponseBytes` 默认 8 MiB，上限 64 MiB；`timeoutMs` 为 1–3600000。每个操作的 `schema`、`readOnly`、`requiresReview` 和 `requiresAcceptance` 可从目录查询。检查/预览可能执行解释器探测或导入缓存，不按名称推断读权限。审阅编号必须来自另一次实际审阅，客户端不自动审阅、接受或重试写入。
+
+错误带 `code`，HTTP 错误另带 `status` 和经脱敏的 `details`。网络故障、取消或超时可能发生在写入之后，`outcome: 'unknown'`、`retrySafe: false` 表示需先查看实际状态或恢复事务。普通管理结果省略新签发凭据；确需交付外部桥凭据时优先使用 CLI 的 `external apply --secrets-file NEW_FILE`，不要把私有结果发送到智能体或日志。
+
+`messages.get` 和 `hub.log` 另返回 `rawJSON`，保留服务器原始 JSON 文本。转发或导出应用信息时使用原文，避免 JavaScript 数字解析损失；正文仍是应用自己的不透明数据，不因字段名为 `token` 等而修改。
+
+The management client uses only the public loopback HTTP API. Its shared catalog documents each operation; it never infers acceptance, retries a write, or substitutes bridge credentials for management authority. Review an operation first and apply only that returned review. `signal` supports cancellation, and unknown write outcomes must be reconciled before another attempt. Retained messages and logs include lossless `rawJSON`; parsed business bodies remain opaque.
+
 ## SDK 的重读、复用与实例游标
 
 `replay(filters,{from:0,operations?})` 替换相同过滤器与 operations 的订阅，明确从给定序号之后重新读取；省略 from 为零。它返回订阅建立回执，随后通过普通 delivery 接收历史，追平后仍保持实时订阅。它不改变其他重叠订阅，重连时仍恢复已提交游标，不再自动从零开始。`caughtUp` 只表示扫描追平，程序自己的处理函数仍需自行完成。

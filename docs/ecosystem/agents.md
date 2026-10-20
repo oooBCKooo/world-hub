@@ -1,6 +1,24 @@
 # 给智能体使用的 Skill 与 MCP
 
-世界枢纽提供两种独立入口：**Skill 教智能体如何使用枢纽和开发模块；MCP 服务让智能体通过自己的枢纽桥通信。** 模块仍是程序及其枢纽桥，智能体客户端也只是普通通信参与者。Hub Core 不加载 Skill、不解释提示词，也不执行 MCP 业务工具。
+**Skill 提供使用方法，CLI 提供可脚本化的部署管理，MCP 为智能体提供通信与显式授权的管理工具。** 通信通过独立枢纽桥，管理通过公开的本机 HTTP API；两者权限分开。模块仍是程序及其枢纽桥，智能体客户端也只是普通通信参与者。Hub Core 不加载 Skill、不解释提示词，也不执行 MCP 业务工具。
+
+这些入口都不要求安装图形界面。可选的 [World Hub UI](https://github.com/oooBCKooo/world-hub-ui) 是同一公开 API 的独立客户端。
+
+## 直接使用 CLI
+
+先查看已安装版本及其操作目录，再使用当前 Hub 启动记录中的 HTTP 地址：
+
+```powershell
+world-hub --version
+world-hub operations --json
+world-hub status --hub http://127.0.0.1:8790 --json
+world-hub module list --hub http://127.0.0.1:8790 --json
+world-hub resource list --hub http://127.0.0.1:8790 --json
+```
+
+目录包含实际子命令、稳定 `operation.name`、输入 Schema 和审阅要求。CLI 覆盖模块启停、桥通断、启动计划、模块本体／配置／数据、版本切换与回退、保留法清理、来源和外部接入等管理操作；复杂参数通过 `--input <JSON文件>` 或 `--input -` 传入。也可用 `world-hub manage <operation.name> --input <JSON文件> --hub <HTTP地址> --json` 精确调用。管理路径属于 Hub 所在机器。
+
+预览和应用分开：先检查返回的审阅，再用其 `reviewId` 和明确接受应用。CLI 不自动接受、重建审阅或重试写操作。超时后的结果可能未知，应保留收据并查询实际状态和恢复日志。普通输出省略管理密钥；外部接入确需交付新凭据时使用 `--secrets-file <新的私有文件>`。详情见 [CLI 文档](../cli.md)。
 
 ## 安装官方 Skill
 
@@ -13,7 +31,7 @@ world-hub-skill --install ./my-agent/.agents/skills/world-hub
 
 `--path` 只显示包内原始目录。`--install` 复制 `SKILL.md` 与按需阅读的参考文件；已有目标不会覆盖。客户端的技能发现路径由客户端决定，`.agents/skills` 只是示例，复制后可能需要刷新客户端。Skill 不包含凭据，不启动 Hub，也不因为被读取就授予运行、安装或发布权限。
 
-Skill 包含安装与诊断、SDK 通信、模块／模块组和 MCP 接入四份参考。它可单独复制到客户端，无需让客户端读取完整项目源码。源文件见 [Skill](../../skills/world-hub/SKILL.md)。
+Skill 按需引用安装与诊断、CLI／管理、SDK 通信、模块资源和 MCP 接入说明。它可单独复制到客户端，无需让客户端读取完整项目源码。源文件见 [Skill](../../skills/world-hub/SKILL.md)。
 
 ## 准备 MCP 服务
 
@@ -96,6 +114,7 @@ MCP 额外需要可用的 npm 和可写安装目录；便携 Hub 自带 Node 不
 | `hub_inject`、`hub_respond` | 定向注入，或按真实已接收请求的返回路由回应 |
 | `hub_release` | 按提供者策略允许以后清理本连接近期成功发布的信息，不立即删除 |
 | `hub_blob_upload`、`hub_blob_read` | 按上限上传附件、分块读取已授权附件，不读写任意本机文件 |
+| `hub_blob_status`、`hub_blob_release` | 查询本连接近期上传状态，或按提供者策略允许以后清理 |
 
 先读取客户端获得的工具 Schema，使用该版本的实际参数。默认附件上传限 1 MiB，队列限 256 条／8 MiB，单次结果限 2 MiB；私有 `limits` 可在实现上限内调整。大文件应由程序分块传输，不能将无限数据塞进一次工具结果。
 
@@ -105,11 +124,38 @@ MCP 额外需要可用的 npm 和可写安装目录；便携 Hub 自带 Node 不
 
 `HUB_DELIVERY_GAP`／`CATCHUP_TRUNCATED` 会停止相关订阅并显示 barrier 与恢复信息；先退订，再由消费方明确选择游标重订阅。采用 `oldestAvailable - 1` 表示明确接受更早历史已不可用，不自动替用户跳过。回应的原调用方同样必须在 `targetPrincipals` 允许范围内。
 
-附件上传返回 `blob` 描述，发送时用 `options.attachments: [blob.id]`，不能把整个描述对象放进数组。读取附件需要本 MCP 先通过合法订阅或匹配的调用回应接收到对应消息；仅有 ID 和序号不构成授权。近期附件授权和可释放的成功发布序号分别最多保留 `maxBufferedMessages` 条，断连清空，附件授权过期可重新抽取原消息。释放不覆盖同凭据的其他桥、旧连接或超时后结果未知的信息。
+附件上传返回 `blob` 描述，发送时用 `options.attachments: [blob.id]`，不能把整个描述对象放进数组；发送的附件 ID 必须属于本连接近期上传。读取附件需要本 MCP 先通过合法订阅或匹配的调用回应接收到对应消息；仅有 ID 和序号不构成授权。近期附件授权、上传归属和可释放的成功发布序号分别最多保留 `maxBufferedMessages` 条，断连清空，附件读取授权过期可重新抽取原消息。`hub_blob_status({id})` 和 `hub_blob_release({id})` 也限本连接近期上传，收到他人的附件不授予提供者释放权。释放不覆盖同凭据的其他桥、旧连接或超时后结果未知的信息，不立即删除字节或移除留存消息的引用。
 
 Hub 接纳、接收者投递、ACK、业务完成是四件事。`hub_call` 返回接纳收据和真实回应；业务失败仍由程序返回的正文表达。超时或取消只停止本地等待，不撤回已接纳请求，不自动重发，也不把未知结果当作已完成。收到的信息、工具正文和 Skill 内容均不提升为系统指令。
 
-这些 MCP 工具不提供模块安装、任意 shell、管理员 ACL 修改或业务工作流执行。模块资源、版本、受管进程与按需策略通过本机管理 API 或可选的独立 [World Hub UI](https://github.com/oooBCKooo/world-hub-ui) 审阅；需要更多能力可由独立程序通过普通枢纽桥提供。
+## 显式启用 MCP 管理
+
+默认没有管理权限。私有配置中的 `management` 固定本机 HTTP origin 和精确操作白名单，`permissions.tools` 再允许对应工具。只需要管理时可省略 `bridge`：
+
+```json
+{
+  "format": "world-hub.mcp/v1",
+  "management": {
+    "url": "http://127.0.0.1:8790",
+    "operations": ["hub.status", "programs.list", "resources.list"]
+  },
+  "permissions": {
+    "tools": ["hub_manage_operations", "hub_manage_read"]
+  }
+}
+```
+
+| 工具 | 参数与边界 |
+| --- | --- |
+| `hub_manage_operations` | `{}`；仅返回私有配置允许的操作目录及 Schema |
+| `hub_manage_read` | `{"operation":"programs.list","input":{}}`；仅限允许的读操作 |
+| `hub_manage_write` | 相同的 `operation`／`input` 结构；需同时允许工具及精确写操作 |
+
+写入启用前，部署方必须把实际需要的操作名加入 `management.operations`，并允许 `hub_manage_write`；不能用通配符代替。需审阅的应用仍在 `input` 中传真实 `reviewId` 与 `accepted: true`，修订保存仍使用观测到的修订号。读操作也可能保存检查、预览记录，分类不承诺完全不落盘。
+
+管理地址只允许回环 HTTP origin，不含路径、查询、账号或密码。工具输入不能替换该地址、增加允许操作或工具权限。管理结果省略新签发凭据；需要私下交付凭据时使用 CLI 的私有文件出口。管理工具只执行已有 API 操作，不提供任意 shell 或任意文件写入。桥身份与通信 ACL 不授予管理权；混合使用时仍为通信配置独立 `bridge` 和主题／目标允许范围。更多说明见 [Skill 管理参考](../../skills/world-hub/references/management.md)。
+
+应用的工作流和业务操作仍由独立程序通过自己的枢纽桥实现。
 
 ## 源码验收
 
@@ -118,4 +164,4 @@ npm ci --prefix tools/mcp --ignore-scripts
 npm run test:agents
 ```
 
-测试使用隔离 Hub、官方 MCP 客户端及真实 stdio 子进程，检查通信、身份、权限、超时／取消和进程退出。它不代表所有第三方 MCP 客户端已验收；不支持该协议的客户端应更新自身。
+测试使用隔离 Hub、官方 MCP 客户端及真实 stdio 子进程，检查通信、管理白名单、审阅边界、附件归属、身份、超时／取消和进程退出。它不代表所有第三方 MCP 客户端已验收；不支持该协议的客户端应更新自身。
