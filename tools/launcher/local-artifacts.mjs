@@ -7,7 +7,7 @@ import { ordinaryPath, readBounded, relativePath, hash } from '../../scripts/run
 import { validateModule } from '../../scripts/runtime/package.mjs';
 import { collectSourceFiles } from '../../scripts/runtime/source-guidance.mjs';
 import { readDeployment } from '../../scripts/runtime/deployment.mjs';
-import { readModuleGroup, validateModuleGroupFiles } from '../../scripts/runtime/module-group.mjs';
+import { readResourceFiles, validateConfigurationFiles, validateDataFiles } from '../../scripts/runtime/resource-artifacts.mjs';
 import { validateArtifactBytes } from '../../scripts/runtime/sources.mjs';
 
 const bad = message => Object.assign(new Error(message),{code:'LOCAL_ARTIFACT_INVALID'});
@@ -45,16 +45,17 @@ export function readLocalZip(bytes) {
 }
 async function identify(directory) {
   const markers=[];
-  for(const [kind,name] of [['module','module.json'],['module-group','module-group.json']]) try { const value=JSON.parse(await readBounded(join(directory,name))); markers.push({kind,value}); } catch(error) { if(error.code!=='ENOENT') throw error; }
-  if(markers.length!==1) throw bad('Choose one complete module or module-group root. Ordinary application source is not an installable module.');
+  for(const kind of ['module','configuration','data']) try { const value=JSON.parse(await readBounded(join(directory,`${kind}.json`))); markers.push({kind,value}); } catch(error) { if(error.code!=='ENOENT') throw error; }
+  if(markers.length!==1) throw bad('Choose one complete module, configuration or data root. Ordinary application source is not an installable module.');
   const {kind,value}=markers[0];
   if(kind==='module') {validateModule(value);await readDeployment(directory,value);const files=await collectSourceFiles(directory);if(!files.some(file=>file.path===value.runtime.entry)) throw bad('Module entry is missing');}
-  else await readModuleGroup(directory);
-  return {kind,id:value.id,version:value.version,title:value.title??value.id,path:directory,checked:true,requiresReview:true,startsModules:false,...(kind==='module-group'?{memberCount:value.modules.length}:{})};
+  else (kind==='configuration'?validateConfigurationFiles:validateDataFiles)(value,await readResourceFiles(directory));
+  return {kind,id:value.id,version:value.version,title:value.title??value.id,path:directory,checked:true,requiresReview:true,startsModules:false,
+    ...(kind==='configuration'?{memberCount:value.modules.length,scope:value.scope}:kind==='data'?{memberCount:value.instances.length,scope:value.scope,purpose:value.purpose}:{})};
 }
 export async function importLocalArtifact({root,path,kind}={}) {
   const source=await ordinaryPath(path);
-  if(kind!==undefined&&!['module','module-group'].includes(kind)) throw bad('Only module and module-group distributions can be imported');
+  if(kind!==undefined&&!['module','configuration','data'].includes(kind)) throw bad('Only module, configuration and data distributions can be imported');
   const zip=source.toLowerCase().endsWith('.zip'),json=source.toLowerCase().endsWith('.json');
   if(!zip&&!json) {const object=await identify(source);if(kind&&object.kind!==kind) throw bad(`Choose a ${kind} distribution`);return {object,startsModules:false};}
   const bytes=await readBounded(source,(json?96:64)*1024*1024);
@@ -62,14 +63,16 @@ export async function importLocalArtifact({root,path,kind}={}) {
   if(json) {const validated=validateArtifactBytes(bytes);detected=validated.artifact.kind;files=validated.decoded.map(file=>({path:file.path,content:file.bytes}));}
   else {
     files=readLocalZip(bytes);
-    const groups=files.filter(file=>file.path.split('/').at(-1)==='module-group.json');
-    const candidates=groups.length?groups:files.filter(file=>file.path.split('/').at(-1)==='module.json');
-    if(candidates.length!==1) throw bad('Archive must contain one complete module or module-group root');
-    detected=groups.length?'module-group':'module';
+    const markers=files.filter(file=>['module.json','configuration.json','data.json'].includes(file.path.split('/').at(-1)));
+    const depth=Math.min(...markers.map(file=>file.path.split('/').length));
+    const candidates=markers.filter(file=>file.path.split('/').length===depth);
+    if(candidates.length!==1) throw bad('Archive must contain one complete module, configuration or data root');
+    detected=candidates[0].path.split('/').at(-1).slice(0,-5);
     prefix=candidates[0].path.slice(0,-candidates[0].path.split('/').at(-1).length);
     if(files.some(file=>prefix&&!file.path.startsWith(prefix))) throw bad('Files outside the distribution root');
-    if(detected==='module-group')validateModuleGroupFiles(JSON.parse(candidates[0].content),files.map(file=>({path:file.path.slice(prefix.length),bytes:file.content})));
+    if(detected==='configuration'||detected==='data')(detected==='configuration'?validateConfigurationFiles:validateDataFiles)(JSON.parse(candidates[0].content),files.map(file=>({path:file.path.slice(prefix.length),bytes:file.content})));
   }
+  if(!['module','configuration','data'].includes(detected))throw bad('Only module, configuration and data distributions can be imported');
   if(kind&&detected!==kind)throw bad(`Choose a ${kind} distribution`);
   const destination=await ordinaryPath(join(root,'local-artifacts',detected+'-'+hash(bytes).slice(0,12)+'-'+randomUUID()),{allowMissing:true});
   await mkdir(destination,{recursive:true,mode:0o700});

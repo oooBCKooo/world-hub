@@ -66,33 +66,45 @@ function inspectDependencies(files, deployment) {
   if (!npm && !python.length && !unparsed.length && !deployment?.dependencies) return null;
   return { installation: clone(deployment?.dependencies ?? null), npm, python, unparsed };
 }
-function moduleConfiguration(manifest, files, member = null) {
+function moduleConfiguration(manifest, files) {
   const input = json(files, 'deployment.json');
   const deployment = input ? validateDeployment(input.value, manifest) : null;
-  const override = member?.configuration.executionDefaults;
-  const declared = override ?? deployment?.executionDefaults ?? null;
-  const source = override !== undefined ? 'module-group' : deployment?.executionDefaults !== undefined ? 'module' : 'system';
+  const declared = deployment?.executionDefaults ?? null;
+  const source = deployment?.executionDefaults !== undefined ? 'module' : 'system';
   const settings = Object.fromEntries((deployment?.settings ?? []).map(field => [field.key, field.default]));
   validateDeploymentSettings(deployment, settings, { publicSource: true });
-  const effectiveConfiguration = member ? clone(member.configuration) : {
+  const effectiveConfiguration = {
     topics: clone(deployment?.topics ?? {}), bridges: clone(deployment?.bridges ?? {}), settings, bindings: []
   };
   delete effectiveConfiguration.executionDefaults;
   return { manifest: clone(manifest), deployment: clone(deployment),
-    executionDefaults: { declared: clone(declared), effective: initialExecutionPolicy(deployment, override), source },
+    executionDefaults: { declared: clone(declared), effective: initialExecutionPolicy(deployment), source },
     dependencies: inspectDependencies(files, deployment), effectiveConfiguration,
-    configurationSources: Object.fromEntries(['topics', 'bridges', 'settings', 'bindings'].map(key => [key, member ? 'module-group' : deployment && key !== 'bindings' ? 'module' : 'system'])) };
+    configurationSources: Object.fromEntries(['topics', 'bridges', 'settings', 'bindings'].map(key => [key, deployment && key !== 'bindings' ? 'module' : 'system'])) };
 }
 export function configurationFromValidatedArtifact(validated) {
-  const { artifact, manifest, decoded, modules, entry } = validated;
-  const identity = { format: 'world-hub.workshop-configuration/v1', sha256: entry.sha256, kind: artifact.kind, id: artifact.id, version: artifact.version };
+  const { artifact, manifest, decoded, entry } = validated;
+  const identity = { format: 'world-hub.workshop-configuration/v1', sha256: entry.sha256, kind: artifact.kind, id: artifact.id, version: artifact.version,
+    artifactFileCount:decoded.length, artifactByteSize:validated.bytes.length };
   if (artifact.kind === 'module') return { ...identity, ...moduleConfiguration(manifest, decoded) };
-  return { ...identity, manifest: clone(manifest), deployment: null, executionDefaults: null, dependencies: null,
-    modules: modules.map(({ member, manifest: child, files }) => {
-      const configuration = moduleConfiguration(child, files, member);
-      // validateModuleGroupFiles already checked exact identities, bindings and
-      // public settings. The author declaration is separate from its group copy.
-      return { memberId: member.id, path: member.path, configuration: clone(member.configuration), ...configuration };
-    }), startupPlan: clone(manifest.startupPlan) };
+  if (artifact.kind === 'configuration') return { ...identity, manifest: clone(manifest), scope: manifest.scope,
+    modules: manifest.modules.map(member => {
+      const declared = member.configuration.executionDefaults ?? null;
+      // Source declarations are references, not embedded module sources. An
+      // omitted policy remains unresolved until local module review.
+      return { memberId:member.id, module:clone(member.module), effectiveConfiguration:clone(member.configuration),
+        executionDefaults:{ declared:clone(declared), effective:declared ? initialExecutionPolicy(null, declared) : null, source:declared ? 'configuration' : 'module' },
+        configurationSources:Object.fromEntries(['topics','bridges','settings','bindings'].map(key => [key, 'configuration'])) };
+    }), startupPlan:clone(manifest.startupPlan), ...(manifest.data ? { data:clone(manifest.data) } : {}) };
+  if (artifact.kind === 'data') {
+    const instances = manifest.instances.map(instance => {
+      const files = decoded.filter(file => file.path.startsWith(instance.path + '/'));
+      return { ...clone(instance), fileCount:files.length, byteSize:files.reduce((total, file) => total + file.bytes.length, 0),
+        files:files.map(file => ({ path:file.path, sha256:hash(file.bytes), byteSize:file.bytes.length })) };
+    });
+    return { ...identity, manifest:clone(manifest), scope:manifest.scope, purpose:manifest.purpose, instances,
+      fileCount:instances.reduce((total, instance) => total + instance.fileCount, 0), byteSize:instances.reduce((total, instance) => total + instance.byteSize, 0) };
+  }
+  fail('Unsupported public artifact kind.');
 }
 export function artifactConfiguration(input) { return configurationFromValidatedArtifact(validateArtifactBytes(input)); }

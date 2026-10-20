@@ -1,5 +1,27 @@
 .mc-dialog { --mc-border:rgba(255,255,255,.09); --mc-teal:#00d2b4; width:min(1320px,96vw); height:min(920px,94dvh); max-width:none; max-height:none; margin:auto; padding:0; background:#0a111b; color:#e8f0f7; border:1px solid rgba(0,210,180,.2); border-radius:20px; box-shadow:0 35px 120px #000b,0 0 80px #00d2b407; font:13px/1.6 var(--sans,-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif); user-select:text; -webkit-user-select:text; overflow:hidden; }
 .mc-dialog::backdrop { background:rgba(2,6,12,.78); backdrop-filter:blur(7px); }
+.rc-dialog { width:min(1120px,96vw); height:min(920px,94dvh); }
+.rc-dialog .mc-header>div { margin-right:auto; }
+.rc-tabs { margin-top:18px; border:1px solid var(--mc-border); border-radius:10px 10px 0 0; }
+.rc-panel { padding:22px 0; }
+.rc-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:26px; align-items:start; }
+.rc-grid>*,.rc-list { min-width:0; }
+.rc-list { display:grid; gap:10px; margin-bottom:16px; }
+.rc-card { padding:14px; background:#101d29; border:1px solid var(--mc-border); border-radius:9px; overflow-wrap:anywhere; }
+.rc-card>p { font-size:11px; color:#8299ad; margin-top:6px; }
+.rc-card>pre { margin:7px 0; }
+.rc-badges { display:flex; flex-wrap:wrap; gap:5px; }
+.rc-badge { padding:2px 7px; border-radius:99px; font-size:10px; color:#a9bdce; background:#94a3b815; border:1px solid #94a3b825; }
+.rc-active { color:#60e8d4; border-color:#00d2b450; background:#00d2b412; }
+.rc-dialog label.rc-check { display:flex; flex-direction:row; align-items:start; gap:9px; margin:10px 0; }
+.rc-dialog .rc-check input { width:16px; height:16px; padding:0; margin-top:2px; flex:0 0 16px; accent-color:#00d2b4; }
+.rc-check span { overflow-wrap:anywhere; }
+.rc-review { border:1px solid #f59e0b45; border-radius:12px; padding:20px; margin-top:20px; background:#f59e0b06; }
+.rc-review h3 { margin-bottom:16px; }
+.rc-review-group { background:#080f18; padding:12px; border-radius:8px; overflow-wrap:anywhere; }
+.rc-review-group ul { margin:7px 0 0; padding-left:20px; color:#adc4d5; }
+.rc-dialog #rc-receipt-box { margin-top:20px; }
+@media(max-width:720px) { .rc-grid { grid-template-columns:minmax(0,1fr); gap:24px; } .rc-dialog .mc-header { padding:16px; gap:8px; } .rc-dialog .mc-header h2 { font-size:17px; } .rc-dialog .mc-scroll { padding:16px; } }
 .mc-dialog [hidden] { display:none!important; }
 .mc-dialog * { box-sizing:border-box; }
 .mc-dialog button,.mc-dialog input,.mc-dialog textarea,.mc-dialog select { font:inherit; }

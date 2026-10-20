@@ -100,7 +100,7 @@ export function canonicalPublisherJson(value) {
 }
 function artifactSubject(subject) {
   fields(subject, ['kind', 'id', 'version', 'sha256']);
-  if (!['module', 'module-group', 'pack', 'template'].includes(subject.kind)) fail('INVALID_ARTIFACT_KIND', 'Artifact kind must be module or module-group; retired artifact identities are retained for historical evidence.');
+  if (!['module', 'configuration', 'data', 'module-group', 'pack', 'template'].includes(subject.kind)) fail('INVALID_ARTIFACT_KIND', 'Artifact kind must be module, configuration or data; retired artifact identities are retained for historical evidence.');
   identifier(subject.id); text(subject.version, 128);
   if (!SHA.test(subject.sha256)) fail('INVALID_ARTIFACT_SHA', 'Artifact must have exact SHA-256.');
   return subject;

@@ -50,23 +50,31 @@ test('installation dependencies, contracts, source wiring, settings and topic gr
     dependencies:{installation:{kind:'npm-lock',recipes:['electron']},npm:{dependencies:{electron:'35.0.0'},devDependencies:{typescript:'5.0.0'},optionalDependencies:{optional:'1.0.0'},peerDependencies:{peer:'2.0.0'},lock:{path:'package-lock.json',lockfileVersion:3,packageCount:40}},python:[{path:'requirements.txt',requirements:['requests==2.32.0'],unsupportedCount:1}],unparsed:[{path:'pyproject.toml'}]}
   }));
   const output = text(view);
-  for (const expected of ['On demand','Module declaration','1.5 seconds','Installation dependencies','Runtime dependencies','Development dependencies','Optional dependencies','Peer dependencies','Capability contracts','Needs a provider','ui.render@2.0.0','electron','package-lock.json','40','requests==2.32.0','pyproject.toml','example.ui@3.0.0','ui/render','Can send','Can receive','Default settings','light']) assert.ok(output.includes(expected),expected);
+  for (const expected of ['On demand','Module declaration','1.5 seconds','Installation dependencies','Runtime dependencies','Development dependencies','Optional dependencies','Peer dependencies','Capability contracts','Needs a provider','ui.render@2.0.0','electron','package-lock.json','40','requests==2.32.0','pyproject.toml','example.ui@3.0.0','ui/render','Can send','Can receive','Settings','light']) assert.ok(output.includes(expected),expected);
   assert.doesNotMatch(output,/No idle timeout declared/);
   assert.match(output,/separate from installation dependencies/);
   assert.ok(walk(view).filter(node => node.tag === 'th').every(node => node.attributes.scope === 'col'));
   assert.equal(walk(view).filter(node => node.tag === 'pre').length,0,'configuration is not an opaque raw JSON dump');
 });
 
-test('group policy overrides and inheritance, exact startup ordering and effective wiring remain visible', () => {
-  const source = configuration({memberId:'source',executionDefaults:{declared:{mode:'resident'},effective:{mode:'resident',idleTimeoutMs:60000,allowedCallers:[]},source:'module'},deployment:{settings:[{key:'text',label:{en:'Text'},type:'string',default:'original'}]},effectiveConfiguration:{topics:{source:'group/source'},bridges:{main:{publish:['source'],subscribe:[]}},settings:{text:'group custom'},bindings:[]},configurationSources:{topics:'module-group',bridges:'module-group',settings:'module-group',bindings:'module-group'}});
-  const ui = configuration({id:'example.ui',memberId:'ui',manifest:{...moduleManifest,id:'example.ui',runtime:{kind:'python',entry:'view.py'}},executionDefaults:{declared:{mode:'on-demand',idleTimeoutMs:120000},effective:{mode:'on-demand',idleTimeoutMs:120000,allowedCallers:[]},source:'module-group'},deployment:{settings:[]},effectiveConfiguration:{topics:{render:'group/render'},bridges:{main:{publish:[],subscribe:['render']}},settings:{dimensions:{width:640,visible:true}},bindings:[{providerId:'source',contract:{id:'text.read',version:'1.0.0'}}]},configurationSources:{topics:'module-group',bridges:'module-group',settings:'module-group',bindings:'module-group'}});
-  const group = render(configuration({kind:'module-group',manifest:{provides:[],requires:[]},modules:[source,ui],startupPlan:{members:[{programId:'source',enabled:true,after:[]},{programId:'ui',enabled:false,after:['source']}],startupOrder:['ui','source'],onFailure:'continue-independent'}}));
-  const output = text(group);
-  for (const expected of ['2 members','2 runtimes','1 on-demand members','Inherited module declaration','Module group override','120 seconds','Continue independent members','Not included','Effective group value','original','group custom','group/render','dimensions','640','text.read@1.0.0']) assert.ok(output.includes(expected),expected);
-  const startup = walk(group).find(node => node.tag === 'details' && text(node).startsWith('\n\nGroup startup plan')) ?? walk(group).find(node => node.tag === 'details');
+test('configuration policies, pinned dependencies, exact startup ordering and effective wiring remain visible without embedded module sources', () => {
+  const source = {memberId:'source',module:{id:'example.reader',version:'2.1.0',digest:'a'.repeat(64)},executionDefaults:{declared:null,effective:null,source:'module'},effectiveConfiguration:{topics:{source:'profile/source'},bridges:{main:{publish:['source'],subscribe:[]}},settings:{text:'profile custom'},bindings:[]},configurationSources:{topics:'configuration',bridges:'configuration',settings:'configuration',bindings:'configuration'}};
+  const ui = {memberId:'ui',module:{id:'example.ui',version:'3.0.0',digest:'b'.repeat(64)},executionDefaults:{declared:{mode:'on-demand',idleTimeoutMs:120000},effective:{mode:'on-demand',idleTimeoutMs:120000,allowedCallers:[]},source:'configuration'},effectiveConfiguration:{topics:{render:'profile/render'},bridges:{main:{publish:[],subscribe:['render']}},settings:{dimensions:{width:640,visible:true}},bindings:[{providerId:'source',contract:{id:'text.read',version:'1.0.0'}}]},configurationSources:{topics:'configuration',bridges:'configuration',settings:'configuration',bindings:'configuration'}};
+  const profile = render(configuration({kind:'configuration',scope:'global',manifest:{provides:[],requires:[]},modules:[source,ui],startupPlan:{members:[{programId:'source',enabled:true,after:[]},{programId:'ui',enabled:false,after:['source']}],startupOrder:['ui','source'],onFailure:'continue-independent'}}));
+  const output = text(profile);
+  for (const expected of ['2 logical instances','Global','example.reader@2.1.0','example.ui@3.0.0','a'.repeat(64),'Not specified by this configuration','Configuration declaration','120 seconds','Continue independent members','Not included','Configured value','profile custom','profile/render','dimensions','640','text.read@1.0.0']) assert.ok(output.includes(expected),expected);
+  assert.doesNotMatch(output,/Node.js|Python|reader.mjs|module group/i);
+  const startup = walk(profile).find(node => node.tag === 'details' && text(node).includes('Startup failure policy'));
   const rows = walk(startup).filter(node => node.tag === 'tbody')[0].children;
   assert.equal(text(rows[0]).includes('ui'),true); assert.equal(text(rows[1]).includes('source'),true);
   assert.match(output,/Enabled plan entries and resident\/on-demand policies jointly/);
+});
+
+test('dataset scope, compatible module, data format and exact business file sizes remain readable in both languages', () => {
+  const data = configuration({kind:'data',scope:'local',purpose:'dataset',fileCount:1,byteSize:5,instances:[{id:'reader',module:{id:'example.reader',version:'2.1.0',digest:'c'.repeat(64)},dataFormat:{id:'reader.rows',version:'3.0.0'},fileCount:1,byteSize:5,files:[{path:'data/reader/rows.bin',sha256:'d'.repeat(64),byteSize:5}]}]});
+  const english = text(render(data)), chinese = text(render(data,'zh'));
+  for (const expected of ['Local','Ready-to-use dataset','example.reader@2.1.0','reader.rows@3.0.0','rows.bin','5 B','c'.repeat(64),'d'.repeat(64)]) assert.ok(english.includes(expected),expected);
+  assert.match(chinese,/局部/); assert.match(chinese,/现成数据集/); assert.doesNotMatch(english,/Program entry|Resident|Node.js/);
 });
 
 test('publisher text is never markup and unknown source fields or sensitive defaults are not rendered', () => {
@@ -82,7 +90,7 @@ test('publisher text is never markup and unknown source fields or sensitive defa
 test('Chinese and English use the same projection without stale localized settings or translated identifiers', () => {
   const config = configuration({deployment:{settings:[{key:'caption',type:'string',label:{zh:'标题',en:'Caption'},default:'用户内容 / user content'}],topics:{literal:'汉字-topic'},bridges:{main:{publish:['literal'],subscribe:[]}}}});
   const chinese = text(render(config,'zh')), english = text(render(config,'en'));
-  assert.match(chinese,/配置与接入/); assert.match(chinese,/标题/); assert.match(english,/Configuration & integration/); assert.match(english,/Caption/);
+  assert.match(chinese,/资源声明与接入/); assert.match(chinese,/标题/); assert.match(english,/Resource declarations & integration/); assert.match(english,/Caption/);
   assert.doesNotMatch(english,/常驻运行|系统初始值|作者未声明|默认参数/);
   for (const output of [chinese,english]) { assert.match(output,/用户内容 \/ user content/); assert.match(output,/汉字-topic/); }
 });

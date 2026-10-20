@@ -8,6 +8,8 @@ import { normalizeConfig } from '../../src/hub/lib/store.mjs';
 import { attachWebSocketServer } from '../../src/hub/ws-server.mjs';
 import { createManagementHttp } from '../../src/management/management-http.mjs';
 import { publishArtifact, validateArtifactBytes } from '../../scripts/runtime/sources.mjs';
+import { collectSourceFiles } from '../../scripts/runtime/source-guidance.mjs';
+import { sourceFilesDigest } from '../../scripts/runtime/resource-artifacts.mjs';
 import { ordinaryPath } from '../../scripts/runtime/paths.mjs';
 
 const json = value => JSON.stringify(value, null, 2) + '\n';
@@ -59,11 +61,17 @@ async function distribution(scene, { cyclic = false } = {}) {
     await writeFile(join(source, 'deployment.json'), json({ format: 'world-hub.deployment/v1', title: { en: id }, description: { en: 'Communication test module' }, topics: configuration.topics, bridges: configuration.bridges, settings: [] }));
     modules.push({ id, path: 'modules/' + id, moduleId: manifest.id, version: manifest.version, configuration });
   }
-  const manifest = { format: 'world-hub.module-group/v1', id: 'community.desk', version: '1.0.0', title: 'Communication desk', license: 'MIT', platforms: [`${process.platform}-${process.arch}`], provides: [contract], requires: [], modules,
+  const configurationDirectory = join(scene.root, 'configuration'); await mkdir(configurationDirectory);
+  const manifest = { format: 'world-hub.configuration/v1', scope: 'local', id: 'community.desk', version: '1.0.0', title: 'Communication desk', license: 'MIT', platforms: [`${process.platform}-${process.arch}`], provides: [], requires: [], modules: [],
     startupPlan: { members: members.map(programId => ({ programId, enabled: programId === 'first', after: [] })), startupOrder: members, onFailure: 'continue-independent' } };
-  await writeFile(join(directory, 'module-group.json'), json(manifest));
-  const publication = await publishArtifact(directory, { kind: 'module-group', destination: join(scene.root, 'published'), redistributionAcknowledged: true });
-  return { directory, manifest, publication };
+  for (const member of modules) {
+    const path = join(directory, member.path);
+    manifest.modules.push({ id: member.id, module: { id: member.moduleId, version: member.version, digest: sourceFilesDigest(await collectSourceFiles(path)) }, configuration: member.configuration });
+    okay(await scene.call('/manage/api/resources/bodies/import', { path }));
+  }
+  await writeFile(join(configurationDirectory, 'configuration.json'), json(manifest));
+  const publication = await publishArtifact(configurationDirectory, { kind: 'configuration', destination: join(scene.root, 'published'), redistributionAcknowledged: true });
+  return { directory, configurationDirectory, manifest, publication };
 }
 function okay(result, expected = 200) { assert.equal(result.status, expected, JSON.stringify(result.body)); return result.body; }
 async function editJson(path, edit) { const value = JSON.parse(await readFile(path)); edit(value); await writeFile(path, json(value)); }
@@ -82,6 +90,14 @@ async function importIndependent(scene, path, programId, configuration = {}) {
   return okay(await scene.call('/manage/api/artifacts/apply', { kind: 'module', reviewId: review.reviewId, accepted: true }));
 }
 
+async function profilePreview(scene, path, options = {}) {
+  const saved = okay(await scene.call('/manage/api/resources/profiles/import', { path }));
+  return okay(await scene.call('/manage/api/resources/profiles/preview', { profileId: saved.profile.profileId, ...options }));
+}
+async function profileApply(scene, preview) {
+  return okay(await scene.call('/manage/api/resources/profiles/apply', { reviewId: preview.reviewId, accepted: true }));
+}
+
 test('management community: single JSON import is reviewed, registered stopped, and keeps private identity out of responses', async t => {
   const scene = await setup(t), { directory } = await distribution(scene);
   const publication = await publishArtifact(join(directory, 'modules/first'), { kind: 'module', destination: join(scene.root, 'single'), redistributionAcknowledged: true });
@@ -93,39 +109,38 @@ test('management community: single JSON import is reviewed, registered stopped, 
   const identity = scene.owner.localPrograms.identities.get('single'); assert.equal(JSON.stringify({ preview, applied }).includes(identity.token), false); assert.equal(Object.keys(scene.hub.config?.acl?.credentials ?? {}).length, 0);
 });
 
-test('management community: cyclic group peers import together, export and reimport without code execution or credential reuse', async t => {
+test('management community: cyclic configuration peers share independent cached bodies and export references without credentials', async t => {
   const scene = await setup(t), { publication } = await distribution(scene, { cyclic: true });
-  const preview = okay(await scene.call('/manage/api/artifacts/preview', { path: publication.artifactPath }));
-  assert.equal(preview.kind, 'module-group'); assert.equal(preview.review.members.length, 2); assert.equal(scene.owner.localPrograms.records.size, 0);
-  const rejected = await scene.call('/manage/api/artifacts/apply', { kind: 'module-group', reviewId: preview.reviewId }); assert.notEqual(rejected.status, 200);
-  const applied = okay(await scene.call('/manage/api/artifacts/apply', { kind: 'module-group', reviewId: preview.reviewId, accepted: true }));
-  assert.equal(applied.programs.length, 2); assert.ok(applied.programs.every(row => row.state === 'stopped' && row.hubId === 'default')); assert.equal(scene.owner.localPrograms.handles.size, 0);
-  assert.equal(applied.createsHub, false); const ids = applied.group.memberProgramIds;
-  assert.equal(applied.programs[0].bindings[0].providerId, ids[1]); assert.equal(applied.programs[1].bindings[0].providerId, ids[0]);
-  const exported = okay(await scene.call(`/manage/api/groups/${applied.group.id}/export`, { expectedRevision: applied.group.revision, version: '2.0.0', id: 'shared.desk', redistributionAcknowledged: true, destination: join(scene.root, 'exported') }));
-  const bytes = await readFile(exported.artifactPath), checked = validateArtifactBytes(bytes); assert.equal(checked.artifact.kind, 'module-group'); assert.equal(checked.modules.length, 2);
-  const tokens = ids.map(id => scene.owner.localPrograms.identities.get(id).token);
-  for (const token of tokens) { assert.equal(bytes.includes(Buffer.from(token)), false); assert.ok(checked.decoded.every(file => !file.bytes.includes(Buffer.from(token)))); }
-  assert.ok(checked.artifact.files.every(file => !/identity|launch|runtime-config|registry/.test(file.path)));
-  const previewAgain = okay(await scene.call('/manage/api/artifacts/preview', { path: exported.artifactPath }));
-  const again = okay(await scene.call('/manage/api/artifacts/apply', { kind: 'module-group', reviewId: previewAgain.reviewId, accepted: true }));
-  assert.equal(scene.owner.localPrograms.records.size, 4); assert.equal(scene.owner.localPrograms.handles.size, 0); assert.equal(scene.owner.localPrograms.groups.size, 2);
-  assert.ok(again.group.memberProgramIds.every(id => !ids.includes(id))); for (const id of again.group.memberProgramIds) assert.ok(!tokens.includes(scene.owner.localPrograms.identities.get(id).token));
+  const preview = await profilePreview(scene, publication.artifactPath);
+  assert.equal(preview.review.adds.length, 2); assert.equal(preview.review.blocked, false); assert.equal(scene.owner.localPrograms.records.size, 0);
+  assert.notEqual((await scene.call('/manage/api/resources/profiles/apply', { reviewId: preview.reviewId })).status, 200);
+  const applied = await profileApply(scene, preview), ids = Object.values(applied.mapping);
+  assert.equal(scene.owner.localPrograms.handles.size, 0);
+  assert.equal(scene.owner.localPrograms.row(ids[0]).bindings[0].providerId, ids[1]);
+  assert.equal(scene.owner.localPrograms.row(ids[1]).bindings[0].providerId, ids[0]);
+  const exported = okay(await scene.call('/manage/api/resources/profiles/export', { profileId: applied.profile.profileId }));
+  const bytes = await readFile(exported.artifactPath), checked = validateArtifactBytes(bytes);
+  assert.equal(checked.artifact.kind, 'configuration'); assert.deepEqual(checked.artifact.files.map(file => file.path), ['configuration.json']);
+  for (const id of ids) assert.equal(bytes.includes(Buffer.from(scene.owner.localPrograms.identities.get(id).token)), false);
+  const again = await profilePreview(scene, exported.artifactPath, { mapping: { first: 'new-first', second: 'new-second' } });
+  const installed = await profileApply(scene, again);
+  assert.equal(scene.owner.localPrograms.records.size, 4);
+  assert.ok(Object.values(installed.mapping).every(id => !ids.includes(id)));
 });
 
-test('management community: changed reviewed group source refuses all registry changes', async t => {
-  const scene = await setup(t), { directory } = await distribution(scene);
-  const preview = okay(await scene.call('/manage/api/artifacts/preview', { path: directory }));
-  await writeFile(join(directory, 'modules/second/program.mjs'), program + '\n// source changed after review\n');
-  const applied = await scene.call('/manage/api/artifacts/apply', { kind: 'module-group', reviewId: preview.reviewId, accepted: true });
-  assert.notEqual(applied.status, 200); assert.equal(applied.body.error.code, 'MODULE_GROUP_REVIEW_CHANGED'); assert.equal(scene.owner.localPrograms.records.size, 0); assert.equal(scene.owner.localPrograms.groups.size, 0); assert.equal(scene.owner.localPrograms.identities.size, 0);
+test('management community: changed reviewed cached body refuses all configuration registry changes', async t => {
+  const scene = await setup(t), { publication } = await distribution(scene);
+  const preview = await profilePreview(scene, publication.artifactPath);
+  const body = scene.owner.resources.state.bodies[1]; await writeFile(join(body.path, 'program.mjs'), program + '\n// altered cache\n');
+  const result = await scene.call('/manage/api/resources/profiles/apply', { reviewId: preview.reviewId, accepted: true });
+  assert.notEqual(result.status, 200); assert.equal(scene.owner.localPrograms.records.size, 0); assert.equal(scene.owner.localPrograms.identities.size, 0);
 });
 
 test('management community: imported members connect to the same existing Hub and independently exchange messages', async t => {
   const scene = await setup(t), { publication } = await distribution(scene);
-  const preview = okay(await scene.call('/manage/api/artifacts/preview', { path: publication.artifactPath }));
-  const applied = okay(await scene.call('/manage/api/artifacts/apply', { kind: 'module-group', reviewId: preview.reviewId, accepted: true }));
-  const ids = applied.group.memberProgramIds;
+  const preview = await profilePreview(scene, publication.artifactPath);
+  const applied = await profileApply(scene, preview);
+  const ids = Object.values(applied.mapping);
   // Start each independently; group import and its disabled startup selection did not launch anything.
   for (const id of ids) okay(await scene.call(`/manage/api/programs/${id}/start`, {}));
   const rows = await scene.owner.localPrograms.programs(); assert.ok(rows.every(row => row.state === 'running' && row.communication === 'connected'));
@@ -138,33 +153,29 @@ test('management community: imported members connect to the same existing Hub an
   assert.equal(scene.owner.localPrograms.row(ids[1]).state, 'running'); assert.equal(scene.hub.snapshot().bridges.filter(row => row.principal === rows[1].principal).length, 1);
 });
 
-test('management community: source download pins the reviewed index and retains module groups in the local library', async t => {
+test('management community: source download pins the reviewed index and saves configurations without activating instances', async t => {
   const scene = await setup(t), { publication } = await distribution(scene);
   const observed = okay(await scene.call('/manage/api/workshop/inspect', { source: publication.indexPath }));
   const entryId = observed.index.entries[0].entryId;
   const downloaded = okay(await scene.call('/manage/api/workshop/fetch', { source: observed.source, digest: observed.digest, entryId }));
-  assert.equal(downloaded.kind, 'module-group'); assert.equal(downloaded.startsModules, false);
+  assert.equal(downloaded.kind, 'configuration'); assert.equal(downloaded.startsModules, false);
   const paths = okay(await scene.call('/manage/api/paths/known'));
-  assert.ok(paths.objects.some(object => object.kind === 'module-group' && object.path === downloaded.directory));
+  assert.ok(paths.objects.some(object => object.kind === 'configuration' && object.path === downloaded.directory));
   const before = await readFile(publication.indexPath); await writeFile(publication.indexPath, Buffer.concat([before, Buffer.from('\n')]));
   const changed = await scene.call('/manage/api/workshop/fetch', { source: observed.source, digest: observed.digest, entryId });
   assert.notEqual(changed.status, 200); assert.match(JSON.stringify(changed.body), /index changed/);
   assert.equal(scene.owner.localPrograms.records.size, 0);
 });
 
-test('management community: failed final registry save exposes no partial group and requires fresh review', async t => {
+test('management community: failed configuration commit retains the previous registry without exposing provisional peers', async t => {
   const scene = await setup(t), { publication } = await distribution(scene);
-  const preview = okay(await scene.call('/manage/api/artifacts/preview', { path: publication.artifactPath }));
-  const local = scene.owner.localPrograms, save = local.save;
+  const preview = await profilePreview(scene, publication.artifactPath), local = scene.owner.localPrograms, save = local.save;
   local.save = async () => { throw new Error('test registry write failure'); };
   try {
-    const applied = await scene.call('/manage/api/artifacts/apply', { kind: 'module-group', reviewId: preview.reviewId, accepted: true });
-    assert.notEqual(applied.status, 200); assert.equal(local.records.size, 0); assert.equal(local.identities.size, 0); assert.equal(local.groups.size, 0);
-    assert.equal(scene.owner.community.reviews.has(preview.reviewId), false);
+    const result = await scene.call('/manage/api/resources/profiles/apply', { reviewId: preview.reviewId, accepted: true });
+    assert.notEqual(result.status, 200); assert.equal(local.records.size, 0); assert.equal(local.identities.size, 0); assert.equal(local.groups.size, 0);
+    assert.deepEqual(scene.owner.resources.state.active, []);
   } finally { local.save = save; }
-  const next = okay(await scene.call('/manage/api/artifacts/preview', { path: publication.artifactPath }));
-  const retried = okay(await scene.call('/manage/api/artifacts/apply', { kind: 'module-group', reviewId: next.reviewId, accepted: true }));
-  assert.equal(retried.programs.length, 2); assert.ok(retried.programs.every(program => program.state === 'stopped'));
 });
 
 test('management community: community top-level link opens the local page while cross-site API requests stay blocked', async t => {
@@ -197,9 +208,10 @@ test('management community: an individual consumer asks for exact installed prov
 
 test('management community: imported group execution respects explicit order and leaves unselected members stopped', async t => {
   const scene = await setup(t), { publication } = await distribution(scene);
-  const preview = okay(await scene.call('/manage/api/artifacts/preview', { path: publication.artifactPath }));
-  const imported = okay(await scene.call('/manage/api/artifacts/apply', { kind: 'module-group', reviewId: preview.reviewId, accepted: true }));
-  const ids = imported.group.memberProgramIds;
+  const preview = await profilePreview(scene, publication.artifactPath);
+  const applied = await profileApply(scene, preview);
+  const imported = { group: [...scene.owner.localPrograms.groups.values()][0] };
+  const ids = Object.values(applied.mapping);
   let group = okay(await scene.call('/manage/api/groups/save', { expectedRevision: imported.group.revision, group: { ...imported.group,
     startupPlan: { ...imported.group.startupPlan, members: ids.map(programId => ({ programId, enabled: true, after: [] })), startupOrder: [...ids].reverse() } } })).group;
   const started = okay(await scene.call(`/manage/api/groups/${group.id}/start`, {}));
@@ -322,19 +334,12 @@ test('management community: changing a reviewed default target topic, bridge ACL
   });
 });
 
-test('management community: explicit group wiring overrides member defaults and ignores matching modules outside the group', async t => {
-  const scene = await setup(t), { directory } = await distribution(scene);
-  const outside = await importIndependent(scene, join(directory, 'modules/first'), 'outside-provider', { topics: { events: 'outside/not-the-group-channel' } });
-  await dedicatedConsumer(directory);
-  await editJson(join(directory, 'module-group.json'), value => { for (const member of value.modules) member.configuration.topics.events = 'group/author-prewired'; });
-  const preview = okay(await scene.call('/manage/api/artifacts/preview', { path: directory }));
-  assert.equal(preview.kind, 'module-group'); assert.equal(preview.selectionRequired, undefined);
-  const source = preview.review.members.find(member => member.id === 'first'), consumer = preview.review.members.find(member => member.id === 'second');
-  assert.deepEqual(consumer.review.bindings, [{ providerId: source.programId, contract }]); assert.equal(consumer.review.topics.events, 'group/author-prewired');
-  const imported = okay(await scene.call('/manage/api/artifacts/apply', { kind: 'module-group', reviewId: preview.reviewId, accepted: true }));
-  const installedConsumer = imported.programs.find(row => row.module.id === 'community.second'), installedSource = imported.programs.find(row => row.module.id === 'community.first');
-  assert.deepEqual(installedConsumer.bindings, [{ providerId: installedSource.programId, contract }]); assert.equal(installedConsumer.topics.events, 'group/author-prewired');
-  assert.notEqual(installedSource.programId, 'outside-provider');
+test('management community: explicit configuration wiring selects its logical provider instead of an outside matching module', async t => {
+  const scene = await setup(t), { directory, publication } = await distribution(scene);
+  const outside = await importIndependent(scene, join(directory, 'modules/first'), 'outside-provider', { topics: { events: 'outside/channel' } });
+  const preview = await profilePreview(scene, publication.artifactPath, { mapping: { first: 'inside-source', second: 'inside-consumer' } });
+  await profileApply(scene, preview);
+  assert.deepEqual(scene.owner.localPrograms.row('inside-consumer').bindings, [{ providerId: 'inside-source', contract }]);
   assert.deepEqual(scene.owner.localPrograms.public(scene.owner.localPrograms.row('outside-provider')), outside.program);
-  assert.equal(scene.owner.localPrograms.records.size, 3); assert.equal(scene.owner.localPrograms.handles.size, 0);
+  assert.equal(scene.owner.localPrograms.handles.size, 0);
 });

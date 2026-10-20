@@ -101,5 +101,7 @@ jobs:
         run: npm run test:ecosystem
       - name: Single-Hub Launcher, direct configuration and module-group acceptance
         run: npm run test:launcher
+      - name: Independent module bodies, configuration switching, retained references and data recovery
+        run: npm run test:resources
       - name: Native module version changes across Node and Python runtimes
         run: node --test --test-timeout=120000 tests/integration/module-versions/*.test.mjs

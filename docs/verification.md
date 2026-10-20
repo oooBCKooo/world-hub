@@ -1,4 +1,4 @@
-> 当前产品入口为单全局 Hub 的 `/manage` 通信管理界面，统一管理模块实例与模块组。独立 Launcher 界面、整合包和模板已退出发行；内部测试路径保留 `launcher-single-hub` 名称。旧整包／模板测试记录仅描述当时版本，不继承历史验收数量。
+> 当前产品入口为单全局 Hub 的 `/manage` 通信管理界面，分别管理模块本体、配置与数据，并维护本机实例及配置范围。独立 Launcher 界面、整合包和模板已退出发行；内部测试路径保留 `launcher-single-hub` 名称。旧整包／模板测试记录仅描述当时版本，不继承历史验收数量。
 
 # 验证范围与命令
 
@@ -13,6 +13,7 @@ npm 安装包的 `world-hub --check` 是部署前的只读环境与配置检查�
 | 外部能力目录、独立处理器替换与可解释故障 | `npm run test:capabilities` | Node 22；无模型账号或 DSH |
 | 可选外部 Runtime、真实 JS／Python 文本台、实例隔离与源码分发 | `npm run test:ecosystem` | 参考锁 Node 22.23.2、Python 3.14.0、websockets 15.0.1 |
 | 独立托管 Workshop 的账号、发布、协作、停机与迁移 | `npm run test:workshop` | Node 22；隔离回环 HTTP 测试，不访问正式社区 |
+| 三类资源契约、独立分发、配置切换、保留闭包与数据恢复 | `npm run test:resources` | Node 22；隔离真实管理 HTTP、临时文件和独立进程 |
 | npm CLI 与真实 tarball 隔离安装、启动、桥通讯及停机 | `npm run test:npm` | Node 22 + npm；不改用户全局安装，也不发布 |
 | JS／Python／PowerShell 互操作和三个候选桥 profile | `npm run test:cross-language` | Node、Python + websockets、PowerShell 7 |
 | 真实已安装 DSH 的隔离测试模型集成 | `npm run test:dsh` | Node、显式 `PEROS_DSH_ROOT` |

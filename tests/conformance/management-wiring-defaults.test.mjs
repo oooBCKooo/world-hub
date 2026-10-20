@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { cp, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { setup, okay, refused, moduleSource, importModule, groupSource, importGroup, stateFile, json,
+import { setup, okay, refused, moduleSource, importModule, groupSource, importGroup, configurationSource, stateFile, json,
   preview as previewVersion, apply as applyVersion } from '../helpers/module-versions-scene.mjs';
 
 const endpoint = action => `/manage/api/wiring/defaults/${action}`;
@@ -93,16 +93,18 @@ test('management wiring defaults: a legacy group must reselect its exact source 
   const missing = await preview(scene, { scope: 'group', targetId: imported.group.id });
   assert.ok(missing.review.blocked); assert.equal(missing.review.missingGroupSources[0].groupId, imported.group.id);
   refused(await scene.call(endpoint('apply'), { reviewId: missing.reviewId, accepted: true }));
+  const exact = await configurationSource(scene, source);
   const wrong = await recipeGroup(scene, '2.0.0', 'recipe/wrong');
-  const wrongResult = await scene.call(endpoint('preview'), { scope: 'group', targetId: imported.group.id, groupSources: { [imported.group.id]: wrong.directory } });
+  const wrongConfiguration = await configurationSource(scene, wrong);
+  const wrongResult = await scene.call(endpoint('preview'), { scope: 'group', targetId: imported.group.id, groupSources: { [imported.group.id]: wrongConfiguration.directory } });
   if (wrongResult.status === 200) assert.ok(wrongResult.body.review.blocked); else refused(wrongResult);
-  const stale = await preview(scene, { scope: 'group', targetId: imported.group.id, groupSources: { [imported.group.id]: source.directory } });
-  const sourceMarker = join(source.directory, 'module-group.json'), originalMarker = await readFile(sourceMarker);
+  const stale = await preview(scene, { scope: 'group', targetId: imported.group.id, groupSources: { [imported.group.id]: exact.directory } });
+  const sourceMarker = join(exact.directory, 'configuration.json'), originalMarker = await readFile(sourceMarker);
   await updateJson(sourceMarker, value => { value.modules[0].configuration.topics.events = 'changed/after-review'; });
   try { refused(await scene.call(endpoint('apply'), { reviewId: stale.reviewId, accepted: true })); }
   finally { await writeFile(sourceMarker, originalMarker); }
   assert.equal(scene.owner.localPrograms.groups.get(imported.group.id).wiringBaseline, undefined);
-  const reviewed = await preview(scene, { scope: 'group', targetId: imported.group.id, groupSources: { [imported.group.id]: source.directory } });
+  const reviewed = await preview(scene, { scope: 'group', targetId: imported.group.id, groupSources: { [imported.group.id]: exact.directory } });
   assert.equal(reviewed.review.blocked, false); assert.deepEqual(reviewed.review.groupBaselinesEstablished, [imported.group.id]);
   await apply(scene, reviewed); await scene.reload();
   const persisted = await preview(scene, { scope: 'group', targetId: imported.group.id });

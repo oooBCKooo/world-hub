@@ -18,7 +18,7 @@ import { initialExecutionPolicy } from '../../scripts/runtime/execution-defaults
 
 const FORMAT = 'world-hub.launcher-local-programs/v1', REVIEW_AGE = 10 * 60000;
 const error = (code, message, status = 409) => Object.assign(new Error(message), { code, status });
-const json = async file => JSON.parse((await readBounded(file)).toString('utf8'));
+const json = async (file, limit) => JSON.parse((await readBounded(file, limit)).toString('utf8'));
 const plain = value => value && typeof value === 'object' && !Array.isArray(value);
 const clone = value => JSON.parse(JSON.stringify(value));
 const date = () => new Date().toISOString();
@@ -67,7 +67,7 @@ export class LocalPrograms {
     this.getHub = getHub; this.updateCredentials = updateCredentials; this.inspectDeployment = inspectDeployment; this.prepareDependencies = prepareDependencies;
     this.records = new Map(); this.identities = new Map(); this.reviews = new Map(); this.handles = new Map(); this.monitors = new Map(); this.queue = Promise.resolve(); this.closing = false;
     this.startsPaused = false; this.startControllers = new Set();
-    this.groups = new Map();
+    this.groups = new Map(); this.resourceState = null;
     this.startupPlanData = { format: STARTUP_PLAN_FORMAT, members: [], onFailure: 'continue-independent' };
   }
   enqueue(action) { const result = this.queue.then(action); this.queue = result.catch(() => {}); return result; }
@@ -75,8 +75,9 @@ export class LocalPrograms {
   async initialize() {
     await ordinaryPath(this.directory, { allowMissing: true }); await mkdir(this.directory, { recursive: true, mode: 0o700 });
     let saved;
-    try { saved = await json(join(this.directory, 'registry.json')); } catch (issue) { if (issue.code === 'ENOENT') return; throw issue; }
+    try { saved = await json(join(this.directory, 'registry.json'), 64 * 1024 * 1024); } catch (issue) { if (issue.code === 'ENOENT') return; throw issue; }
     if (saved.format !== FORMAT || !Array.isArray(saved.programs) || saved.programs.length > 128) throw error('LOCAL_REGISTRY_INVALID', 'Independent-program registry is invalid; retain its private data for inspection.');
+    this.resourceState = saved.resources ?? null;
     for (const record of saved.programs) {
       safeId(record.programId); if (this.records.has(record.programId) || record.principal !== principalFor(record.programId)) throw error('LOCAL_REGISTRY_INVALID', 'Independent-program identities are inconsistent.');
       executionPolicy(record); // Validate stored local metadata without granting artifact defaults authority.
@@ -101,9 +102,14 @@ export class LocalPrograms {
     }
     await this.save();
   }
-  async save() { await privateJson(join(this.directory, 'registry.json'), { format: FORMAT, groups: [...this.groups.values()], startupPlan: this.getStartupPlan(), programs: [...this.records.values()] }); }
+  async save() {
+    const value = { format: FORMAT, groups: [...this.groups.values()], startupPlan: this.getStartupPlan(), programs: [...this.records.values()], ...(this.resourceState ? { resources: this.resourceState } : {}) };
+    if (Buffer.byteLength(JSON.stringify(value, null, 2)) + 1 > 64 * 1024 * 1024) throw error('LOCAL_REGISTRY_LIMIT', 'The local resource registry exceeds its 64 MiB bound. Release unused cached resources before adding more.');
+    await privateJson(join(this.directory, 'registry.json'), value);
+  }
   configurationFor(input, manifest, deployment) { return configuration(input, manifest, deployment); }
   async assertVersionReady(id) {
+    await this.resourceRecoveryGuard?.(id);
     await this.versionRecoveryGuard?.(id);
     let marker;
     try { marker = JSON.parse((await readBounded(this.path(id, 'version-transaction.json'))).toString('utf8')); }
@@ -518,8 +524,20 @@ export class LocalPrograms {
     await this.lifecycleStopped?.(id, { handle, runId: row.runId });
     return { program: this.public(row) };
   }
+  resourceProfilesFor(id) {
+    const row = this.records.get(id);
+    return (this.resourceState?.profiles ?? []).filter(profile => (profile.retained || this.resourceState.active.includes(profile.profileId)) && (
+      Object.values(profile.mapping).includes(id) || profile.manifest.modules.some(member => !Object.hasOwn(profile.mapping, member.id) && row?.module.id === member.module.id && row.module.version === member.module.version && hash(JSON.stringify(row.files)) === member.module.digest)));
+  }
+  async markResourceRetired(id) {
+    const row = this.row(id);
+    if (['running', 'starting', 'stopping', 'unknown'].includes(row.state) || this.handles.get(id) && (!this.handles.get(id).exit || this.handles.get(id).cleanupIncomplete)) throw error('LOCAL_PROGRAM_RUNNING', 'Confirm that this owned instance is stopped before retaining its registration metadata.');
+    const identity = await readBounded(this.path(id, 'identity.json'));
+    await privateJson(this.path(id, 'retired-resource.json'), { format: 'world-hub.retired-instance/v1', row: clone(row), identityDigest: hash(identity) });
+  }
   remove(id) { return this.enqueue(async () => {
     await this.assertVersionReady(id);
+    if (this.resourceProfilesFor(id).length) throw error('RESOURCE_CONFIGURATION_IN_USE', 'Deactivate and release the configurations retaining this instance before unregistering it.');
     const row = this.row(id),handle=this.handles.get(id); if (handle&&(!handle.exit||handle.cleanupIncomplete)||['running', 'starting', 'stopping', 'unknown'].includes(row.state)) throw error('LOCAL_PROGRAM_RUNNING', 'Stop this owned program before removing its registration.');
     if ([...this.groups.values()].some(group => group.memberProgramIds.includes(id))) throw error('LOCAL_PROGRAM_IN_GROUP', 'Remove this instance from its module groups before unregistering it.');
     if ([...this.records.values()].some(candidate => candidate.programId !== id && candidate.bindings.some(binding => binding.providerId === id))) throw error('LOCAL_PROGRAM_IN_USE', 'Another independent program binds this capability provider. Retain it until those consumer registrations are removed.');
@@ -528,6 +546,7 @@ export class LocalPrograms {
     // This operation removes registration only. Software, state and identity
     // remain recoverable; it does not recursively delete program data.
     const previous = { startupPlanData: this.startupPlanData, records: [...this.records], identities: [...this.identities], handles: [...this.handles] };
+    await this.markResourceRetired(id);
     const plan = this.getStartupPlan();
     this.startupPlanData = { ...plan, members: plan.members.filter(member => member.programId !== id),
       ...(Object.hasOwn(plan, 'startupOrder') ? { startupOrder: plan.startupOrder.filter(programId => programId !== id) } : {}) };

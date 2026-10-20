@@ -24,7 +24,7 @@ for (const [dictionary, path] of [[english, 'canvas-i18n.mjs'], [manualEnglish, 
   });
 }
 
-for (const [path, dictionary] of [['console.html', english], ['canvas-modes.mjs', english], ['manual-console.mjs', manualEnglish]]) {
+for (const [path, dictionary] of [['console.html', english], ['canvas-modes.mjs', english], ['manual-console.mjs', manualEnglish], ['resource-console.mjs', manualEnglish]]) {
   test(`management language catalog: declared labels and literal translation calls in ${path} have English entries`, async () => {
     const source = await readFile(new URL('../../src/management/' + path, import.meta.url), 'utf8'), keys = new Set();
     for (const match of source.matchAll(/\bdata-i18n(?:-(?:title|placeholder|aria-label|alt|tooltip))?="([^"]*)"/g)) {

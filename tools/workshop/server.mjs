@@ -138,7 +138,6 @@ export async function createWorkshopServer(options = {}) {
           if (publicationMatch[2] === 'configuration') send(response, 200, configuration);
           else {
             detail.configuration = configuration;
-            if (detail.publication.kind === 'module-group') detail.moduleGroup = configuration.manifest;
             send(response, 200, detail);
           }
         } finally { configurationReads--; }
@@ -161,7 +160,7 @@ export async function createWorkshopServer(options = {}) {
       const upload = artifactPreview || publicationUpload || presentationUpload || (publicationMatch?.[2] === 'proposals' && !publicationMatch[3]);
       if (upload) { if (uploadBusy) throw workshopError('UPLOAD_BUSY', 'Another upload is being validated; retry shortly.', 503); uploadBusy = true; uploadOwned = true; rate(`upload:${user.id}`, 10); }
       if (authentication) rate('global-auth', 24);
-      const body = await readJson(request, artifactPreview ? MAX_UPLOAD + 1024 : publicationUpload ? MAX_PUBLICATION_REQUEST : presentationUpload ? MAX_PRESENTATION_REQUEST : upload ? MAX_UPLOAD : 16384); let result, status = 200, headers = {};
+      const body = await readJson(request, artifactPreview ? MAX_UPLOAD + 1024 : publicationUpload ? MAX_PUBLICATION_REQUEST : presentationUpload ? MAX_PRESENTATION_REQUEST : upload ? MAX_UPLOAD + 512 * 1024 : 16384); let result, status = 200, headers = {};
       if (path === '/workshop/api/login') { fields(body, ['username', 'password'], ['username', 'password']); rate(`login:${String(body.username).slice(0, 40)}`, 8); result = await store.login(body.username, body.password); }
       else if (path === '/workshop/api/register') { fields(body, ['username', 'password', 'invitation'], ['username', 'password', 'invitation']); result = await store.register(body.username, body.password, body.invitation); status = 201; }
       else if (path === '/workshop/api/logout') { fields(body, []); result = await store.logout(rawToken); headers['set-cookie'] = cookie('', true); }

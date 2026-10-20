@@ -925,6 +925,7 @@
     </div>
 
     <div class="top-actions">
+      <button type="button" class="hud-btn" id="btn-resource-console">模块资源</button>
       <a class="hud-btn hidden" id="launcher-home-link" rel="noopener noreferrer"></a>
       <div class="hud-search-box" id="hud-search-box">
         <input type="text" id="hud-search-input" class="hud-search-input" placeholder="🔍 快速定位 (桥/程序)…" autocomplete="off" spellcheck="false" aria-label="搜索并定位桥或程序" data-i18n-placeholder="🔍 快速定位 (桥/程序)…" data-i18n-aria-label="搜索并定位桥或程序">
@@ -940,8 +941,8 @@
   </header>
 
   <!-- Detached Sub-HUD: Module Group Filter & Perspective Toggle (Left below top-hud) -->
-  <div class="detached-hud-panel detached-hud-left" id="detached-hud-group" aria-label="模块组选择栏" data-i18n-aria-label="模块组选择栏">
-    <select class="hud-group-select" id="hud-group-filter" aria-label="模块组范围筛选" data-i18n-aria-label="模块组范围筛选">
+  <div class="detached-hud-panel detached-hud-left" id="detached-hud-group" aria-label="本地配置范围选择栏" data-i18n-aria-label="本地配置范围选择栏">
+    <select class="hud-group-select" id="hud-group-filter" aria-label="本地配置范围筛选" data-i18n-aria-label="本地配置范围筛选">
       <option value="all" data-i18n="🌐 全局全部模块">🌐 全局全部模块</option>
     </select>
     <button type="button" class="ctrl-perspective-btn" id="btn-perspective-toggle" title="在微服务拓扑卡片与天体同心圆轨道视角间切换" data-i18n="🗺 拓扑卡片" data-i18n-title="在微服务拓扑卡片与天体同心圆轨道视角间切换" style="display: none;">
@@ -1246,6 +1247,7 @@
 
   <!-- Pure ES Module Logic -->
   <script type="module" src="/manage/manual-console.mjs"></script>
+  <script type="module" src="/manage/resource-console.mjs"></script>
   <script type="module" src="/manage/canvas-modes.mjs"></script>
   <script type="module">
     import { createI18n } from '/ui/language.mjs';

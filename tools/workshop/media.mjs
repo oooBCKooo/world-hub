@@ -4,7 +4,8 @@ import { createHash } from 'node:crypto';
 export const MAX_PRESENTATION_BYTES = 5 * 1024 * 1024;
 export const MAX_MEDIA_BYTES = 1024 * 1024;
 export const MAX_PRESENTATION_REQUEST = 8 * 1024 * 1024;
-export const MAX_PUBLICATION_REQUEST = 16 * 1024 * 1024;
+// Bounded 96 MiB artifact JSON plus encoded presentation assets and evidence.
+export const MAX_PUBLICATION_REQUEST = 104 * 1024 * 1024;
 const types = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
 const fail = message => { throw Object.assign(new Error(message), { code: 'INVALID_PRESENTATION', status: 400 }); };
 const check = (condition, message = 'Invalid community image.') => { if (!condition) fail(message); };

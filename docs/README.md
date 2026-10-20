@@ -1,13 +1,13 @@
 # 文档入口
 
-世界枢纽只负责程序间通信。模块可理解为“程序 + 枢纽桥”；枢纽桥负责程序与 Hub 之间的双向通信。程序选择自己的枢纽桥、主题、信息种类、上下文和业务。运行 `world-hub --open`，在通信管理界面管理同一个本机 Hub 上的模块实例、模块组、接线和启动计划。
+世界枢纽只负责程序间通信。模块可理解为“程序 + 枢纽桥”；枢纽桥负责程序与 Hub 之间的双向通信。程序选择自己的枢纽桥、主题、信息种类、上下文和业务。运行 `world-hub --open`，在通信管理界面分别管理模块本体、全局／局部配置与数据，配置同一个本机 Hub 上的实例、接线和启动计划。
 
 智能体接入见 [官方 Skill 与 MCP](ecosystem/agents.md) / [English](ecosystem/agents.en.md)：Skill 提供使用和开发指导，MCP 通过普通枢纽桥提供通信工具。
 
 | 阅读目标 | 入口 |
 | --- | --- |
 | 导入模块、登记实例、分组与运行 | [入门流程](../README.md#从模块开始)、[English](../README.en.md#start-with-modules) |
-| 单模块、可分享模块组、公开配置与启动计划 | [模块声明](ecosystem/modules.md)、[来源格式](ecosystem/sources.md) |
+| 本体、可分享配置、数据集与保留清理 | [模块资源](specs/module-resources.md)、[来源格式](ecosystem/sources.md) |
 | 交付通信管理界面可导入的模块 | [模块声明](ecosystem/modules.md)、[作者指南](ecosystem/developer.md)、[English](ecosystem/developer.en.md) |
 | 自行运行的桌面宿主、服务和已有软件 | [独立程序接入](ecosystem/external-programs.md)、[English](ecosystem/external-programs.en.md) |
 | 直接启动 Hub、配置、数据与容量 | [部署](deployment.md) |

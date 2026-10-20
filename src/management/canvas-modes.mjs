@@ -3,6 +3,7 @@ const NS = 'http://www.w3.org/2000/svg';
 const $ = id => document.getElementById(id);
 const htmlText = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
 const errorText = value => value?.message || value?.error?.message || (typeof value?.error === 'string' ? value.error : t('操作失败'));
+const resourceKindLabel = kind => kind === 'configuration' ? t('模块配置') : kind === 'data' ? t('模块数据') : t('模块本体');
 const t = (source, params = {}) => {
   if (typeof window !== 'undefined' && window.hubCanvas?.translate) {
     return window.hubCanvas.translate(source, params);
@@ -203,6 +204,7 @@ export class CanvasModesController {
     this.injectInspectorContent();
     this.injectModals();
     this.bindEvents();
+    window.addEventListener('world-hub:resources-changed', () => { void this.fetchModulesData(); });
     this.renderLanguage();
 
     await this.fetchModulesData();
@@ -1571,10 +1573,10 @@ export class CanvasModesController {
       const groupPanel = document.createElement('div');
       groupPanel.id = 'detached-hud-group';
       groupPanel.className = 'detached-hud-panel detached-hud-left';
-      setCanvasAttribute(groupPanel, 'aria-label', () => ('模块组选择栏'));
-      groupPanel.setAttribute('data-i18n-aria-label', '模块组选择栏');
+      setCanvasAttribute(groupPanel, 'aria-label', () => t('本地配置范围选择栏'));
+      groupPanel.setAttribute('data-i18n-aria-label', '本地配置范围选择栏');
       setCanvasHtml(groupPanel, () => (`
-        <select class="hud-group-select" id="hud-group-filter" aria-label="模块组范围筛选" data-i18n-aria-label="模块组范围筛选">
+        <select class="hud-group-select" id="hud-group-filter" aria-label="本地配置范围筛选" data-i18n-aria-label="本地配置范围筛选">
           <option value="all" data-i18n="🌐 全局全部模块">🌐 全局全部模块</option>
         </select>
       `));
@@ -1632,17 +1634,17 @@ export class CanvasModesController {
           <div class="dock-flyout-icon-box">📦</div>
           <div class="dock-flyout-item-body">
             <div class="dock-flyout-item-title">
-              <span data-i18n="导出模块 / 模块组">导出模块 / 模块组</span>
+              <span data-i18n="导出模块资源">导出模块资源</span>
               <span class="tag" data-i18n="分发制品">分发制品</span>
             </div>
-            <div class="dock-flyout-item-desc" data-i18n="导出单模块源码或现有组的成员、公开接线与启动计划">导出单模块源码或现有组的成员、公开接线与启动计划</div>
+            <div class="dock-flyout-item-desc" data-i18n="分别导出模块本体、模块配置或模块数据">分别导出模块本体、模块配置或模块数据</div>
           </div>
         </button>
         <button type="button" class="dock-flyout-item" id="btn-action-download" role="menuitem">
           <div class="dock-flyout-icon-box">🌐</div>
           <div class="dock-flyout-item-body">
             <div class="dock-flyout-item-title">
-              <span data-i18n="下载模块 / 模块组">下载模块 / 模块组</span>
+              <span data-i18n="下载模块资源">下载模块资源</span>
               <span class="tag" data-i18n="在线工坊与源">在线工坊与源</span>
             </div>
             <div class="dock-flyout-item-desc" data-i18n="从社区选择版本与摘要，下载后审阅导入本机 Hub">从社区选择版本与摘要，下载后审阅导入本机 Hub</div>
@@ -1652,7 +1654,7 @@ export class CanvasModesController {
           <div class="dock-flyout-icon-box">📂</div>
           <div class="dock-flyout-item-body">
             <div class="dock-flyout-item-title">
-              <span data-i18n="导入模块 / 模块组">导入模块 / 模块组</span>
+              <span data-i18n="导入模块资源">导入模块资源</span>
               <span class="tag" data-i18n="文件路径导入">文件路径导入</span>
             </div>
             <div class="dock-flyout-item-desc" data-i18n="选择目录、ZIP 或 JSON 分发文件，导入后保持停止">选择目录、ZIP 或 JSON 分发文件，导入后保持停止</div>
@@ -2031,12 +2033,12 @@ export class CanvasModesController {
     setCanvasHtml(importModal, () => (`
       <div class="hub-modal">
         <div class="hub-modal-header">
-          <h3 data-i18n="导入模块 / 模块组到本机 Hub">导入模块 / 模块组到本机 Hub</h3>
+          <h3 data-i18n="导入模块资源到本机 Hub">导入模块资源到本机 Hub</h3>
           <button type="button" class="hud-btn" id="btn-close-import-modal">✕</button>
         </div>
         <div class="hub-modal-body">
           <div>
-            <label class="form-label" data-i18n="模块或模块组目录 / ZIP / artifact.json 文件">模块或模块组目录 / ZIP / artifact.json 文件</label>
+            <label class="form-label" data-i18n="模块本体、配置或数据目录 / ZIP / artifact.json">模块本体、配置或数据目录 / ZIP / artifact.json</label>
             <div style="display:flex; gap:8px; align-items:center;">
               <input type="text" id="inp-import-path" class="drawer-input" placeholder="例如: C:\\path\\to\\my-module 或 my-module.zip" data-i18n-placeholder="例如: C:\\path\\to\\my-module 或 my-module.zip" data-i18n-placeholder="例如: C:\\path\\to\\my-module 或 my-module.zip" style="flex:1;">
               <div class="picker-dropdown-wrap" style="position:relative;">
@@ -2087,19 +2089,20 @@ export class CanvasModesController {
     setCanvasHtml(groupModal, () => (`
       <div class="hub-modal">
         <div class="hub-modal-header">
-          <h3 data-i18n="模块分组管理">模块分组管理</h3>
+          <h3 data-i18n="本地配置范围管理">本地配置范围管理</h3>
           <button type="button" class="hud-btn" id="btn-close-group-modal">✕</button>
         </div>
         <div class="hub-modal-body">
           <div>
-            <label class="form-label" data-i18n="新建模块组">新建模块组</label>
+            <p class="action-help-text" data-i18n="配置范围仅用于本机选择与编排。通过模块资源分别保存配置、导出本体或备份数据。">配置范围仅用于本机选择与编排。通过模块资源分别保存配置、导出本体或备份数据。</p>
+            <label class="form-label" data-i18n="新建配置范围">新建配置范围</label>
             <div style="display:flex; gap:8px;">
               <input type="text" id="inp-new-group-title" class="drawer-input" placeholder="输入分组名称 (如: 文本处理套件)" data-i18n-placeholder="输入分组名称 (如: 文本处理套件)" data-i18n-placeholder="输入分组名称 (如: 文本处理套件)" style="flex:1;">
               <button type="button" class="hub-btn primary" id="btn-create-group" data-i18n="新建组">新建组</button>
             </div>
           </div>
           <div style="margin-top:10px;">
-            <label class="form-label" data-i18n="已有模块分组">已有模块分组</label>
+            <label class="form-label" data-i18n="已有配置范围">已有配置范围</label>
             <div id="group-list-box" style="display:flex; flex-direction:column; gap:8px;"></div>
           </div>
         </div>
@@ -2468,7 +2471,8 @@ export class CanvasModesController {
                 <select id="sel-ws-type" class="ws-select" title="按类型筛选" data-i18n-title="按类型筛选">
                   <option value="all" data-i18n="📦 全部类型">📦 全部类型</option>
                   <option value="module" data-i18n="📦 独立模块 (Module)">📦 独立模块 (Module)</option>
-                  <option value="module-group" data-i18n="🧩 模块组编排 (Group)">🧩 模块组编排 (Group)</option>
+                  <option value="configuration" data-i18n="模块配置">模块配置</option>
+                  <option value="data" data-i18n="模块数据">模块数据</option>
                 </select>
                 <select id="sel-ws-contract" class="ws-select" title="按能力契约筛选" data-i18n-title="按能力契约筛选">
                   <option value="all" data-i18n="🔌 全部契约 (All Contracts)">🔌 全部契约 (All Contracts)</option>
@@ -2477,7 +2481,7 @@ export class CanvasModesController {
                   <option value="default" data-i18n="✨ 默认排序">✨ 默认排序</option>
                   <option value="name" data-i18n="🔤 名称 (A-Z)">🔤 名称 (A-Z)</option>
                   <option value="versions" data-i18n="🔢 版本数量优先">🔢 版本数量优先</option>
-                  <option value="groups-first" data-i18n="🧩 模块组优先">🧩 模块组优先</option>
+                  <option value="groups-first" data-i18n="模块配置优先">模块配置优先</option>
                 </select>
                 <button type="button" id="btn-ws-reset-filters" class="hub-btn" style="height:32px; padding:0 10px; font-size:11px; display:none;" data-i18n="✕ 重置筛选">✕ 重置筛选</button>
               </div>
@@ -2529,7 +2533,8 @@ export class CanvasModesController {
                 <select id="sel-ws-cache-type" class="ws-select" title="按类型筛选" data-i18n-title="按类型筛选">
                   <option value="all" data-i18n="📦 全部类型">📦 全部类型</option>
                   <option value="module" data-i18n="📦 独立模块 (Module)">📦 独立模块 (Module)</option>
-                  <option value="module-group" data-i18n="🧩 模块组编排 (Group)">🧩 模块组编排 (Group)</option>
+                  <option value="configuration" data-i18n="模块配置">模块配置</option>
+                  <option value="data" data-i18n="模块数据">模块数据</option>
                 </select>
               </div>
             </div>
@@ -3208,7 +3213,8 @@ export class CanvasModesController {
       setCanvasText(opt, () => (`📁 ${g.title || g.id} (${(g.memberProgramIds || []).length})`));
       sel.append(opt);
     }
-    sel.value = currentVal || 'all';
+    sel.value = [...sel.options].some(option => option.value === currentVal) ? currentVal : 'all';
+    this.groupFilter = sel.value;
   }
 
   updateGroupActionButtons() {
@@ -9693,7 +9699,7 @@ export class CanvasModesController {
         const data = await res.json();
         const box = $('import-known-paths');
         box.replaceChildren();
-        const moduleObjects = (data.objects || []).filter(o => ['module', 'module-group'].includes(o.kind));
+        const moduleObjects = (data.objects || []).filter(o => ['module', 'configuration', 'data'].includes(o.kind));
         if (!moduleObjects.length) {
           setCanvasHtml(box, () => ('<span style="font-size:11px; color:var(--muted);" data-i18n="未检测到预设模块">未检测到预设模块</span>'));
         } else {
@@ -9852,6 +9858,11 @@ export class CanvasModesController {
             connections: () => Object.fromEntries(connections.filter(item => item.select.value).map(item => [item.id, item.select.value]))
           };
           canvasToast(() => (t('检测到该模块需依赖接线配置，请在下方选择目标实例后重新点击“检测模块”')), 'warning');
+          return;
+        }
+        if (['configuration', 'data'].includes(data.kind)) {
+          this.closeImportModal();
+          window.dispatchEvent(new CustomEvent('world-hub:resource-import', { detail: { kind: data.kind, path: data.object?.path || dir } }));
           return;
         }
         $('import-provider-selection')?.remove();
@@ -10822,16 +10833,24 @@ export class CanvasModesController {
   }
 
   openPackageModal() {
-    const selector = $('inp-pkg-group');
-    selector.replaceChildren(canvasOption(() => (t('模块 / 模块组源码目录')), ''));
-    for (const group of this.data.groups) selector.add(canvasOption(() => (t('模块组：{title}', { title: group.title })), group.id));
-    if (this.groupFilter !== 'all') selector.value = this.groupFilter;
-    $('inp-pkg-redistribution').checked = false;
-    $('modal-module-package')?.classList.remove('hidden');
+    // Public distribution uses three resource kinds. Local grouping remains a
+    // canvas selection scope and is not exported as a combined source bundle.
+    $('btn-resource-console')?.click();
   }
 
   closePackageModal() {
     $('modal-module-package')?.classList.add('hidden');
+  }
+
+  async importWorkshopArtifact(artifact) {
+    if (['configuration', 'data'].includes(artifact?.kind)) {
+      this.closeWorkshopModal(); this.closeWorkshopDetailModal();
+      window.dispatchEvent(new CustomEvent('world-hub:resource-import', { detail: { kind: artifact.kind, path: artifact.directory } }));
+      return;
+    }
+    if (artifact?.kind && artifact.kind !== 'module') return;
+    this.closeWorkshopModal(); await this.openImportModal();
+    if ($('inp-import-path') && artifact?.directory) { $('inp-import-path').value = artifact.directory; await this.inspectImportModule(); }
   }
 
   openOnlineWorkshopModal() {
@@ -11076,9 +11095,8 @@ export class CanvasModesController {
     if (entry.id === 'demo.stats') {
       return t('独立文本统计：Python 编写的高效统计分析程序，提供 Unicode 字符数、行数、字节数与 SHA-256 算法计算。');
     }
-    if (entry.kind === 'module-group') {
-      return t('包含多个协同子模块的标准编排拓扑组合，一次性统一下载并部署。');
-    }
+    if (entry.kind === 'configuration') return t('仅包含模块本体引用与公开配置，导入后保存，审阅切换后生效。');
+    if (entry.kind === 'data') return t('独立模块数据，可作为备份或数据集；恢复前需要兼容性确认与快照备份。');
     const cap = (entry.provides || []).map(p => p.id).join(', ');
     return cap
       ? t('提供 {provides} 的独立受管模块。', { provides: cap })
@@ -11133,7 +11151,7 @@ export class CanvasModesController {
       }
 
       this.workshopData = data;
-      const allEntries = (data.index?.entries || []).filter(entry => ['module', 'module-group'].includes(entry.kind));
+      const allEntries = (data.index?.entries || []).filter(entry => ['module', 'configuration', 'data'].includes(entry.kind));
       this.workshopEntries = allEntries;
       this.updateAllVersionBadges();
 
@@ -11253,20 +11271,20 @@ export class CanvasModesController {
         return (bList.length || 1) - (aList.length || 1);
       }
       if (sortRule === 'groups-first') {
-        if (a.kind === 'module-group' && b.kind !== 'module-group') return -1;
-        if (a.kind !== 'module-group' && b.kind === 'module-group') return 1;
+        if (a.kind === 'configuration' && b.kind !== 'configuration') return -1;
+        if (a.kind !== 'configuration' && b.kind === 'configuration') return 1;
         return (a.title || a.id).localeCompare(b.title || b.id, window.hubCanvas?.language || 'zh-CN');
       }
-      // default: module-group first, then title
-      if (a.kind === 'module-group' && b.kind !== 'module-group') return -1;
-      if (a.kind !== 'module-group' && b.kind === 'module-group') return 1;
+      // Configurations reference module bodies instead of bundling them.
+      if (a.kind === 'configuration' && b.kind !== 'configuration') return -1;
+      if (a.kind !== 'configuration' && b.kind === 'configuration') return 1;
       return (a.title || a.id).localeCompare(b.title || b.id, window.hubCanvas?.language || 'zh-CN');
     });
 
     if (counter) {
       setCanvasText(counter, () => (hasFilter
         ? t('共筛选出 {count} 个条目 (共 {total} 个)', { count: matchedFamilies.length, total: families.size })
-        : t('共 {count} 个可用模块与编排组 (官方源同步)', { count: matchedFamilies.length })));
+        : t('共 {count} 个模块资源 (软件源同步)', { count: matchedFamilies.length })));
     }
 
     box.replaceChildren();
@@ -11330,10 +11348,10 @@ export class CanvasModesController {
       }
 
       // Badges on cover
-      const isGroup = activeEntry.kind === 'module-group';
+      const isGroup = activeEntry.kind === 'configuration';
       const kindBadge = document.createElement('span');
       kindBadge.className = `ws-card-badge-kind ${isGroup ? 'ws-badge-group' : 'ws-badge-module'}`;
-      setCanvasText(kindBadge, () => (isGroup ? t('🧩 模块组') : t('📦 独立模块')));
+      setCanvasText(kindBadge, () => resourceKindLabel(activeEntry.kind));
       coverBox.append(kindBadge);
 
       const verBadge = document.createElement('span');
@@ -11527,12 +11545,7 @@ export class CanvasModesController {
         }
 
         if (isCached && cachedItem?.directory) {
-          this.closeOnlineWorkshopModal();
-          await this.openImportModal();
-          if ($('inp-import-path')) {
-            $('inp-import-path').value = cachedItem.directory;
-            await this.inspectImportModule();
-          }
+          await this.importWorkshopArtifact({ ...cachedItem, kind: activeEntry.kind });
           return;
         }
 
@@ -11621,12 +11634,12 @@ export class CanvasModesController {
     const cachedItem = isCached ? this.cachedArtifacts?.find(a => a.sha256 === entry.sha256) : null;
     const isInstalled = cachedItem?.installed;
 
-    if (headerTitle) setCanvasText(headerTitle, () => (t('{kind}规格详情：{title}', { kind: entry.kind === 'module-group' ? t('🧩 模块组') : t('📦 模块'), title: entry.title || entry.id })));
+    if (headerTitle) setCanvasText(headerTitle, () => (t('{kind}规格详情：{title}', { kind: resourceKindLabel(entry.kind), title: entry.title || entry.id })));
 
     const coverUrl = entry.presentation?.cover?.url;
     const iconUrl = entry.presentation?.icon?.url;
     const screenshots = entry.presentation?.screenshots || [];
-    const isGroup = entry.kind === 'module-group';
+    const isGroup = entry.kind === 'configuration';
 
     setCanvasHtml(body, () => (`
       <div style="display:flex; flex-direction:column; gap:16px;">
@@ -11669,7 +11682,7 @@ export class CanvasModesController {
             <div style="display:flex; align-items:center; gap:8px;">
               <h3 style="margin:0; font-size:16px; color:#fff;">${htmlText(entry.title || entry.id)}</h3>
               <span class="acl-pill" style="font-size:11px;">v${htmlText(entry.version)}</span>
-              <span class="acl-pill" style="font-size:11px; background:${isGroup ? 'rgba(129,140,248,0.2)' : 'rgba(0,210,180,0.15)'}; color:${isGroup ? '#818cf8' : 'var(--teal)'};">${canvasLabel(() => (isGroup ? t('🧩 模块组编排') : t('📦 独立模块')))}</span>
+              <span class="acl-pill" style="font-size:11px; background:${isGroup ? 'rgba(129,140,248,0.2)' : 'rgba(0,210,180,0.15)'}; color:${isGroup ? '#818cf8' : 'var(--teal)'};">${canvasLabel(() => resourceKindLabel(entry.kind))}</span>
             </div>
             <div style="font-family:var(--mono); font-size:11px; color:var(--teal); margin-top:3px;">${htmlText(entry.id)}</div>
           </div>
@@ -11729,9 +11742,9 @@ export class CanvasModesController {
 
         ${isGroup ? `
           <div style="background:rgba(129,140,248,0.06); border:1px solid rgba(129,140,248,0.2); border-radius:8px; padding:12px 14px;">
-            <h4 style="margin:0 0 6px 0; font-size:12px; color:#818cf8;">${canvasLabel(() => (t('🧩 模块组成员编排与拓扑说明')))}</h4>
+            <h4 style="margin:0 0 6px 0; font-size:12px; color:#818cf8;">${canvasLabel(() => (t('模块配置引用与切换')))}</h4>
             <div style="font-size:11px; color:#cbd5e1; line-height:1.5;">
-              ${canvasLabel(() => (t('此模块组打包了多个独立协同模块制品（包含文本数据源、统计分析服务、桌面 Web 视图三者协同）。下载后导入 Hub 时，系统将统一步骤引导登记为相互独立的实例并建立拓扑通道，避免各模块手工逐一配置。')))}
+              ${canvasLabel(() => (t('配置只引用模块本体。下载导入后先保存，缺失本体可从可信源补齐；核对实例映射、冲突与差异后再切换，模块数据保留。')))}
             </div>
           </div>
         ` : ''}
@@ -11805,25 +11818,13 @@ export class CanvasModesController {
         setCanvasText(dlBtn, () => (t('✅ 重新审阅导入 (已在 Hub)')));
         dlBtn.className = 'hub-btn';
         dlBtn.onclick = async () => {
-          this.closeWorkshopDetailModal();
-          this.closeOnlineWorkshopModal();
-          await this.openImportModal();
-          if ($('inp-import-path') && cachedItem?.directory) {
-            $('inp-import-path').value = cachedItem.directory;
-            await this.inspectImportModule();
-          }
+          await this.importWorkshopArtifact({ ...cachedItem, kind: entry.kind });
         };
       } else if (isCached) {
         setCanvasText(dlBtn, () => (t('📥 立即审阅导入 (已下载)')));
         dlBtn.className = 'hub-btn primary';
         dlBtn.onclick = async () => {
-          this.closeWorkshopDetailModal();
-          this.closeOnlineWorkshopModal();
-          await this.openImportModal();
-          if ($('inp-import-path') && cachedItem?.directory) {
-            $('inp-import-path').value = cachedItem.directory;
-            await this.inspectImportModule();
-          }
+          await this.importWorkshopArtifact({ ...cachedItem, kind: entry.kind });
         };
       } else {
         setCanvasText(dlBtn, () => (t('⬇ 下载并审阅导入')));
@@ -11887,12 +11888,8 @@ export class CanvasModesController {
         }
         return;
       }
-      this.closeWorkshopModal();
-      await this.openImportModal();
-      if ($('inp-import-path') && data.directory) {
-        $('inp-import-path').value = data.directory;
-        await this.inspectImportModule();
-      }
+      const entry = this.workshopEntries?.find(item => item.entryId === entryId);
+      await this.importWorkshopArtifact({ ...data, kind: data.kind || entry?.kind || 'module' });
     } catch (e) {
       canvasToast(() => (t('下载异常: {error}', { error: e.message })), 'error');
     } finally {
@@ -11933,7 +11930,7 @@ export class CanvasModesController {
       const res = await fetch('/manage/api/workshop/cache');
       if (!res.ok) return;
       const data = await res.json();
-      this.cachedArtifacts = data.artifacts || [];
+      this.cachedArtifacts = (data.artifacts || []).filter(item => ['module', 'configuration', 'data'].includes(item.kind));
       this.cachedSha256s = new Set(this.cachedArtifacts.map(a => a.sha256).filter(Boolean));
       this.cacheDirectory = data.cacheDirectory || '';
 
@@ -11995,7 +11992,7 @@ export class CanvasModesController {
       setCanvasHtml(emptyDiv, () => (`
         <div style="font-size:32px; margin-bottom:10px;">💾</div>
         <div style="font-size:14px; font-weight:600; color:#cbd5e1; margin-bottom:6px;">${canvasLabel(() => (searchQuery || statusFilter !== 'all' ? t('未找到符合条件的缓存制品') : t('本地暂无已下载制品')))}</div>
-        <div style="font-size:11px; margin-bottom:14px;">${canvasLabel(() => (searchQuery || statusFilter !== 'all' ? t('请尝试更换搜索词或重置筛选条件') : t('前往【在线工坊目录】浏览并下载所需的模块或模块组制品')))}</div>
+        <div style="font-size:11px; margin-bottom:14px;">${canvasLabel(() => (searchQuery || statusFilter !== 'all' ? t('请尝试更换搜索词或重置筛选条件') : t('前往在线工坊浏览模块本体、模块配置与模块数据')))}</div>
         <button type="button" class="hub-btn primary" id="btn-ws-goto-online">${canvasLabel(() => (t('🌐 前往在线工坊下载')))}</button>
       `));
       box.append(emptyDiv);
@@ -12004,7 +12001,7 @@ export class CanvasModesController {
     }
 
     for (const a of filtered) {
-      const isGroup = a.kind === 'module-group';
+      const isGroup = a.kind === 'configuration';
       const card = document.createElement('div');
       card.className = `ws-cache-card ${a.installed ? 'installed' : 'pending'}`;
 
@@ -12043,7 +12040,7 @@ export class CanvasModesController {
           <div>${canvasLabel(() => (t('📁 文件数量:')))} <strong style="color:#cbd5e1;">${a.filesCount || 0} ${canvasLabel(() => (t('个')))}</strong></div>
           <div>${canvasLabel(() => (t('💾 制品体积:')))} <strong style="color:#cbd5e1;">${formatSize(a.jsonBytes)}</strong></div>
           <div>${canvasLabel(() => (t('🕒 缓存时间:')))} <strong style="color:#cbd5e1;">${canvasLabel(dateStr)}</strong></div>
-          <div>${canvasLabel(() => (t('🏷 制品类别:')))} <strong style="color:${isGroup ? '#818cf8' : 'var(--teal)'};">${canvasLabel(() => (isGroup ? t('🧩 模块组编排') : t('📦 独立受管模块')))}</strong></div>
+          <div>${canvasLabel(() => (t('🏷 制品类别:')))} <strong style="color:${isGroup ? '#818cf8' : 'var(--teal)'};">${canvasLabel(() => resourceKindLabel(a.kind))}</strong></div>
         </div>
 
         <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; background:rgba(0,0,0,0.15); padding:4px 8px; border-radius:4px;">
@@ -12078,12 +12075,7 @@ export class CanvasModesController {
 
       card.querySelector('.btn-import-cache')?.addEventListener('click', async (e) => {
         e.stopPropagation();
-        this.closeOnlineWorkshopModal();
-        await this.openImportModal();
-        if ($('inp-import-path') && a.directory) {
-          $('inp-import-path').value = a.directory;
-          await this.inspectImportModule();
-        }
+        await this.importWorkshopArtifact(a);
       });
 
       box.append(card);

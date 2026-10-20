@@ -23,17 +23,17 @@ npm install -g world-hub
 world-hub --open
 ```
 
-Startup opens the **communication management interface**. Import modules, manage groups, edit wiring and startup plans, and observe programs, bridges and information flows in one interface. All local instances use **the same Hub**. A separate Launcher, packs and templates are no longer part of this flow.
+Startup opens the **communication management interface**. Its Modules resource view manages **module bodies, module configurations, and module data** separately. Wiring and startup plans act on local instances, all connected to **the same Hub**.
 
-1. Import an author's module directory, ZIP or community `artifact.json`, or download an individual module or group through Workshop.
-2. Check the version, instance name, public settings, topics and bridge permissions before confirming import. A module may have several independent instances.
-3. Configure wiring, capability bindings and startup plans through the wiring and orchestration modes.
-4. Check current source, interpreters and permissions before starting. Observe processes, logs, actual bridge connections and information flow.
-5. Create groups referencing existing instances, or import an author's published group. Members outside the startup plan can still be started individually later.
+1. Import a module body directory, ZIP, or `artifact.json` into the body cache, or acquire an exact version from Workshop.
+2. Import, create, or edit a global/local configuration with logical instances, pinned body versions and source digests, wiring, settings, and default execution policies.
+3. Review missing bodies, instance mappings, shared conflicts, and instances requiring a stop before applying. Resource imports and configuration application start no programs.
+4. Import ready-to-use datasets or export local private backups. Review target mappings, replacement effects, and application data compatibility before restoring.
+5. Inspect current source, interpreters, and permissions before explicitly starting; observe programs, bridges, and information flow. Local review controls resident/on-demand policy and callers allowed to wake a module.
 
 An instance can belong to several groups, sharing its configuration, state and process. Membership does not copy modules, grant permissions or create another Hub. Operating on a shared member affects other groups referencing it. Create another instance for separate parameters or data.
 
-Import and authoring tools support local path selection; environment detection helps choose an interpreter. See [module declarations](docs/ecosystem/modules.md) for module and shareable group formats, and [Workshop](docs/ecosystem/workshop.md) for community downloads and publishing.
+Global/local describes scope; the three resource kinds have independent versions. Configurations reference bodies without embedding source; data resources preserve original business file bytes. Public datasets may be published independently; private backups stay on your computer. See the [resource specification](docs/specs/module-resources.md), [modules and instances](docs/ecosystem/modules.md), and [Workshop](docs/ecosystem/workshop.md).
 
 Choose published versions for modules and groups, upgrade or downgrade installed instances, and review rollback changes. Wiring mode can restore an author's default connections. Modules support resident and on-demand execution: authors can recommend a mode and idle timeout; users override them locally and select callers allowed to wake the module. Authorized managed calls can wake an on-demand module and stop it after completed work becomes idle. The interface supports Simplified Chinese and English. See [module management](docs/ecosystem/modules.md) for version, data and lifecycle boundaries.
 
@@ -75,7 +75,7 @@ Matching names do not establish replaceability. Check identities, exact contract
 
 ## Sources and community
 
-[World Hub Workshop](https://peros.cn/workshop/) is an optional independent distribution service for **individual modules and module groups**. The local communication management interface verifies index and artifact digests before acquiring content. Groups share member sources, public configuration, wiring and a startup plan; imported members remain independent instances on the same Hub and can be managed individually. Downloads and imports do not start programs. Local modules and the Hub do not require the community service to stay online.
+[World Hub Workshop](https://peros.cn/workshop/) is an optional independent distribution service for **module bodies, configurations, and datasets**, each independently versioned. Configurations declare global/local scope, exact body dependencies, wiring, settings, and startup plans; datasets declare compatible modules and business data formats. The local Workshop verifies index and original artifact digests before acquisition. The old `module-group` kind is refused by public publication/import entry points without conversion. Downloads and imports start no programs. Local modules and the Hub do not depend on the community service staying online.
 
 Downloads, signature verification and community login do not grant local execution permission. Current code, interpreters and permissions still require review. Declared permissions are not an operating-system sandbox. Source addresses and trust policies are explicit user choices. See [sources](docs/ecosystem/sources.md) and [Workshop](docs/ecosystem/workshop.md).
 

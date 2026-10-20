@@ -7,6 +7,7 @@ import { isIP } from 'node:net';
 import { randomUUID } from 'node:crypto';
 import { validateModule } from './package.mjs';
 import { validateModuleGroupFiles } from './module-group.mjs';
+import { validateConfigurationFiles, validateDataFiles, readResourceFiles } from './resource-artifacts.mjs';
 import { ordinaryPath, readBounded, collectFiles, hash, relativePath, privateJson } from './paths.mjs';
 import { parsePublisherEvidence, verifyPublisherEvidence } from './publisher-trust.mjs';
 import { verifyStoredPublisherEvidence } from './publisher-store.mjs';
@@ -90,7 +91,7 @@ export function validateSourceIndex(index, options = {}) {
   for (const entry of index.entries) {
     exact(entry, ['entryId', 'kind', 'id', 'version', 'title', 'license', 'platforms', 'provides', 'requires', 'source', 'sha256'], 'source entry', ['publisherEvidence']);
     if (typeof entry.entryId !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,127}$/.test(entry.entryId) || ids.has(entry.entryId)
-        || !['pack', 'module', 'template', 'module-group'].includes(entry.kind) || typeof entry.id !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(entry.id)
+        || !['pack', 'module', 'template', 'module-group', 'configuration', 'data'].includes(entry.kind) || typeof entry.id !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(entry.id)
         || typeof entry.version !== 'string' || entry.version.length > 128 || !semver.test(entry.version)
         || typeof entry.title !== 'string' || !entry.title || entry.title.length > 256
         || typeof entry.license !== 'string' || !entry.license || entry.license.length > 128 || !sha.test(entry.sha256)
@@ -132,16 +133,17 @@ export async function readSourceIndex(source, options = {}) {
 }
 function validateArtifact(artifact) {
   exact(artifact, ['format', 'kind', 'id', 'version', 'files', 'provenance'], 'distribution artifact');
-  if (artifact.format !== 'world-hub.source-artifact/v1' || !['module', 'module-group'].includes(artifact.kind)
+  if (artifact.format !== 'world-hub.source-artifact/v1' || !['module', 'module-group', 'configuration', 'data'].includes(artifact.kind)
       || !Array.isArray(artifact.files) || artifact.files.length < 1 || artifact.files.length > 8192
       || !artifact.provenance || typeof artifact.provenance !== 'object' || Array.isArray(artifact.provenance)) throw new Error('Invalid distribution artifact');
   const paths = new Set(); let size = 0; const decoded = [];
   for (const f of artifact.files) {
     exact(f, ['path', 'sha256', 'base64'], 'artifact file'); relativePath(f.path);
-    if (f.path.split('/').some(p => ['__pycache__', '.venv', '.git', '.hub', '.state'].includes(p)) || /\.py[co]$/.test(f.path)) throw new Error('Artifact contains generated or private source material');
+    if (['module', 'module-group'].includes(artifact.kind) && (f.path.split('/').some(p => ['__pycache__', '.venv', '.git', '.hub', '.state'].includes(p)) || /\.py[co]$/.test(f.path))) throw new Error('Artifact contains generated or private source material');
     const key = f.path.toLowerCase();
     if (paths.has(key) || !sha.test(f.sha256) || typeof f.base64 !== 'string'
-        || f.base64.length > Math.ceil(8 * 1024 * 1024 / 3) * 4 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(f.base64)) throw new Error('Invalid or duplicate artifact file');
+        || f.base64.length > Math.ceil(8 * 1024 * 1024 / 3) * 4 || f.base64.length % 4 !== 0
+        || /[^A-Za-z0-9+/=]/.test(f.base64)) throw new Error('Invalid or duplicate artifact file');
     paths.add(key); const bytes = Buffer.from(f.base64, 'base64'); size += bytes.length;
     if (size > 64 * 1024 * 1024 || bytes.length > 8 * 1024 * 1024 || hash(bytes) !== f.sha256) throw new Error('Artifact file hash or size mismatch');
     decoded.push({ path: f.path, bytes });
@@ -152,9 +154,11 @@ function validateArtifact(artifact) {
   const getJson = path => {
     const f = decoded.find(v => v.path === path); if (!f) throw new Error(`Artifact lacks ${path}`); return JSON.parse(f.bytes.toString());
   };
-  const manifest = getJson(artifact.kind === 'module-group' ? 'module-group.json' : 'module.json');
+  const manifest = getJson(`${artifact.kind}.json`);
   let modules;
   if (artifact.kind === 'module-group') ({ modules } = validateModuleGroupFiles(manifest, decoded));
+  else if (artifact.kind === 'configuration') validateConfigurationFiles(manifest, decoded);
+  else if (artifact.kind === 'data') validateDataFiles(manifest, decoded);
   else {
     validateModule(manifest);
     if (!decoded.some(f => f.path === manifest.runtime.entry)) throw new Error('Distributed module entry is missing');
@@ -188,7 +192,8 @@ function checkEntry(validated, entry) {
 async function verifyCached(directory, artifact) {
   const validated = validateArtifact(artifact);
   for (const f of validated.decoded) if (hash(await readBounded(join(directory, f.path), 8 * 1024 * 1024)) !== hash(f.bytes)) throw new Error('Cached artifact content hash mismatch');
-  const actual = await collectFiles(directory);
+  const actual = ['configuration', 'data'].includes(artifact.kind)
+    ? (await readResourceFiles(directory)).map(file => ({ path: file.path, sha256: hash(file.bytes) })) : await collectFiles(directory);
   if (actual.length !== artifact.files.length || actual.some(f => !artifact.files.some(v => v.path === f.path && v.sha256 === f.sha256))) throw new Error('Cached artifact file set changed');
   return validated;
 }
@@ -314,10 +319,10 @@ export async function fetchSourceArtifact(source, indexDigest, entryId, options)
     offline = true;
   }
   const entry = current.index.entries.find(e => e.entryId === entryId); if (!entry) throw new Error('Source entry not found');
-  if (!['module', 'module-group'].includes(entry.kind)) throw new Error('Only current module and module-group distributions can be fetched');
+  if (!['module', 'configuration', 'data'].includes(entry.kind)) throw new Error('Unsupported distribution kind');
   const directory = join(cache, entry.sha256), artifactFile = join(cache, `${entry.sha256}.artifact.json`);
   const result = async cached => ({ directory, kind: entry.kind, entry, cached, offline, networkPolicy: policy(options),
-    publisherEvidence: await readSourcePublisherEvidence(current, entry, { ...options, offline }), startsModules: false, requiresExecutionReview: true });
+    publisherEvidence: await readSourcePublisherEvidence(current, entry, { ...options, offline }), startsModules: false, requiresExecutionReview: ['module', 'module-group'].includes(entry.kind) });
   const cachedArtifact = async () => {
     if (!await present(artifactFile)) return null;
     const bytes = await readBounded(artifactFile, maximumArtifact);
@@ -375,13 +380,13 @@ export async function fetchSourceArtifact(source, indexDigest, entryId, options)
 export async function publishArtifact(directory, options) {
   cancelled(options);
   if (options.redistributionAcknowledged !== true) throw new Error('Explicitly acknowledge redistribution rights before publishing');
-  if(!['module', 'module-group'].includes(options.kind))throw new Error('Publication kind must be module or module-group');
+  if(!['module', 'configuration', 'data'].includes(options.kind))throw new Error('Publication kind must be module, configuration or data');
   const root=await ordinaryPath(directory);
-  const manifest=JSON.parse((await readBounded(join(root, options.kind === 'module-group' ? 'module-group.json' : 'module.json'))).toString());
-  const files=await collectFiles(root),{platforms,provides,requires}=manifest,provenance={redistributionAcknowledged:true};
+  const manifest=JSON.parse((await readBounded(join(root, `${options.kind}.json`))).toString());
+  const files=['configuration','data'].includes(options.kind)?await readResourceFiles(root):await collectFiles(root),{platforms,provides,requires}=manifest,provenance={redistributionAcknowledged:true};
   let size = 0; const encoded = [];
   for (const f of files) {
-    cancelled(options); const bytes = await readBounded(join(root, f.path), 8 * 1024 * 1024); size += bytes.length;
+    cancelled(options); const bytes = f.bytes ?? await readBounded(join(root, f.path), 8 * 1024 * 1024); size += bytes.length;
     if (size > 64 * 1024 * 1024) throw new Error('Publication exceeds total artifact size bound');
     encoded.push({ path: f.path, sha256: hash(bytes), base64: bytes.toString('base64') });
   }

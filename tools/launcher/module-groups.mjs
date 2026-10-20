@@ -15,7 +15,7 @@ export const GROUP_WIRING_BASELINE_FORMAT = 'world-hub.group-wiring-baseline/v1'
 // private instance state never belong to a wiring reset.
 export function moduleGroupWiringBaseline(manifest) {
   return { format: GROUP_WIRING_BASELINE_FORMAT, id: manifest.id, version: manifest.version,
-    members: manifest.modules.map(member => ({ id: member.id, moduleId: member.moduleId, version: member.version,
+    members: manifest.modules.map(member => ({ id: member.id, moduleId: member.module?.id ?? member.moduleId, version: member.module?.version ?? member.version,
       topics: clone(member.configuration.topics), bridges: clone(member.configuration.bridges), bindings: clone(member.configuration.bindings) })) };
 }
 function checkedWiringBaseline(input, origin) {

@@ -127,3 +127,7 @@ To suggest an execution mode for new instances, add this field to `deployment.js
 The [provider contract](../modules/provider-contract.md) and [machine contract](../modules/text-statistics.contract.json) support an independent text-statistics implementation. The [interoperability benchmark](interop.md) separates declarations, bridge behavior and business results.
 
 The current product does not provide pack/template generation commands or the old public `world-hub/runtime` API. Historical author generators are not current distribution entry points. SDK communication exports and the wire protocol remain independent.
+
+## Distribute bodies, configurations and data independently
+
+Module bodies, configurations and data have independent versions. A configuration pins exact body versions and source digests without embedding code. Datasets are separately published; private backups stay local. Global and local scopes share the body pool. Applying configuration, preparing dependencies, granting execution and restoring data are separate operations. Modules define business data compatibility. See the [resource specification](../specs/module-resources.md) and [source formats](sources.md).

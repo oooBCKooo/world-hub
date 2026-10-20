@@ -1,0 +1,339 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/oooBCKooo/world-hub/docs/ecosystem/configuration.schema.json",
+  "title": "Public module configuration resource, v1",
+  "$comment": "Only configuration.json may be included. The runtime enforces a 1 MiB document bound, JSON depth, distinct logical IDs, logical binding endpoints, exact startup order and data reference endpoints. Source digest is SHA-256 of JSON.stringify(collectSourceFiles(moduleDirectory)); this resource contains no source or private credentials.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "id",
+    "version",
+    "title",
+    "license",
+    "platforms",
+    "provides",
+    "requires",
+    "scope",
+    "modules",
+    "startupPlan"
+  ],
+  "properties": {
+    "format": {
+      "const": "world-hub.configuration/v1"
+    },
+    "id": {
+      "$ref": "#/$defs/id"
+    },
+    "version": {
+      "$ref": "#/$defs/version"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\u0000\\r\\n]*\\S[^\\u0000\\r\\n]*$"
+    },
+    "license": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000\\r\\n]*\\S[^\\u0000\\r\\n]*$"
+    },
+    "platforms": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9]+-[a-z0-9]+$"
+      }
+    },
+    "provides": {
+      "$ref": "#/$defs/contracts"
+    },
+    "requires": {
+      "$ref": "#/$defs/contracts"
+    },
+    "scope": {
+      "enum": [
+        "global",
+        "local"
+      ]
+    },
+    "modules": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "module",
+          "configuration"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/id"
+          },
+          "module": {
+            "$ref": "#/$defs/module"
+          },
+          "configuration": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "topics",
+              "bridges",
+              "settings",
+              "bindings"
+            ],
+            "properties": {
+              "topics": {
+                "type": "object",
+                "minProperties": 1,
+                "maxProperties": 64,
+                "propertyNames": {
+                  "$ref": "#/$defs/id"
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "pattern": "^(?!/)(?!.*//)(?!.*\\/$)[^\\s\\u0000#+]+$"
+                }
+              },
+              "bridges": {
+                "type": "object",
+                "minProperties": 1,
+                "maxProperties": 8,
+                "propertyNames": {
+                  "$ref": "#/$defs/id"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "publish",
+                    "subscribe"
+                  ],
+                  "properties": {
+                    "publish": {
+                      "$ref": "#/$defs/aliases"
+                    },
+                    "subscribe": {
+                      "$ref": "#/$defs/aliases"
+                    }
+                  }
+                }
+              },
+              "settings": {
+                "type": "object",
+                "description": "Public JSON settings, at most 64 KiB encoded. Credential keys are forbidden recursively. Module declaration checks happen when resolving the separately pinned source."
+              },
+              "executionDefaults": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "mode"
+                ],
+                "description": "Initial execution defaults only; this document grants no execution permission.",
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "resident",
+                      "on-demand"
+                    ]
+                  },
+                  "idleTimeoutMs": {
+                    "type": "integer",
+                    "minimum": 1000,
+                    "maximum": 86400000,
+                    "default": 60000
+                  }
+                }
+              },
+              "bindings": {
+                "type": "array",
+                "maxItems": 32,
+                "uniqueItems": true,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "providerId",
+                    "contract"
+                  ],
+                  "properties": {
+                    "providerId": {
+                      "$ref": "#/$defs/id"
+                    },
+                    "contract": {
+                      "$ref": "#/$defs/contract"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "startupPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "members",
+        "onFailure",
+        "startupOrder"
+      ],
+      "properties": {
+        "members": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "programId",
+              "enabled",
+              "after"
+            ],
+            "properties": {
+              "programId": {
+                "$ref": "#/$defs/id"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "after": {
+                "type": "array",
+                "maxItems": 128,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/id"
+                }
+              }
+            }
+          }
+        },
+        "onFailure": {
+          "enum": [
+            "continue-independent",
+            "stop-plan"
+          ]
+        },
+        "startupOrder": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        }
+      }
+    },
+    "data": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "instanceId",
+          "id",
+          "version",
+          "sha256"
+        ],
+        "properties": {
+          "instanceId": {
+            "$ref": "#/$defs/id"
+          },
+          "id": {
+            "$ref": "#/$defs/id"
+          },
+          "version": {
+            "$ref": "#/$defs/version"
+          },
+          "sha256": {
+            "$ref": "#/$defs/sha256"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+    },
+    "version": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\u0000]+$"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        }
+      }
+    },
+    "contracts": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/contract"
+      }
+    },
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "digest"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "digest": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "aliases": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/id"
+      }
+    }
+  }
+}

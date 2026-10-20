@@ -112,6 +112,7 @@ export async function createManagementHttp(hub, config) {
         '/manage/manual-i18n.mjs': ['./manual-i18n.mjs', 'text/javascript; charset=utf-8'],
         '/manage/manual-bridge.mjs': ['./manual-bridge.mjs', 'text/javascript; charset=utf-8'],
         '/manage/manual-console.mjs': ['./manual-console.mjs', 'text/javascript; charset=utf-8'],
+        '/manage/resource-console.mjs': ['./resource-console.mjs', 'text/javascript; charset=utf-8'],
         '/manage/manual-experience-state.mjs': ['./manual-experience-state.mjs', 'text/javascript; charset=utf-8'],
         '/manage/launcher-link.mjs': ['./launcher-link.mjs', 'text/javascript; charset=utf-8'],
         '/manage/canvas-modes.mjs': ['./canvas-modes.mjs', 'text/javascript; charset=utf-8'],
@@ -178,7 +179,7 @@ export async function createManagementHttp(hub, config) {
           url.pathname.startsWith('/manage/api/external') ||
           url.pathname.startsWith('/manage/api/creator') ||
           url.pathname.startsWith('/manage/api/workshop') ||
-          url.pathname.startsWith('/manage/api/artifacts')) {
+          url.pathname.startsWith('/manage/api/artifacts') || url.pathname.startsWith('/manage/api/resources')) {
         const payload = req.method === 'POST' ? await body(req, 1024 * 1024) : null;
         const handled = await modules.handle(req, res, url, payload);
         if (handled) return true;
@@ -186,7 +187,13 @@ export async function createManagementHttp(hub, config) {
       if (!['GET', 'POST'].includes(req.method)) throw fail(405, 'METHOD_NOT_ALLOWED', '管理接口不支持此方法');
       throw fail(404, 'MANAGEMENT_ROUTE_UNKNOWN', '管理接口不存在');
     } catch (error) {
-      json(res, error.status ?? (error.code === 'ANNOTATION_INVALID' ? 400 : 500), { error: { code: error.code ?? 'MANAGEMENT_FAILED', message: error.message } });
+      const diagnostics = {};
+      if (url.pathname.startsWith('/manage/api/resources')) {
+        for (const key of ['stoppedProgramIds', 'incompleteDestinations']) if (Array.isArray(error[key]) && error[key].every(value => typeof value === 'string')) diagnostics[key] = error[key];
+        for (const key of ['credentialsMayBeRevoked', 'registrationsRetained']) if (typeof error[key] === 'boolean') diagnostics[key] = error[key];
+        if (typeof error.details?.transaction === 'string') diagnostics.transaction = error.details.transaction;
+      }
+      json(res, error.status ?? (error.code === 'ANNOTATION_INVALID' ? 400 : 500), { error: { code: error.code ?? 'MANAGEMENT_FAILED', message: error.message, ...diagnostics } });
       return true;
     }
   } };

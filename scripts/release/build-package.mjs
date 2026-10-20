@@ -13,7 +13,7 @@ export const APPLICATION_FILES = [
   ...['acl', 'address', 'blob-protocol', 'blob-store', 'hub', 'identity', 'router', 'store', 'topic', 'wire-json'].map(name => `src/hub/lib/${name}.mjs`),
   'src/debug/page.mjs',
   'src/ui/language.mjs',
-  ...['console.html', 'canvas-i18n.mjs', 'canvas-modes.mjs', 'management-http.mjs', 'management-modules.mjs', 'management-community.mjs', 'management-state.mjs', 'manual-bridge.mjs', 'manual-console.mjs', 'manual-i18n.mjs', 'manual-experience-state.mjs', 'manual-console.css', 'launcher-link.mjs'].map(name => `src/management/${name}`),
+  ...['console.html', 'canvas-i18n.mjs', 'canvas-modes.mjs', 'management-http.mjs', 'management-modules.mjs', 'management-community.mjs', 'management-state.mjs', 'manual-bridge.mjs', 'manual-console.mjs', 'manual-i18n.mjs', 'manual-experience-state.mjs', 'manual-console.css', 'resource-console.mjs', 'launcher-link.mjs'].map(name => `src/management/${name}`),
 ];
 export const SDK_FILES = ['sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-client.mjs', 'sdk/javascript/lifecycle-client.mjs',
   'sdk/python/hub_bridge.py', 'sdk/python/requirements.txt',
@@ -23,22 +23,22 @@ export const MODULE_CONTRACT_FILES = Object.freeze(['docs/modules/text-statistic
 export const AGENT_FILES = Object.freeze(['bin/world-hub-skill.mjs', 'bin/world-hub-mcp.mjs',
   ...['SKILL.md','references/setup.md','references/communication.md','references/modules.md','references/mcp.md'].map(name => `skills/world-hub/${name}`),
   ...['package.json','package-lock.json','cli.mjs','config.mjs','service.mjs'].map(name => `tools/mcp/${name}`)]);
-export const ECOSYSTEM_SCHEMA_FILES = Object.freeze(['docs/ecosystem/module.schema.json', 'docs/ecosystem/module-group.schema.json', 'docs/ecosystem/deployment.schema.json', 'docs/ecosystem/publisher-vectors.json', 'docs/ecosystem/publisher-vector-check.py']);
+export const ECOSYSTEM_SCHEMA_FILES = Object.freeze(['docs/ecosystem/module.schema.json', 'docs/ecosystem/module-group.schema.json', 'docs/ecosystem/configuration.schema.json', 'docs/ecosystem/data.schema.json', 'docs/ecosystem/deployment.schema.json', 'docs/ecosystem/publisher-vectors.json', 'docs/ecosystem/publisher-vector-check.py']);
 // No pack runtime or template entry is distributed. These files are retained
 // only as shared validation, source, interpreter and owned-process support.
 export const SHARED_RUNTIME_FILES = Object.freeze([
-  ...['paths','process','hub-process','host-process','host-owner-linux','package','compatibility','source-guidance','deployment','execution-defaults','default-connections','host-profile','startup-order','pack-lineage','developer','dependency-prepare','sources','module-group','publisher-trust','publisher-store'].map(name => `scripts/runtime/${name}.mjs`), 'scripts/runtime/host-owner-windows.ps1']);
+  ...['paths','process','hub-process','host-process','host-owner-linux','package','compatibility','source-guidance','deployment','execution-defaults','default-connections','host-profile','startup-order','pack-lineage','developer','dependency-prepare','sources','resource-artifacts','module-group','publisher-trust','publisher-store'].map(name => `scripts/runtime/${name}.mjs`), 'scripts/runtime/host-owner-windows.ps1']);
 export const ECOSYSTEM_RUNTIME_FILES = SHARED_RUNTIME_FILES;
 export const BUNDLED_TEMPLATE_FILES = Object.freeze([]);
 // The old Launcher UI and server are retired. These helpers are imported by
 // communication management and retain their internal paths without shipping
 // an additional user-facing application.
 export const LAUNCHER_FILES = Object.freeze(['bin/world-hub.mjs', 'scripts/cli-entry.mjs',
-  ...['owner-lock','local-artifacts','local-programs','program-configuration','module-groups','module-versions','module-uninstall','wiring-defaults','execution-policy','demand-lifecycle','global-external-programs','startup-plan','source-registry','paths-service','environment','topology'].map(name => `tools/launcher/${name}.mjs`)]);
+  ...['owner-lock','local-artifacts','local-programs','resources','program-configuration','module-groups','module-versions','module-uninstall','wiring-defaults','execution-policy','demand-lifecycle','global-external-programs','startup-plan','source-registry','paths-service','environment','topology'].map(name => `tools/launcher/${name}.mjs`)]);
 export const CURRENT_DOCUMENTATION_FILES = Object.freeze([
   ...['README','deployment','development','npm','onboarding','releases','repository','verification'].map(name => `docs/${name}.md`),
   ...['modules','developer','developer.en','external-programs','external-programs.en','sources','trust','workshop','interop','agents','agents.en'].map(name => `docs/ecosystem/${name}.md`),
-  ...['index','boundaries','protocol','reliability-access','directed-and-bulk','bridge-interoperability','management','manual-workbench','operations'].map(name => `docs/specs/${name}.md`),
+  ...['index','boundaries','protocol','reliability-access','directed-and-bulk','bridge-interoperability','management','manual-workbench','module-resources','operations'].map(name => `docs/specs/${name}.md`),
   'docs/modules/provider-contract.md',
   ...['capability-directory','distributed-context','workflows'].map(name => `docs/examples/${name}.md`)]);
 export const SOFT_UI_MODULE_FILES = Object.freeze(['examples/soft-ui-modules/README.md',

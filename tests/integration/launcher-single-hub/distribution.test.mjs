@@ -52,18 +52,18 @@ test('current documentation navigation and bilingual readmes describe module ins
   assert.match(await read('README.md'), /互联万物，自由组合，解耦整体，软化硬码，拔插一切，任意流线，无限模块/);
   const english = await read('README.en.md');
   assert.match(english, /one Global Hub/);
-  assert.match(english, /All local instances use \*\*the same Hub\*\*/);
+  assert.match(english, /all connected to \*\*the same Hub\*\*/);
   assert.ok(CURRENT_DOCUMENTATION_FILES.includes('docs/ecosystem/modules.md'));
   assert.ok(CURRENT_DOCUMENTATION_FILES.every(path => !/pack-spec|templates\.md|phase1[78]|plans\//.test(path)));
 });
 
 test('new Workshop distribution offers modules while retaining unrelated account and collaboration functionality', async () => {
   const source = await read('tools/workshop/public/app.mjs');
-  assert.match(source, /!\['module',\s*'module-group'\]\.includes\(artifact\.kind\)/);
-  assert.match(source, /artifact\.kind === 'module-group' \? 'module-group\.json' : 'module\.json'/);
+  assert.match(source, /!\['module',\s*'configuration',\s*'data'\]\.includes\(artifact\.kind\)/);
+  assert.match(source, /configuration\.json/);
   assert.doesNotMatch(source, /\['pack',t\('pack'\)\]|\['template',t\('template'\)\]/);
   const store = await read('tools/workshop/store.mjs');
-  assert.match(store, /const distributedKinds = new Set\(\['module',\s*'module-group'\]\)/);
+  assert.match(store, /const distributedKinds = new Set\(\['module',\s*'configuration',\s*'data'\]\)/);
   assert.match(store, /this\.state\.publications\.filter\(p => distributedKinds\.has\(p\.kind\)/);
   assert.match(store, /commentSummary/);
   assert.match(store, /proposalSummary/);

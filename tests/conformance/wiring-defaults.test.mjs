@@ -6,6 +6,7 @@ import { randomBytes } from 'node:crypto';
 import { LocalPrograms } from '../../tools/launcher/local-programs.mjs';
 import { WiringDefaults } from '../../tools/launcher/wiring-defaults.mjs';
 import { ModuleGroups, normalizeModuleGroup, moduleGroupWiringBaseline } from '../../tools/launcher/module-groups.mjs';
+import { sourceFilesDigest } from '../../scripts/runtime/resource-artifacts.mjs';
 import { collectSourceFiles } from '../../scripts/runtime/source-guidance.mjs';
 import { hash, ordinaryPath } from '../../scripts/runtime/paths.mjs';
 import { publishArtifact } from '../../scripts/runtime/sources.mjs';
@@ -50,13 +51,13 @@ async function fixture(t) {
   async function sourceFor(group, { topic = `group/${group.id}`, suffix = 'source' } = {}) {
     const directory = join(root, suffix), modules = []; await mkdir(directory, { recursive: true });
     for (const [logical, id] of Object.entries(group.origin.members)) {
-      const row = local.row(id), relative = `modules/${logical}`; await cp(local.path(id, 'module'), join(directory, relative), { recursive: true });
-      modules.push({ id: logical, path: relative, moduleId: row.module.id, version: row.module.version,
+      const row = local.row(id);
+      modules.push({ id: logical, module: { id: row.module.id, version: row.module.version, digest: sourceFilesDigest(row.files) },
         configuration: { topics: { events: topic }, bridges: clone(bridge), bindings: [], settings: { label: 'author' } } });
     }
-    const manifest = { format: 'world-hub.module-group/v1', id: group.origin.id, version: group.origin.version, title: group.title, license: 'MIT', platforms: [`${process.platform}-${process.arch}`],
+    const manifest = { format: 'world-hub.configuration/v1', scope: 'local', id: group.origin.id, version: group.origin.version, title: group.title, license: 'MIT', platforms: [`${process.platform}-${process.arch}`],
       provides: [], requires: [], modules, startupPlan: { members: modules.map(member => ({ programId: member.id, enabled: false, after: [] })), startupOrder: modules.map(member => member.id), onFailure: 'continue-independent' } };
-    await writeFile(join(directory, 'module-group.json'), json(manifest)); return { directory, manifest };
+    await writeFile(join(directory, 'configuration.json'), json(manifest)); return { directory, manifest };
   }
   const apply = reviewed => defaults.apply({ reviewId: reviewed.reviewId, accepted: true });
   return { root, local, defaults, revocations, add, group, sourceFor, apply };
@@ -168,7 +169,7 @@ test('local-only group uses member author defaults and new local members use the
   assert.ok(reviewed.review.programs.every(row => row.source.kind === 'module'));
 });
 
-test('old group needs exact author artifact to establish reviewed baseline; ordinary group save cannot replace it', async t => {
+test('scope without a stored baseline needs an exact configuration to establish reviewed baseline; ordinary group save cannot replace it', async t => {
   const scene = await fixture(t); await scene.add('one'); const group = scene.group('old', ['one'], { missingBaseline: true });
   const absent = await scene.defaults.preview({ scope: 'group', targetId: 'old' }); assert.deepEqual(absent.review.missingGroupSources, [{ groupId: 'old', id: group.origin.id, version: '1.0.0' }]);
   const source = await scene.sourceFor(group), reviewed = await scene.defaults.preview({ scope: 'group', targetId: 'old', groupSources: { old: source.directory } });
@@ -180,12 +181,12 @@ test('old group needs exact author artifact to establish reviewed baseline; ordi
   assert.notEqual(current.revision, group.revision);
 });
 
-test('provided old-group artifact must match author member source bytes and exact source version', async t => {
+test('provided configuration-scope artifact must match author member source bytes and exact source version', async t => {
   const scene = await fixture(t); await scene.add('one'); const group = scene.group('old', ['one'], { missingBaseline: true }), source = await scene.sourceFor(group);
-  await writeFile(join(source.directory, 'modules', 'one', 'program.mjs'), 'changed source at same version\n');
+  source.manifest.modules[0].module.digest = 'f'.repeat(64); await writeFile(join(source.directory, 'configuration.json'), json(source.manifest));
   const wrongBytes = await scene.defaults.preview({ scope: 'group', targetId: 'old', groupSources: { old: source.directory } });
   assert.ok(wrongBytes.review.blockers.some(row => row.code === 'WIRING_GROUP_SOURCE_MEMBER_MISMATCH'));
-  source.manifest.version = '2.0.0'; await writeFile(join(source.directory, 'module-group.json'), json(source.manifest));
+  source.manifest.version = '2.0.0'; await writeFile(join(source.directory, 'configuration.json'), json(source.manifest));
   const wrongVersion = await scene.defaults.preview({ scope: 'group', targetId: 'old', groupSources: { old: source.directory } });
   assert.ok(wrongVersion.review.blockers.some(row => row.code === 'WIRING_GROUP_SOURCE_MISMATCH'));
 });
@@ -218,10 +219,10 @@ for (const mutation of ['source', 'wiring', 'identity', 'group', 'handle', 'pend
   await assert.rejects(scene.apply(reviewed), { code: 'WIRING_REVIEW_CHANGED' }); assert.equal(scene.revocations.length, 0); assert.equal(scene.local.row('one').topics.events.startsWith('author/'), false);
 });
 
-test('source artifact changes after old-group review reject apply', async t => {
+test('source artifact changes after configuration-scope review reject apply', async t => {
   const scene = await fixture(t); await scene.add('one'); const group = scene.group('old', ['one'], { missingBaseline: true }), source = await scene.sourceFor(group);
   const reviewed = await scene.defaults.preview({ scope: 'group', targetId: 'old', groupSources: { old: source.directory } });
-  source.manifest.modules[0].configuration.topics.events = 'changed/recipe'; await writeFile(join(source.directory, 'module-group.json'), json(source.manifest));
+  source.manifest.modules[0].configuration.topics.events = 'changed/recipe'; await writeFile(join(source.directory, 'configuration.json'), json(source.manifest));
   await assert.rejects(scene.apply(reviewed), { code: 'WIRING_REVIEW_CHANGED' }); assert.equal(scene.local.groups.get('old').wiringBaseline, undefined);
 });
 
@@ -270,11 +271,11 @@ test('semantic map and ACL order differences do not change running wiring or cau
   assert.equal(all.review.programs[0].changed, false); assert.equal(all.review.blocked, false, json(all));
 });
 
-for (const format of ['zip', 'json']) test(`establish old-group baseline from ${format} artifact with original bytes rechecked at apply`, async t => {
+for (const format of ['zip', 'json']) test(`establish configuration-scope baseline from ${format} artifact with original bytes rechecked at apply`, async t => {
   const scene = await fixture(t); await scene.add('one'); const group = scene.group('old', ['one'], { missingBaseline: true }), source = await scene.sourceFor(group);
   let path;
   if (format === 'zip') { path = join(scene.root, 'author-group.zip'); await zipDirectory(source.directory, path); }
-  else path = (await publishArtifact(source.directory, { kind: 'module-group', destination: join(scene.root, 'published'), redistributionAcknowledged: true })).artifactPath;
+  else path = (await publishArtifact(source.directory, { kind: 'configuration', destination: join(scene.root, 'published'), redistributionAcknowledged: true })).artifactPath;
   const input = { scope: 'group', targetId: 'old', groupSources: { old: path } }, reviewed = await scene.defaults.preview(input);
   assert.equal(reviewed.review.blocked, false, json(reviewed));
   const bytes = await readFile(path);
