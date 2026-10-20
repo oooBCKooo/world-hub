@@ -440,7 +440,7 @@ export class HubMcpService {
 }
 
 export function createHubMcpServer(config, service = new HubMcpService(config)) {
-  const server = new McpServer({ name: 'world-hub', version: '0.21.0', title: 'World Hub communication and explicitly enabled local management' }, { capabilities: { tools: {} } });
+  const server = new McpServer({ name: 'world-hub', version: '0.22.0', title: 'World Hub communication and explicitly enabled local management' }, { capabilities: { tools: {} } });
   const definitions = service.config.bridge ? [...TOOL_DEFINITIONS] : [];
   if (service.config.management) {
     const operations = service.allowedManagementOperations();

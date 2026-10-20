@@ -1,8 +1,8 @@
 # CLI 管理 / CLI management
 
-`world-hub` 可启动服务，也可通过公开的本机 HTTP API 管理已经运行的服务。命令不需要界面；TUI 暂未提供。使用源码检出的新增命令时，将示例的 `world-hub` 替换为 `node bin/world-hub.mjs`。安装包的命令以其实际版本和 `operations` 输出为准。
+`world-hub` 可启动服务，也可通过公开的本机 HTTP API 管理已经运行的服务。命令不需要界面；TUI 延后至 Hub 实际使用确认稳定后再考虑。使用源码检出的新增命令时，将示例的 `world-hub` 替换为 `node bin/world-hub.mjs`。安装包的命令以其实际版本和 `operations` 输出为准。
 
-The CLI starts a headless server or manages a running server through its public local HTTP API. No UI is required. A TUI is not provided. For a source checkout, replace `world-hub` below with `node bin/world-hub.mjs`. Installed releases expose their own versioned catalog.
+The CLI starts a headless server or manages a running server through its public local HTTP API. No UI is required. A TUI is deferred until real Hub use confirms stability. For a source checkout, replace `world-hub` below with `node bin/world-hub.mjs`. Installed releases expose their own versioned catalog.
 
 ## 启动与发现 / Start and discover
 
