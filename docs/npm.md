@@ -20,6 +20,10 @@ world-hub --open
 
 参考配置仅允许已登记的可信回环身份，预置 `ui.manual` 工作台凭据标识，未设 token。自己的程序需要在配置中登记桥或凭据、主题权限和所需连接额度，保存后重启。私人配置、token 与通讯数据留在部署目录，不提交源码仓库。具体接入和管理边界见[枢纽桥接入](onboarding.md)与[部署](deployment.md)。
 
+## 给智能体安装 Skill 与 MCP
+
+`world-hub-skill --install <新目标目录>` 将官方 Skill 复制到客户端选择的完整技能目录，已有目录不覆盖；`--path` 和 `--check` 用于只读查看。`world-hub-mcp --prepare` 准备独立锁定的 MCP 依赖，随后在 MCP 客户端配置 `world-hub-mcp --config <私有JSON路径>`。它使用独立桥身份，stdout 只承载 stdio MCP 2026-07-28，通道和目标仍受权限约束。具体配置与边界见 [Skill 与 MCP](ecosystem/agents.md)。
+
 ## 配置和数据路径
 
 | 选项 | 行为 |

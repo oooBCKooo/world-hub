@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { validateLock } from './runtime/package.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const directories = ['bin', 'src', 'sdk', 'config', 'examples', 'tests', 'scripts', 'tools', 'docs', '.github'];
+const directories = ['bin', 'src', 'sdk', 'skills', 'config', 'examples', 'tests', 'scripts', 'tools', 'docs', '.github'];
 const rootFiles = ['README.md', 'README.en.md', 'LICENSE', 'package.json', '.gitignore', '.gitattributes'];
 const required = [...rootFiles, 'config/hub.json', 'src/hub/hub-server.mjs', 'src/hub/ws-server.mjs',
   'src/management/console.html', 'sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-client.mjs',

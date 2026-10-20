@@ -2,6 +2,8 @@
 
 世界枢纽只负责程序间通信。模块可理解为“程序 + 枢纽桥”；枢纽桥负责程序与 Hub 之间的双向通信。程序选择自己的枢纽桥、主题、信息种类、上下文和业务。运行 `world-hub --open`，在通信管理界面管理同一个本机 Hub 上的模块实例、模块组、接线和启动计划。
 
+智能体接入见 [官方 Skill 与 MCP](ecosystem/agents.md) / [English](ecosystem/agents.en.md)：Skill 提供使用和开发指导，MCP 通过普通枢纽桥提供通信工具。
+
 | 阅读目标 | 入口 |
 | --- | --- |
 | 导入模块、登记实例、分组与运行 | [入门流程](../README.md#从模块开始)、[English](../README.en.md#start-with-modules) |

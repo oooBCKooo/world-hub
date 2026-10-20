@@ -53,6 +53,16 @@ world-hub --open
 
 ## 独立开发与接入
 
+智能体可安装官方 **World Hub Skill** 学习接入与模块开发，也可通过 **World Hub MCP** 用自己的枢纽桥发布、抽取、调用和注入信息：
+
+```powershell
+world-hub-skill --install ./my-agent/.agents/skills/world-hub
+world-hub-mcp --prepare
+world-hub-mcp --config C:/private/world-hub-mcp.json
+```
+
+MCP 使用独立锁定的可选依赖，采用 stdio／2026-07-28 协议；需要在客户端配置命令和私有桥凭据。Skill 不启动程序，MCP 不绕过 Hub 权限。见 [Skill 与 MCP 接入](docs/ecosystem/agents.md)。
+
 可使用 [JavaScript](sdk/javascript/README.md)、[Python](sdk/python/README.md)、[PowerShell](sdk/powershell/README.md) SDK，也可按[线协议](docs/specs/protocol.md)自行实现枢纽桥。
 
 ```javascript

@@ -53,6 +53,16 @@ Controllers remain outside the Hub. It does not interpret prompts, run world rul
 
 ## Develop and connect independently
 
+Install the official **World Hub Skill** for agent guidance, or use **World Hub MCP** to publish, pull, call and inject information through the agent's own hub bridge:
+
+```sh
+world-hub-skill --install ./my-agent/.agents/skills/world-hub
+world-hub-mcp --prepare
+world-hub-mcp --config /absolute/private/world-hub-mcp.json
+```
+
+MCP uses separately locked optional dependencies and stdio protocol 2026-07-28. Configure the client's command and private bridge credentials. Installing the Skill starts no programs; MCP preserves Hub permissions. See [Skill and MCP integration](docs/ecosystem/agents.en.md).
+
 Use the [JavaScript](sdk/javascript/README.md), [Python](sdk/python/README.md) or [PowerShell](sdk/powershell/README.md) SDK, or implement a bridge using the [wire protocol](docs/specs/protocol.md).
 
 ```javascript

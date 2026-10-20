@@ -2,6 +2,16 @@
 
 当前分发以一个全局 Hub、模块实例和模块组为产品入口。Hub、通信管理界面、SDK 和本机模块管理辅助层按明确允许清单构建。独立 Launcher 界面、整合包 Runtime、模板生成、旧专用界面与历史阶段资料不进入当前发行。
 
+## 0.21.0
+
+- 提供可单独安装的官方 `world-hub` Skill，包含安装诊断、普通枢纽桥通信、模块开发与 MCP 使用参考。使用 `world-hub-skill --install <新目录>` 复制，不覆盖已有技能目录。
+- 提供独立 stdio MCP 服务 `world-hub-mcp`，通过自己的认证枢纽桥进行发布、历史抽取、ACK、定向请求／回应、注入与附件传输。仅支持 MCP 2026-07-28，不加载到 Hub Core。
+- MCP 私有配置限定工具、精确主题与目标主体，Hub ACL 继续独立执行。历史缺口、缓冲上限、断线和超时明确返回；不会自动重发业务请求、释放历史信息或跳过缺失历史。
+- MCP 依赖使用单独锁文件，显式执行 `world-hub-mcp --prepare` 后才安装；Hub 根包、SDK 和 Skill 不需要这些依赖。安装不运行依赖生命周期脚本。
+- 修复本机按需运行辅助层的竞态：旧进程空闲停止期间到达的新调用不再被误当作手动取消；手动停止仍会取消对应的排队激活。
+
+安装与配置见[智能体接入](ecosystem/agents.md)／[Agent integration](ecosystem/agents.en.md)。源码测试使用官方 MCP 客户端和真实隔离 Hub，不代表所有客户端或真人独立开发已经验收。
+
 ## 0.20.0
 
 - 在同一个 `/manage` 通信管理界面管理独立模块与模块组、接线、启动计划、运行状态和信息流；不再提供独立 Launcher、整合包或模板入口。
@@ -15,13 +25,13 @@ Hub 仍只负责通信。运行辅助通过普通枢纽桥管理本机受管程�
 
 ## npm 与 ZIP
 
-npm 提供 `world-hub`、`world-hub-interop` 和独立 `world-hub-workshop` 命令。SDK 保留 `world-hub`／`world-hub/bridge`、`world-hub/blob` 和 `world-hub/lifecycle` 导出；社区保留 `world-hub/workshop`。不公开旧 `world-hub/runtime`，不安装 `world-hub-pack`。
+npm 提供 `world-hub`、`world-hub-interop`、独立 `world-hub-workshop`、`world-hub-skill` 和 `world-hub-mcp` 命令。SDK 保留 `world-hub`／`world-hub/bridge`、`world-hub/blob` 和 `world-hub/lifecycle` 导出；社区保留 `world-hub/workshop`。不公开旧 `world-hub/runtime`，不安装 `world-hub-pack`。
 
 源码 ZIP 使用本机 Node 22.4.0 或以上。Windows x64 便携 ZIP 携带已核对的官方 Node 22.23.2 与独立许可。业务模块和其依赖另行取得，不自动执行。
 
 ```powershell
 npm run build
-node scripts/release/verify-package.mjs --root dist/world-hub-0.20.0-source
+node scripts/release/verify-package.mjs --root dist/world-hub-0.21.0-source
 ```
 
 目标目录、ZIP 或校验文件已存在时拒绝覆盖。需要便携运行时：
@@ -31,7 +41,7 @@ node scripts/release/prepare-runtime.mjs --download --output .artifacts/runtime/
 npm run build -- --runtime .artifacts/runtime/node-win-x64
 ```
 
-缓存必须是新目录，只有匹配固定版本官方摘要后才复制运行文件。默认目录及 ZIP 名称使用 `package.json` 的版本：本版为 `world-hub-0.20.0-source.zip` 和 `world-hub-0.20.0-win-x64.zip`，每份 ZIP 附 `.zip.sha256` 校验文件。构建不意味着所有平台已经验收。
+缓存必须是新目录，只有匹配固定版本官方摘要后才复制运行文件。默认目录及 ZIP 名称使用 `package.json` 的版本：本版为 `world-hub-0.21.0-source.zip` 和 `world-hub-0.21.0-win-x64.zip`，每份 ZIP 附 `.zip.sha256` 校验文件。构建不意味着所有平台已经验收。
 
 ## 运行入口
 

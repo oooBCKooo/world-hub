@@ -4,7 +4,9 @@
 
 ## 先登记一个桥
 
-打开源码或分发根目录的 `config/hub.json`，在已有 `acl.bridges` 对象中增加 `my.program` 这一项。下面只展示需要新增的部分：合并进自己的配置，保留其他桥、`acl.credentials`、监听、容量和持久路径，不以此片段替换整个文件。
+先取得**当前运行 Hub 实际使用的私有配置**：npm CLI 默认是所选数据根中的 `hub.json`，显式 `--config` 时以启动输出中的有效配置为准；同时使用 `--data-dir` 时可能是数据根中的派生配置，见 [CLI 路径规则](npm.md#配置和数据路径)。只有确实按源码／便携包的 `start.cmd` 参考入口启动时，才使用对应发行目录的 `config/hub.json`。不要修改 npm 包内模板来配置另一个已经运行的 Hub。
+
+在该有效配置已有的 `acl.bridges` 对象中增加 `my.program` 这一项。下面只展示需要新增的部分：合并进自己的配置，保留其他桥、`acl.credentials`、监听、容量和持久路径，不以此片段替换整个文件。
 
 ~~~json
 {
@@ -23,7 +25,7 @@
 
 保存后停止并重新启动枢纽。桥以 `bridgeId: 'my.program'` 接入，不填 credential；发布和抽取限定在 `example/my/` 下的主题。这里的身份、主题和正文 kind 都可由接入者更换，须同步修改自己的接线配置。此无 token 样例只适用于当前可信本机回环环境，welcome 显示 `authenticated:false`。需要 token 时，在该桥条目设置自己的 token，并以 SDK 的 `token` 参数传入。
 
-生成凭据片段可运行 `npm run token -- my.program`，必须给出目标 bridge 标识；它只打印新 token 和配置片段后退出，不启动 Hub、不自动写入配置。将 token 放进自己部署的未跟踪配置，并保留需要的主题权限，不能因片段示意 `#` 就扩大自己的授权。不要提交或公开输出中的 token。
+需要 token 时，在私有终端用 `node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('base64url'))"` 生成，再把它设置到该桥条目的 `token` 和程序自己的私有配置中。此命令不启动 Hub、不自动写入配置；不要提交或公开输出，不扩大既有主题权限。多桥共享认证主体可采用后面的 `acl.credentials`，MCP 的完整认证示例见 [Skill 与 MCP 接入](ecosystem/agents.md)。
 
 ## 可用的桥材料
 

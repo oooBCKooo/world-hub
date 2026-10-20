@@ -35,6 +35,8 @@ const checks = [
     assert.match(output, /world-hub \[--config/); assert.doesNotMatch(output, /world-hub ui/);
   } },
   { entry: 'bin/world-hub-interop.mjs', args: ['--help'], check: output => assert.match(output, /world-hub-interop verify/) },
+  { entry: 'bin/world-hub-skill.mjs', args: ['--help'], check: output => assert.match(output, /World Hub Skill/) },
+  { entry: 'bin/world-hub-mcp.mjs', args: ['--help'], check: output => assert.match(output, /World Hub MCP service/) },
   { entry: 'tools/workshop/cli.mjs', args: ['--help'], check: output => assert.match(output, /World Hub Workshop/) },
   { entry: 'scripts/launcher.mjs', args: ['--check'], check: output => assert.equal(JSON.parse(output).persisted, false) },
 ];

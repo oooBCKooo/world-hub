@@ -20,6 +20,9 @@ export const SDK_FILES = ['sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-
   'sdk/powershell/HubBridge.psm1', 'sdk/powershell/HubBridge.cs'];
 export const SDK_DOCUMENTATION_FILES = Object.freeze(['sdk/javascript/README.md', 'sdk/javascript/LIFECYCLE.md', 'sdk/python/README.md', 'sdk/powershell/README.md']);
 export const MODULE_CONTRACT_FILES = Object.freeze(['docs/modules/text-statistics.contract.json']);
+export const AGENT_FILES = Object.freeze(['bin/world-hub-skill.mjs', 'bin/world-hub-mcp.mjs',
+  ...['SKILL.md','references/setup.md','references/communication.md','references/modules.md','references/mcp.md'].map(name => `skills/world-hub/${name}`),
+  ...['package.json','package-lock.json','cli.mjs','config.mjs','service.mjs'].map(name => `tools/mcp/${name}`)]);
 export const ECOSYSTEM_SCHEMA_FILES = Object.freeze(['docs/ecosystem/module.schema.json', 'docs/ecosystem/module-group.schema.json', 'docs/ecosystem/deployment.schema.json', 'docs/ecosystem/publisher-vectors.json', 'docs/ecosystem/publisher-vector-check.py']);
 // No pack runtime or template entry is distributed. These files are retained
 // only as shared validation, source, interpreter and owned-process support.
@@ -34,7 +37,7 @@ export const LAUNCHER_FILES = Object.freeze(['bin/world-hub.mjs', 'scripts/cli-e
   ...['owner-lock','local-artifacts','local-programs','program-configuration','module-groups','module-versions','module-uninstall','wiring-defaults','execution-policy','demand-lifecycle','global-external-programs','startup-plan','source-registry','paths-service','environment','topology'].map(name => `tools/launcher/${name}.mjs`)]);
 export const CURRENT_DOCUMENTATION_FILES = Object.freeze([
   ...['README','deployment','development','npm','onboarding','releases','repository','verification'].map(name => `docs/${name}.md`),
-  ...['modules','developer','developer.en','external-programs','external-programs.en','sources','trust','workshop','interop'].map(name => `docs/ecosystem/${name}.md`),
+  ...['modules','developer','developer.en','external-programs','external-programs.en','sources','trust','workshop','interop','agents','agents.en'].map(name => `docs/ecosystem/${name}.md`),
   ...['index','boundaries','protocol','reliability-access','directed-and-bulk','bridge-interoperability','management','manual-workbench','operations'].map(name => `docs/specs/${name}.md`),
   'docs/modules/provider-contract.md',
   ...['capability-directory','distributed-context','workflows'].map(name => `docs/examples/${name}.md`)]);
@@ -101,6 +104,7 @@ export async function buildPackage({ output, runtimeDirectory = null, sourceRoot
   for (const path of SHARED_RUNTIME_FILES) await copy(path, 'shared-runtime-support');
   for (const path of SOFT_UI_MODULE_FILES) await copy(path, 'optional-module-source');
   for (const path of INTEROP_FILES) await copy(path, 'tooling');
+  for (const path of AGENT_FILES) await copy(path, path.startsWith('skills/') ? 'agent-skill' : 'optional-agent-tool');
   for (const path of LAUNCHER_FILES) await copy(path, path.startsWith('tools/launcher/public/') ? 'application' : 'tooling');
   for (const path of WORKSHOP_FILES) await copy(path, path.includes('/public/') ? 'application' : 'tooling');
   for (const path of EXAMPLE_FILES) await copy(path, 'example');

@@ -8,7 +8,7 @@ import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startOwnedProgram } from '../../tests/helpers/owned-program.mjs';
-import { LAUNCHER_FILES, WORKSHOP_FILES, INTEROP_FILES, ECOSYSTEM_RUNTIME_FILES, ECOSYSTEM_SCHEMA_FILES, BUNDLED_TEMPLATE_FILES, SOFT_UI_MODULE_FILES, CURRENT_DOCUMENTATION_FILES, APPLICATION_FILES, SDK_FILES, SDK_DOCUMENTATION_FILES, DOCUMENTATION_IMAGE_FILES } from './build-package.mjs';
+import { AGENT_FILES, LAUNCHER_FILES, WORKSHOP_FILES, INTEROP_FILES, ECOSYSTEM_RUNTIME_FILES, ECOSYSTEM_SCHEMA_FILES, BUNDLED_TEMPLATE_FILES, SOFT_UI_MODULE_FILES, CURRENT_DOCUMENTATION_FILES, APPLICATION_FILES, SDK_FILES, SDK_DOCUMENTATION_FILES, DOCUMENTATION_IMAGE_FILES } from './build-package.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -17,7 +17,7 @@ const safe = value => value.replaceAll('\\', '/');
 const ecosystemFiles = [...ECOSYSTEM_RUNTIME_FILES,
   'docs/ecosystem/modules.md',
   ...ECOSYSTEM_SCHEMA_FILES];
-const developerMaterial = ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md', ...ecosystemFiles, ...LAUNCHER_FILES, ...WORKSHOP_FILES, ...INTEROP_FILES, ...BUNDLED_TEMPLATE_FILES, ...SOFT_UI_MODULE_FILES];
+const developerMaterial = ['docs/modules/provider-contract.md', 'docs/modules/text-statistics.contract.json', 'sdk/javascript/README.md', ...ecosystemFiles, ...LAUNCHER_FILES, ...WORKSHOP_FILES, ...INTEROP_FILES, ...BUNDLED_TEMPLATE_FILES, ...SOFT_UI_MODULE_FILES, ...AGENT_FILES];
 
 async function findNpmCli() {
   const candidates = [process.env.npm_execpath, join(dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js'),
@@ -47,7 +47,7 @@ function allowedPackageFile(path) {
   return ['package.json','README.md','README.en.md','LICENSE','config/hub.json',
     'scripts/launcher.mjs','scripts/launcher-support.mjs',
     'docs/modules/text-statistics.contract.json',...APPLICATION_FILES,...SDK_FILES,...SDK_DOCUMENTATION_FILES,...CURRENT_DOCUMENTATION_FILES,...DOCUMENTATION_IMAGE_FILES,
-    ...ecosystemFiles,...LAUNCHER_FILES,...WORKSHOP_FILES,...INTEROP_FILES,...SOFT_UI_MODULE_FILES].includes(path);
+    ...ecosystemFiles,...LAUNCHER_FILES,...WORKSHOP_FILES,...INTEROP_FILES,...SOFT_UI_MODULE_FILES,...AGENT_FILES].includes(path);
 }
 
 export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(root, '.artifacts/npm'), archive: suppliedArchive } = {}) {
@@ -95,6 +95,8 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
     assert.equal(pkg.bin?.['world-hub-interop'], 'bin/world-hub-interop.mjs');
     assert.equal(pkg.exports?.['./workshop'], './tools/workshop/server.mjs');
     assert.equal(pkg.bin?.['world-hub-workshop'], 'tools/workshop/cli.mjs');
+    assert.equal(pkg.bin?.['world-hub-skill'], 'bin/world-hub-skill.mjs');
+    assert.equal(pkg.bin?.['world-hub-mcp'], 'bin/world-hub-mcp.mjs');
     assert.deepEqual(pkg.dependencies ?? {}, {}); assert.deepEqual(pkg.optionalDependencies ?? {}, {});
     await access(join(sourceRoot, 'LICENSE'));
     let archive;
@@ -157,6 +159,14 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
       [join(localPackage, 'bin/world-hub.mjs'), '--check', '--port', '0'], { cwd: workspace }));
     assert.equal(directChecked.persisted, false); assert.equal(directChecked.configPath, join(workspace, 'world-hub-data/hub.json'));
     assert.deepEqual(await readdir(workspace), []);
+    const installedSkill = join(testing, 'agent/.agents/skills/world-hub');
+    const skillInstalled = JSON.parse(await execute('Install the exact packaged Skill into a separate client directory', process.execPath,
+      [join(localPackage, 'bin/world-hub-skill.mjs'), '--install', installedSkill], { cwd: workspace }));
+    assert.equal(skillInstalled.installed, true); assert.equal(skillInstalled.startsPrograms, false);
+    for (const file of skillInstalled.files) assert.equal(hash(await readFile(join(installedSkill, file.path))), file.sha256);
+    const mcpHelp = await execute('Optional MCP help works before dependency preparation', process.execPath,
+      [join(localPackage, 'bin/world-hub-mcp.mjs'), '--help'], { cwd: workspace });
+    assert.match(mcpHelp, /stdio/);
     const execChecked = JSON.parse(await npm('Resolve the installed executable through npm exec',
       ['exec', '--offline', '--prefix', localApp, '--', 'world-hub', '--check', '--port', '0'], { cwd: workspace }));
     assert.equal(execChecked.persisted, false); assert.equal(execChecked.bundleRoot, resolve(localPackage));
