@@ -1,22 +1,32 @@
-# 模块与模块组 / Modules and module groups
+# 模块资源与实例 / Module resources and instances
 
-模块（module）可理解为“程序 + 枢纽桥”的可安装制品，枢纽桥（hub bridge）负责程序与 Hub 之间的双向通信。一个程序可以使用多座桥，桥可以嵌入程序或独立运行。通信管理界面使用模块声明协助导入、配置和启动程序；Hub 连接不要求这些文件。程序也可以自行安装和运行，再通过枢纽桥接入。
+模块（module）可理解为“程序 + 枢纽桥”。程序通过枢纽桥与 Hub 双向通信；桥可以嵌入程序或独立运行。通信管理界面的“模块”资源界面区分模块本体、模块配置和模块数据，分别管理和发布。Hub 连接不要求这些分发文件，程序也可以自行安装和运行后直接接入。
 
-## 制品与实例
+| 资源 | 内容 | 版本与使用 |
+| --- | --- | --- |
+| 模块本体 `module` | `module.json`、程序源码和作者默认声明 | 本体版本独立；导入到本体缓存不会创建或启动实例 |
+| 模块配置 `configuration` | `configuration.json`，逻辑实例、精确本体引用、接线、参数、默认运行策略和启动计划 | 配置独立版本，`scope` 为全局或局部；应用前审阅逻辑实例映射与冲突 |
+| 模块数据 `data` | `data.json` 与 `data/<逻辑实例>/` 的业务文件，声明适配本体及数据格式 | 数据独立版本，`scope` 为全局或局部；现成数据集可分享，私有备份只在本机导入导出 |
 
-模块目录以 `module.json` 标识固定 ID、语义版本、许可、平台、解释器入口、桥槽、提供／需要的业务契约和权限声明。[module.schema.json](module.schema.json)描述结构；源码路径、安全限制、重复项及实际环境还由实现核对。
+全局／局部是范围，三类资源保持相互独立。配置不携带模块源码，数据不携带管理器身份、凭据、私钥或运行配置。三类制品和版本都可从工坊取得；公开数据只接受 `purpose: "dataset"`，`backup` 不得发布。
 
-同一制品可登记多个独立实例，实例拥有自己的 `programId`、桥身份、凭据、状态目录和公开配置。模块组只引用实例，不产生私有 Hub。更改参数形成本地配置修订，不修改模块版本或 Hub 发行版本。
+## 本体、配置与实例
 
-## 可下载的模块组
+模块本体以 `module.json` 标识 ID、精确语义版本、许可、平台、解释器入口、桥槽、提供／需要的业务契约和权限声明。[module.schema.json](module.schema.json)描述结构。可选 `deployment.json` 是作者提供的新实例默认值，不是某次安装的私有配置或数据。
 
-模块组把一组模块版本、公开参数、接线和启动计划作为一份可分享的配方。它与单模块同样可以通过社区发布和下载，格式见[软件来源](sources.md)和 [module-group.schema.json](module-group.schema.json)。下载内容包含 `module-group.json` 及其引用的模块源码；成员源码摘要由同一制品清单锁定。
+同一本体可供多个实例使用；每个实例拥有自己的 `programId`、桥身份、凭据、状态目录和公开配置。实例 ID 是安装时产生的本机身份，配置中的逻辑 ID 用于映射，不充当认证身份。组只引用已有实例，同一实例可被多个组引用而共享实际状态与进程；分组不复制实例、不扩大权限，也不创建另一台 Hub。
 
-作者应在每个成员的 `configuration` 中提供完整的 `topics`、`bridges`、`settings` 与 `bindings`。同组成员通过相同具体主题收发信息，能力绑定的 `providerId` 引用配方中的成员 ID。导入时管理器把这些成员引用转换为新实例 ID，保留作者预置的接线；用户审阅后即可导入，无需逐个重新接线。组内完整配置优先于成员源码 `deployment.json` 的默认连接，不会据此寻找或连接组外模块。
+“模块配置”面板导入、创建和编辑逻辑配置，再单独打开应用审阅。每个本体依赖固定 `{id,version,digest}`；缺少本体时先取得并导入对应本体。审阅显示新增实例、复用映射、共享冲突和需要停止的受管实例。存在冲突或本体摘要、桥槽、设置及能力约束不符时不能应用；用户明确接受审阅后才修改本机登记，不自动启动程序。导入一个配置资源本身只加入配置库。
 
-导入后，成员作为独立模块实例接入本机同一个 Hub，组只负责引用和管理这些实例。模块仍可单独配置、启动、停止或加入其他组。组不携带 Hub 服务、身份凭据、私钥或运行数据，也不创建额外的 Hub。导入和下载不会启动成员；启动前仍需核对模块、权限与公开配置。
+全局配置用于整个逻辑范围，局部配置用于明确成员范围。替换配置与复用同一实例需在审阅中显式映射，不能按相同名称猜测身份。配置来源版本、本机配置修订和 Hub 发行版本分别记录。下载历史版本也不会自动切换已安装实例。
 
-组的发布版本表示作者发布的配方版本，不等于成员模块版本、本地配置修订或 Hub 版本。作者调整配方或成员源码后发布新版本；已发布版本及其摘要不可变。
+## 模块数据
+
+“模块数据”面板展示数据集或本机备份、作用范围、逻辑实例、适配模块本体、业务数据格式、文件数与大小。数据资源使用 `world-hub.module-data/v1`，每个实例将业务文件限定在 `data/<逻辑 ID>/` 中。模块作者定义业务格式和兼容性；管理器保留原始文件字节，不解析数据库、不运行转换脚本，也不因版本号相近而执行迁移。
+
+导入数据与应用数据分别审阅。应用时明确选择目标实例，核对本体版本与摘要、数据格式、当前状态和覆盖影响；正在运行或发生变化的目标须重新处理和审阅。私有备份仅供本机导入导出，不进入社区的发布或提案通道。公开现成数据集也必须由作者审阅内容和再分发许可。
+
+制品封装、完整示例与大小边界见[软件来源](sources.md)，本机事务与范围规则见[模块资源规范](../specs/module-resources.md)。当前公开入口拒绝旧 `module-group`、整合包和模板，不自动把旧制品转换成模块配置。
 
 ## 已安装实例的升级、降级与回退
 
@@ -34,17 +44,17 @@
 | 选择 | 公开配置 | 实例私有数据 |
 | --- | --- | --- |
 | 更新：保留当前配置 | 保留设置、主题、桥权限和能力绑定；组计划保留仍存在的成员，新成员默认不自动启动 | 另选“保留当前实例数据”或“使用全新实例数据” |
-| 更新：采用作者配置 | 使用目标模块默认值或模块组配方，审阅新的权限与接线 | 同上，配置选择不会替代数据选择 |
+| 更新：采用作者配置 | 使用目标模块默认值或模块配置，审阅新的权限与接线 | 同上，配置选择不会替代数据选择 |
 | 回退：保留当前实例数据 | 恢复所选历史事务发生前的源码与公开配置 | 保留现在的数据，不撤销升级后程序写入的内容 |
 | 回退：恢复历史实例数据 | 恢复所选历史事务发生前的源码与公开配置 | 恢复该事务开始前保存的状态目录快照，覆盖当前实例状态；历史中原本没有状态目录时恢复为不存在 |
 
-“全新实例数据”将当前状态保存在私有事务快照中，再使用空状态目录。版本历史与这些快照只在本机保存，不上传社区、不进入模块组导出。状态快照只覆盖受管实例自己的状态目录，不包括程序写入其他路径的数据、Hub 中的信息、其他模块状态或已经产生的外部副作用。代码回退不能撤回已发送的请求、已发布的信息或第三方服务中的变化。
+“全新实例数据”将当前状态保存在私有事务快照中，再使用空状态目录。版本历史与这些快照只在本机保存，不上传社区、不进入公开配置导出。状态快照只覆盖受管实例自己的状态目录，不包括程序写入其他路径的数据、Hub 中的信息、其他模块状态或已经产生的外部副作用。代码回退不能撤回已发送的请求、已发布的信息或第三方服务中的变化。
 
 ### 模块组与共享实例
 
 模块组按发布配方的成员 ID 跟踪原有实例。同一成员升级后继续使用原身份，新增成员创建独立实例；配方中移除的成员只离开本组，保留登记、源码、数据、其他组引用和当前运行状态。回退也不会删除本次新增的实例，它们可继续独立使用。相同逻辑成员 ID 不能悄悄换成另一个模块 ID，作者应给替换模块使用新的成员 ID。
 
-一个实例被多个组引用时，原位升级会影响这些组看到的同一个实例。审阅会列出共享组和已登记消费者，不会为其他组自动复制实例或停止它们。新版本移除某个现有消费者仍绑定的准确能力契约时，切换被拒绝，应先处理消费者接线。组发行版本表示来源配方；成员单独更新、接线和启动计划的本地调整可以与该来源基线不同。
+一个实例被多个组引用时，原位升级会影响这些组看到的同一个实例。审阅会列出共享组和已登记消费者，不会为其他组自动复制实例或停止它们。新版本移除某个现有消费者仍绑定的准确能力契约时，切换被拒绝，应先处理消费者接线。配置发行版本表示来源配方；成员单独更新、接线和启动计划的本地调整可以与该来源基线不同。
 
 自行创建、尚未建立发布来源的本地组可在审阅中明确建立一次来源基线。若同一模块在组中有多个候选实例，管理器拒绝猜测成员对应关系；先整理成明确的对应关系，再进行版本切换。
 
@@ -58,7 +68,7 @@
 
 ## 常驻与按需运行
 
-作者可在 `deployment.json` 中声明可选的 `executionDefaults`，建议模块采用常驻或按需模式及空闲停止时间。模块组成员的 `configuration.executionDefaults` 可覆盖该模块的默认值。新实例按“组成员默认值 → 模块默认值 → 常驻、60 秒”选取一份默认值，导入审阅显示最终运行策略及其来源。未填写 `idleTimeoutMs` 时使用 60000 毫秒。无论采用哪份默认值，导入后都保持停止，允许唤醒的调用者始终为空。
+作者可在 `deployment.json` 中声明可选的 `executionDefaults`，建议模块采用常驻或按需模式及空闲停止时间。模块配置成员的 `configuration.executionDefaults` 可覆盖该模块的默认值。新实例按“配置成员默认值 → 模块默认值 → 常驻、60 秒”选取一份默认值，导入审阅显示最终运行策略及其来源。未填写 `idleTimeoutMs` 时使用 60000 毫秒。无论采用哪份默认值，导入后都保持停止，允许唤醒的调用者始终为空。
 
 作者默认值只包含 `mode` 和可选 `idleTimeoutMs`，不包含 `allowedCallers`、本机实例 ID 或启动授权。用户可在模块抽屉中覆盖本机实例的策略；同一个实例被多个组共享时使用同一份策略。原位升级、降级与回退均保留已有实例的当前本机策略，即使选择采用作者公开配置，也不覆盖运行模式、空闲时间或调用授权；组更新新增的成员才采用新实例的默认规则。
 
@@ -90,7 +100,7 @@
 
 ## 恢复默认接线
 
-接线模式顶部的“恢复默认接线”先显示审阅，再应用到当前范围。选择全部模块时，已发布模块组中的成员采用该组保存的作者配方，其他实例采用各自 `deployment.json` 的默认主题与桥权限；选择模块组时采用该组配方。也可明确选择单个模块，这时使用模块自身默认值，审阅会标明来源，可能与它所在模块组的配方不同。没有发布来源的本地分组按成员自身默认值处理。
+接线模式顶部的“恢复默认接线”先显示审阅，再应用到当前范围。选择全部模块时，已应用模块配置中的成员采用该组保存的作者配方，其他实例采用各自 `deployment.json` 的默认主题与桥权限；选择模块组时采用该组配方。也可明确选择单个模块，这时使用模块自身默认值，审阅会标明来源，可能与它所在模块组的配方不同。没有发布来源的本地分组按成员自身默认值处理。
 
 恢复只修改**主题映射、桥发布／订阅权限和能力绑定**，保留公开设置、源码与版本、身份、私有数据及全局／模块组启动计划。只有接线确实要变化的实例需要先停止；接线不变的运行实例可保持运行。此操作不自动停止、启动、安装或升级任何模块。
 
@@ -160,12 +170,12 @@
 
 业务契约由外部程序选择。要实现示例的可替换统计能力，阅读[提供者契约](../modules/provider-contract.md)、[机器契约](../modules/text-statistics.contract.json)和对应 SDK。匹配的 `provides`／`requires` 仅是候选声明，实际消费者仍需验证身份、版本、权限和业务结果。
 
-A module combines a program and its hub bridge in an installable artifact; a hub bridge provides bidirectional communication between the program and the Hub. A program may use several bridges, embedded or separate. The communication management interface uses `module.json` for optional deployment assistance; it is not a Hub handshake requirement. A downloadable module group bundles a versioned recipe, public configuration and member sources. Imported members remain independent instances on the same local Hub. Groups carry no Hub, credentials or runtime state, and importing does not start programs. Artifact versions, local configuration revisions and Hub releases are distinct. Application compatibility must be tested through real consumers.
+A module combines a program and its hub bridge in an installable artifact; a hub bridge provides bidirectional communication between the program and the Hub. A program may use several bridges, embedded or separate. The communication management interface uses `module.json` for optional deployment assistance; it is not a Hub handshake requirement. A downloadable configuration pins exact module body versions and source digests without embedding sources; independently versioned datasets carry business files. Imported members remain independent instances on the same local Hub. Global/local configuration scopes share the same Hub. Public datasets and local private backups carry no manager credentials or runtime configuration; acquisition starts no programs. Artifact versions, local configuration revisions and Hub releases are distinct. Application compatibility must be tested through real consumers.
 
-An optional `deployment.json` `connections` entry pins a default provider module ID and version, required contracts, and consumer-to-provider topic aliases. A unique matching installed instance is filled into the import review; multiple matches require an explicit choice; missing providers show what to download and import before checking again. The manager uses the chosen provider's current topic values without changing that provider's configuration or permissions. Full member configuration in a module-group recipe takes precedence over member deployment defaults and never resolves an external target. These are deployment suggestions interpreted by the management layer; Hub Core retains its communication-only role.
+An optional `deployment.json` `connections` entry pins a default provider module ID and version, required contracts, and consumer-to-provider topic aliases. A unique matching installed instance is filled into the import review; multiple matches require an explicit choice; missing providers show what to download and import before checking again. The manager uses the chosen provider's current topic values without changing that provider's configuration or permissions. Full member configuration in a configuration resource takes precedence over member deployment defaults and never resolves an external target. These are deployment suggestions interpreted by the management layer; Hub Core retains its communication-only role.
 
 Installed modules and groups support reviewed in-place upgrades, downgrades and transaction-history rollback through the communication interface. Stop the instances whose code will change, select a downloaded release or local artifact, review configuration and private-data policies, and apply. Existing instance identities and credentials remain unchanged. Removed group members remain independently registered; shared instances affect every group referencing them. Missing capabilities still required by an installed consumer block a change. Rollback restores the selected transaction's previous code and public configuration, while keeping current private state or explicitly restoring that transaction's pre-change state snapshot. Data compatibility and migrations belong to the application; external side effects cannot be undone. Interrupted transactions block affected starts until recovery; downloads, updates, rollback and recovery do not start programs.
 
-Authors may set `executionDefaults` in `deployment.json`, for example `{"mode":"on-demand","idleTimeoutMs":60000}`. `mode` is required (`resident` or `on-demand`); the optional idle timeout is an integer from 1000 to 86400000 milliseconds and defaults to 60000. A group member's `configuration.executionDefaults` takes precedence over its module default; otherwise a new instance defaults to resident with a 60-second timeout. Import review shows the selected policy and its source. Every imported instance remains stopped and has an empty `allowedCallers` list. These defaults grant no execution permission. Users may change local policy; upgrades, downgrades and rollback retain existing instances' current policy even when author configuration is selected. Newly added group members use the new-instance rules. Group export writes only mode and idle timeout as member defaults, never local caller IDs or grants.
+Authors may set `executionDefaults` in `deployment.json`, for example `{"mode":"on-demand","idleTimeoutMs":60000}`. `mode` is required (`resident` or `on-demand`); the optional idle timeout is an integer from 1000 to 86400000 milliseconds and defaults to 60000. A configuration member's `configuration.executionDefaults` takes precedence over its module default; otherwise a new instance defaults to resident with a 60-second timeout. Import review shows the selected policy and its source. Every imported instance remains stopped and has an empty `allowedCallers` list. These defaults grant no execution permission. Users may change local policy; upgrades, downgrades and rollback retain existing instances' current policy even when author configuration is selected. Newly added group members use the new-instance rules. Configuration export writes only mode and idle timeout as member defaults, never local caller IDs or grants.
 
 Uninstall is reviewed registration removal. Removing one module also detaches its group and startup-plan references, but retained capability consumers block provider removal. “Remove group only” retains its modules and their running state; “Uninstall group” defaults to removing exclusive members while retaining shared instances and the full provider dependency closure needed by retained consumers. Only selected, currently owned processes may be stopped with explicit acceptance. Source, identity, state and version files remain in place, but history cannot directly restore an unregistered instance. A failed registry commit retains all registrations and plans; authorized stops remain stopped and revoked credentials are not silently restored. The shared Hub keeps running.

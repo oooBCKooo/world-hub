@@ -15,7 +15,6 @@ import { resolve, join } from 'node:path';
 import { loadConfig, mintToken, normalizeConfig } from './lib/store.mjs';
 import { Hub, WIRE_VERSION } from './lib/hub.mjs';
 import { attachWebSocketServer, CLOSE } from './ws-server.mjs';
-import { debugPageHtml } from '../debug/page.mjs';
 import { stringifyEnvelope } from './lib/wire-json.mjs';
 import { createManagementHttp } from '../management/management-http.mjs';
 
@@ -62,13 +61,13 @@ const HELP = `
   --print-token <bridge>  生成一座桥的凭据片段并退出（不启动枢纽）
   --help,   -h            显示本帮助
 
-调试入口（只读，不出现在线协议里）：
-  GET /            接线图 + 实时流水（人看）
+HTTP 入口（仅本机，不出现在线协议里）：
+  GET /            服务描述 JSON
   GET /status      只读快照 JSON（机器看）
   GET /log?limit=  流水账尾部 JSON
+  /manage/api/*    本机管理 JSON API
 
-本机管理入口：
-  GET /manage     程序注记、桥、枢纽与信息流；管理桥接入的暂停/恢复/断连
+world-hub 不附带界面。独立界面项目：world-hub-ui。
 `;
 
 function log(quiet, obj) {
@@ -140,10 +139,10 @@ async function main() {
     }
     if (await management.handle(req, res, url)) return;
     const remote = req.socket.remoteAddress;
-    // Debug access is strictly local even when the bridge transport listens on a LAN.
+    // Local HTTP diagnostics stay local even when bridge transport listens on a LAN.
     if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remote)) {
-      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
-      res.end('debug access is loopback only\n');
+      res.writeHead(403, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(JSON.stringify({ error: { code: 'LOCAL_HTTP_ONLY', message: 'HTTP diagnostics are loopback only' } }));
       return;
     }
     if (url.pathname === '/status') {
@@ -158,13 +157,15 @@ async function main() {
       res.end('{"lastSeq":' + hub.log.lastSeq + ',"records":[' + hub.log.tail(limit).map((record) => stringifyEnvelope(record)).join(',') + ']}');
       return;
     }
-    if (url.pathname === '/' || url.pathname === '/index.html') {
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-      res.end(debugPageHtml({ hubId: config.hub.id, wireVersion: WIRE_VERSION }));
+    if (url.pathname === '/') {
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+      res.end(JSON.stringify({ service: 'world-hub', interface: 'headless', hubId: config.hub.id, wireVersion: WIRE_VERSION,
+        endpoints: { status: '/status', log: '/log', managementApi: '/manage/api', bridge: config.transport.path },
+        ui: { project: 'world-hub-ui', bundled: false } }));
       return;
     }
-    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-    res.end('not found\n');
+    res.writeHead(404, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+    res.end(JSON.stringify({ error: { code: 'ROUTE_NOT_FOUND', message: 'world-hub provides JSON APIs and bridge transport; its optional interface is the separate world-hub-ui project.' } }));
   });
 
   const wss = attachWebSocketServer(httpServer, {
@@ -179,6 +180,9 @@ async function main() {
   });
   const addr = httpServer.address();
   management.modules.setListeningPort(addr.port);
+  const urlHost = host => host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+  const localHost = config.transport.host === '0.0.0.0' ? '127.0.0.1' : config.transport.host === '::' ? '::1' : config.transport.host;
+  const localBase = ['127.0.0.1', 'localhost', '::1'].includes(localHost) ? `http://${urlHost(localHost)}:${addr.port}` : null;
 
   log(args.quiet, {
     event: 'ready',
@@ -187,9 +191,9 @@ async function main() {
     wireHash: hub.wireHash,
     host: config.transport.host,
     port: addr.port,
-    endpoint: `ws://${config.transport.host}:${addr.port}${config.transport.path}`,
-    debugUrl: `http://${config.transport.host}:${addr.port}/`,
-    managementUrl: `http://${config.transport.host}:${addr.port}/manage`,
+    endpoint: `ws://${urlHost(config.transport.host)}:${addr.port}${config.transport.path}`,
+    statusUrl: localBase ? `${localBase}/status` : null,
+    managementApiUrl: localBase ? `${localBase}/manage/api` : null,
     configPath,
     logDir: hub.log.enabled ? hub.log.dir : null,
     logEnabled: hub.log.enabled,

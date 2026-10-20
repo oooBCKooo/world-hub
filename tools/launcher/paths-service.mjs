@@ -5,8 +5,11 @@ import { basename, dirname, extname, isAbsolute, join, parse, resolve } from 'no
 import { homedir } from 'node:os';
 import { ordinaryPath, privateJson, readBounded, relativePath } from '../../scripts/runtime/paths.mjs';
 import { discoverEnvironment } from './environment.mjs';
+import { validateArtifactBytes } from '../../scripts/runtime/sources.mjs';
+import { readLocalZip } from './local-artifacts.mjs';
 
-export const pathPurposes = new Set(['module', 'module-group', 'source', 'executable', 'directory', 'file', 'save-directory', 'save-file']);
+const resourceKinds = new Set(['module', 'configuration', 'data']);
+export const pathPurposes = new Set([...resourceKinds, 'source', 'executable', 'directory', 'file', 'save-directory', 'save-file']);
 export const discoveryLimits = Object.freeze({ depth: 4, entries: 2000, directories: 256, objects: 128, milliseconds: 2000, declarationBytes: 65536 });
 export const knownLimits = Object.freeze({ entries: 512, directories: 128, objects: 128, milliseconds: 2000 });
 export const nativePickerEncoding = '[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)';
@@ -33,26 +36,32 @@ function validateSavePath(path) {
 const short = value => typeof value === 'string' ? value.slice(0, 256) : undefined;
 const shellFile = (path, info) => process.platform === 'win32' ? ['.exe', '.cmd', '.bat', '.com'].includes(extname(path).toLowerCase()) : Boolean(info.mode & 0o111);
 const selectable = (kind, purpose, path, info) => kind === 'directory' ? !filePurposes.has(purpose)
-  : kind === 'file' && filePurposes.has(purpose) && (purpose !== 'executable' || shellFile(path, info));
+  : kind === 'file' && (filePurposes.has(purpose) && (purpose !== 'executable' || shellFile(path, info))
+    || resourceKinds.has(purpose) && ['.json','.zip'].includes(extname(path).toLowerCase()));
 
-async function declaration(directory, name) {
+function resourceDescription(kind, value, path, extra = {}) {
+  return {kind,path,...Object.fromEntries(['id','version','title'].map(key=>[key,short(value?.[key])]).filter(([,item])=>item!==undefined)),
+    description:short(value?.description),...(kind==='module'?{runtime:value?.runtime}:{memberCount:Array.isArray(value?.[kind==='configuration'?'modules':'instances'])?value[kind==='configuration'?'modules':'instances'].length:undefined,scope:value?.scope}),
+    ...(kind==='data'?{purpose:value?.purpose}:{}),provides:Array.isArray(value?.provides)?value.provides:[],requires:Array.isArray(value?.requires)?value.requires:[],
+    warnings:[],checked:false,requiresReview:true,startsModules:false,...extra};
+}
+
+async function declaration(directory, name, maximum = discoveryLimits.declarationBytes) {
   const file = join(directory, name);
   try {
     const info = await lstat(file); if (info.isSymbolicLink() || !info.isFile()) return { warning: 'DECLARATION_NOT_ORDINARY' };
-    if (info.size > discoveryLimits.declarationBytes) return { warning: 'DECLARATION_TOO_LARGE' };
-    const value = JSON.parse((await readBounded(file, discoveryLimits.declarationBytes)).toString('utf8'));
+    if (info.size > maximum) return { warning: 'DECLARATION_TOO_LARGE' };
+    const value = JSON.parse((await readBounded(file, maximum)).toString('utf8'));
     if (!value || typeof value !== 'object' || Array.isArray(value)) return { warning: 'DECLARATION_INVALID' };
     return { value };
   } catch (error) { if (error.code === 'ENOENT') return null; return { warning: 'DECLARATION_UNREADABLE' }; }
 }
 export async function identifyDirectory(directory) {
-  for(const [kind,name,format] of [['module-group','module-group.json','world-hub.module-group/v1'],['module','module.json','world-hub.module/v1']]) {
-    const found=await declaration(directory,name); if(!found)continue;
+  for(const [kind,name,format] of [['module','module.json','world-hub.module/v1'],['configuration','configuration.json','world-hub.configuration/v1'],['data','data.json','world-hub.module-data/v1']]) {
+    const found=await declaration(directory,name,kind==='module'?discoveryLimits.declarationBytes:1024*1024); if(!found)continue;
     const warnings=found.warning?[found.warning]:[];
     if(found.value&&found.value.format!==format)warnings.push('DECLARATION_FORMAT_UNRECOGNIZED');
-    return {kind,path:directory,declaration:name,...Object.fromEntries(['id','version','title'].map(key=>[key,short(found.value?.[key])]).filter(([,value])=>value!==undefined)),
-      description:short(found.value?.description),...(kind==='module'?{runtime:found.value?.runtime}:{memberCount:Array.isArray(found.value?.modules)?found.value.modules.length:undefined}),provides:Array.isArray(found.value?.provides)?found.value.provides:[],requires:Array.isArray(found.value?.requires)?found.value.requires:[],
-      warnings,checked:false,requiresReview:true,startsModules:false};
+    return resourceDescription(kind,found.value,directory,{declaration:name,warnings});
   }
   return null;
 }
@@ -64,6 +73,24 @@ async function identifyFile(path, purpose, info) {
       const found = { 'world-hub.source-index/v1': 'source' }[value?.format];
       if (found) return { kind: found, path, ...Object.fromEntries(['id', 'version', 'title'].map(key => [key, short(value?.[key])]).filter(([, value]) => value !== undefined)), warnings: [], checked: false, requiresReview: true, startsModules: false };
     } catch { /* File selection does not validate business or archive contents. */ }
+  }
+  // Archive inspection is bounded and never extracts or executes a member.
+  // Resource acquisition still performs the authoritative full validation.
+  if ((resourceKinds.has(purpose) || purpose==='file') && extname(path).toLowerCase()==='.json' && info.size<=96*1024*1024) {
+    try {
+      const checked=validateArtifactBytes(await readBounded(path,96*1024*1024));
+      if(resourceKinds.has(checked.artifact.kind))return resourceDescription(checked.artifact.kind,checked.manifest,path,{container:'artifact-json'});
+    } catch {}
+  } else if ((resourceKinds.has(purpose) || purpose==='file') && extname(path).toLowerCase()==='.zip' && info.size<=64*1024*1024) {
+    try {
+      const files=readLocalZip(await readBounded(path,64*1024*1024));
+      const markers=files.filter(file=>['module.json','configuration.json','data.json'].includes(file.path.split('/').at(-1)));
+      const depth=Math.min(...markers.map(file=>file.path.split('/').length)),candidates=markers.filter(file=>file.path.split('/').length===depth);
+      if(candidates.length===1) {
+        const marker=candidates[0],name=marker.path.split('/').at(-1),prefix=marker.path.slice(0,-name.length),value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(marker.content)),kind=name.slice(0,-5);
+        if(!files.some(file=>prefix&&!file.path.startsWith(prefix))&&value?.format===`world-hub.${kind==='data'?'module-data':kind}/v1`)return resourceDescription(kind,value,path,{container:'zip'});
+      }
+    } catch {}
   }
   return kind ? { kind, path, warnings: ['CONTENTS_NOT_CHECKED'], checked: false, requiresReview: true, startsModules: false } : null;
 }
@@ -277,7 +304,7 @@ export class PathsService {
       if (value.format !== 'world-hub.launcher-paths/v1' || !Array.isArray(value.recents) || value.recents.length > 32) throw fault('PATH_RECENTS_INVALID', 'Inspect the private recent-path registry.');
       this.recents = value.recents.filter(row=>pathPurposes.has(row.purpose)).map(row => ({ path: absolute(row.path), purpose: purposeOf(row.purpose), usedAt: short(row.usedAt) ?? '' }));
       if (value.library !== undefined && (!Array.isArray(value.library) || value.library.length > knownLimits.objects)) throw fault('PATH_LIBRARY_INVALID', 'Inspect the private downloaded-resource library.');
-      this.library = (value.library ?? []).filter(row=>['module','module-group'].includes(row.purpose)).map(row => {
+      this.library = (value.library ?? []).filter(row=>resourceKinds.has(row.purpose)).map(row => {
         return { path: absolute(row.path), purpose: row.purpose, usedAt: short(row.usedAt) ?? '' };
       });
       if(value.hidden!==undefined&&(!Array.isArray(value.hidden)||value.hidden.length>knownLimits.objects))throw fault('PATH_LIBRARY_INVALID','Invalid hidden module references.');
@@ -324,7 +351,7 @@ export class PathsService {
   async remember(input) {
     const purpose = purposeOf(input.purpose), checked = await this.check({ path: input.path, purpose });
     if ((!purpose.startsWith('save-') && !checked.exists) || checked.kind === 'blocked') throw fault('PATH_UNAVAILABLE', 'This path is unavailable.');
-    if (input.library === true && (!['module','module-group'].includes(purpose) || checked.object?.kind !== purpose)) throw fault('PATH_LIBRARY_INVALID', 'Choose a complete downloaded module or module-group directory for its library kind.');
+    if (input.library === true && (!resourceKinds.has(purpose) || checked.object?.kind !== purpose)) throw fault('PATH_LIBRARY_INVALID', 'Choose a module, configuration or data resource matching its library kind.');
     const action = this.queue.then(async () => {
       const row = { path: checked.path, purpose, usedAt: new Date().toISOString() };
       const recents = [row, ...this.recents.filter(row => !same(row.path, checked.path) || row.purpose !== purpose)].slice(0, 32);
@@ -341,12 +368,12 @@ export class PathsService {
   }
   forget(input) {
     const path=absolute(input.path),purpose=purposeOf(input.purpose);
-    if(!['module','module-group'].includes(purpose))throw fault('PATH_LIBRARY_INVALID','Only module or module-group library references can be removed.');
+    if(!resourceKinds.has(purpose))throw fault('PATH_LIBRARY_INVALID','Only module, configuration or data library references can be removed.');
     const action=this.queue.then(async()=>{
       const recents=this.recents.filter(row=>!same(row.path,path)||row.purpose!==purpose);
       const library=this.library.filter(row=>!same(row.path,path)||row.purpose!==purpose);
       const hidden=[path,...(this.hidden??[]).filter(row=>!same(row,path))];
-      if(hidden.length>knownLimits.objects)throw fault('PATH_LIBRARY_LIMIT','At most 128 module library paths can be hidden.');
+      if(hidden.length>knownLimits.objects)throw fault('PATH_LIBRARY_LIMIT','At most 128 resource library paths can be hidden.');
       await privateJson(join(this.root,'launcher-paths.json'),{format:'world-hub.launcher-paths/v1',recents,library,hidden});
       this.recents=recents;this.library=library;
       this.hidden=hidden;
@@ -421,6 +448,7 @@ export class PathsService {
       const next = queue.shift(); directories++;
       try {
         await ordinaryPath(next.path); const object = await identifyDirectory(next.path); if (object) objects.push(object);
+        if(object&&['configuration','data'].includes(object.kind))continue;
         if (exhausted()) { partial = true; break; }
         for await (const entry of await opendir(next.path)) {
           if (exhausted()) { partial = true; break; } entries++;

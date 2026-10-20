@@ -17,6 +17,16 @@ async function setup(t) {
 
 test('single-Hub HTTP contract removes retired products and protects all operations',async t=>{
   const {call,server}=await setup(t);
+  const description = await fetch(server.url);
+  assert.equal(description.status, 200);
+  assert.match(description.headers.get('content-type'), /^application\/json/);
+  assert.deepEqual((await description.json()).ui, { project: 'world-hub-ui', bundled: false });
+  for (const route of ['/index.html', '/app.mjs', '/style.css', '/module-workbench.mjs']) {
+    const response = await fetch(new URL(route, server.url));
+    assert.equal(response.status, 404);
+    assert.equal((await response.json()).error.code, 'UI_SEPARATE_PROJECT');
+  }
+  assert.equal((await fetch(server.url, { headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' } })).status, 403);
   assert.equal((await call('/api/hubs')).body.hubs.length,1);
   for(const route of ['/api/instances','/api/templates/builtin','/api/creator-drafts','/advanced.mjs','/deployment-ui.mjs'])assert.equal((await call(route)).status,404,route);
   for(const route of ['/api/compositions/preview','/api/templates/instantiate','/api/programs/assembly','/api/authoring/derive','/api/backups/restore'])assert.equal((await call(route,{})).status,404,route);

@@ -15,7 +15,7 @@ const now = () => new Date().toISOString();
 const shaPattern = /^[a-f0-9]{64}$/;
 const identifier = /^[a-z0-9][a-z0-9._-]{0,127}$/;
 const usernamePattern = /^[a-z0-9][a-z0-9._-]{2,39}$/;
-const distributedKinds = new Set(['module', 'module-group']);
+const distributedKinds = new Set(['module', 'configuration', 'data']);
 // Versions share one catalog identity; exact historical versions remain
 // addressable and pinned in the source index. Never infer an upgrade grant.
 function newestVersion(a, b) {
@@ -34,7 +34,7 @@ function newestVersion(a, b) {
   return 0;
 }
 const MAX_METADATA = 16 * 1024 * 1024;
-export const MAX_UPLOAD = 8 * 1024 * 1024;
+export const MAX_UPLOAD = 96 * 1024 * 1024;
 export const publicUser = user => ({ id: user.id, username: user.username, role: user.role, disabled: user.disabled });
 export const workshopError = (code, message, status = 400) => Object.assign(new Error(message), { code, status });
 function requireValue(condition, code, message, status = 400) { if (!condition) throw workshopError(code, message, status); }
@@ -86,7 +86,8 @@ function assertState(state) {
   for (const invitation of state.invitations) requireValue(shaPattern.test(invitation.hash) && users.has(invitation.creatorId) && Number.isFinite(Date.parse(invitation.expiresAt)), 'INVALID_STORE', 'Invalid Workshop invitation metadata.', 500);
   for (const p of state.publications) {
     const key = `${p.kind}:${p.id}`;
-    requireValue(identifier.test(p.entryId) && !publications.has(p.entryId) && users.has(p.ownerId) && ['module', 'module-group', 'pack', 'template'].includes(p.kind)
+    // Retired records remain on disk without being converted or distributed.
+    requireValue(identifier.test(p.entryId) && !publications.has(p.entryId) && users.has(p.ownerId) && ['module', 'configuration', 'data', 'module-group', 'pack', 'template'].includes(p.kind)
       && shaPattern.test(p.sha256) && typeof p.hidden === 'boolean' && Array.isArray(p.comments) && p.comments.length <= 100
       && Array.isArray(p.proposals) && p.proposals.length <= 32 && (!identities.has(key) || identities.get(key) === p.ownerId), 'INVALID_STORE', 'Invalid Workshop publication metadata.', 500);
     requireValue(!versions.has(`${key}@${p.version}`), 'INVALID_STORE', 'Duplicate immutable publication version.', 500);
@@ -101,7 +102,7 @@ function assertState(state) {
         && Object.keys(q.publisherEvidence.source).length === 1, 'INVALID_STORE', 'Invalid proposal evidence reference.', 500);
     }
   }
-  validateSourceIndex({ format: 'world-hub.source-index/v1', id: 'world-hub-workshop', title: 'World Hub Workshop', entries: state.publications.map(p => p.entry) });
+  validateSourceIndex({ format: 'world-hub.source-index/v1', id: 'world-hub-workshop', title: 'World Hub Workshop', entries: state.publications.filter(p => distributedKinds.has(p.kind)).map(p => p.entry) });
 }
 
 export class WorkshopStore {
@@ -268,12 +269,12 @@ export class WorkshopStore {
   summary(p) {
     const owner = this.state.users.find(v => v.id === p.ownerId);
     return { entryId: p.entryId, kind: p.kind, id: p.id, version: p.version, title: p.title, sha256: p.sha256, license: p.entry.license,
-      platforms: p.entry.platforms, provides: p.entry.provides, requires: p.entry.requires, owner: { id: owner.id, username: owner.username },
+      platforms: p.entry.platforms, provides: p.entry.provides, requires: p.entry.requires, ...(p.scope ? { scope:p.scope } : {}), ...(p.purpose ? { purpose:p.purpose } : {}), owner: { id: owner.id, username: owner.username },
       createdAt: p.createdAt, hidden: p.hidden, commentsCount: p.comments.length, proposalsCount: p.proposals.length, presentation: publicPresentation(p.presentation),
       ...(p.entry.publisherEvidence ? { publisherEvidence: { sha256: p.entry.publisherEvidence.sha256, status: 'public-evidence-user-verification-required', publisherIdentityVerified: false, codeSafetyVerified: false, grantsExecution: false } } : {}) };
   }
   catalog({ search = '', kind = '', contract = '', offset = 0, limit = 40 } = {}, user = null) {
-    requireValue(typeof search === 'string' && search.length <= 128 && ['', 'module', 'module-group'].includes(kind) && typeof contract === 'string' && contract.length <= 128
+    requireValue(typeof search === 'string' && search.length <= 128 && ['', 'module', 'configuration', 'data'].includes(kind) && typeof contract === 'string' && contract.length <= 128
       && Number.isSafeInteger(offset) && offset >= 0 && Number.isSafeInteger(limit) && limit >= 1 && limit <= 100, 'INVALID_INPUT', 'Invalid catalog filter or pagination.');
     const needle = search.toLowerCase();
     const matches = this.state.publications.filter(p => distributedKinds.has(p.kind) && (!p.hidden || user?.role === 'admin') && (!kind || p.kind === kind)
@@ -300,10 +301,6 @@ export class WorkshopStore {
     const p = this.publication(entryId, user);
     const versions = this.state.publications.filter(v => v.kind === p.kind && v.id === p.id && (!v.hidden || user?.role === 'admin' || user?.id === v.ownerId)).sort(newestVersion).map(v => this.summary(v));
     return { publication: this.summary(p), entry: p.entry, versions, comments: p.comments.map(c => this.commentSummary(c)), proposals: p.proposals.map(q => this.proposalSummary(q)) };
-  }
-  async groupManifest(entryId, user = null) {
-    const p = this.publication(entryId, user); if (p.kind !== 'module-group') return null;
-    return validateArtifactBytes(await this.artifactBytes(p.sha256)).manifest;
   }
   async configuration(entryId, user = null) {
     const publication = this.publication(entryId, user);
@@ -399,10 +396,12 @@ export class WorkshopStore {
   validatedArtifact(artifact, acknowledged) {
     requireValue(acknowledged === true, 'REDISTRIBUTION_REQUIRED', 'Explicit redistribution acknowledgement is required.');
     requireValue(artifact && typeof artifact === 'object' && !Array.isArray(artifact), 'INVALID_ARTIFACT', 'An artifact object is required.');
-    const bytes = Buffer.from(JSON.stringify(artifact) + '\n'); requireValue(bytes.length <= MAX_UPLOAD, 'BODY_TOO_LARGE', 'Artifact exceeds 8 MiB.', 413);
+    requireValue(distributedKinds.has(artifact.kind), artifact.kind === 'module-group' ? 'ARTIFACT_KIND_RETIRED' : 'INVALID_ARTIFACT', 'Publish module, configuration or data artifacts. The module-group format is no longer accepted.');
+    const bytes = Buffer.from(JSON.stringify(artifact) + '\n'); requireValue(bytes.length <= MAX_UPLOAD, 'BODY_TOO_LARGE', 'Artifact JSON exceeds 96 MiB.', 413);
     let validated, configuration;
     try { validated = validateArtifactBytes(bytes); configuration = configurationFromValidatedArtifact(validated); }
     catch { throw workshopError('INVALID_ARTIFACT', 'Artifact manifest, file set, configuration, contract or digest validation failed.'); }
+    requireValue(artifact.kind !== 'data' || validated.manifest.purpose === 'dataset', 'PRIVATE_BACKUP', 'Private backups are for local import and export only. Only datasets may be published to the community.');
     return { bytes, validated, configuration, digest: hash(bytes) };
   }
   publish(user, { artifact, redistributionAcknowledged, title, publisherEvidence, presentation }) {
@@ -423,7 +422,8 @@ export class WorkshopStore {
       await this.storeArtifact(bytes); const entryId = `pub.${digest.slice(0, 40)}`; const entry = { ...validated.entry, entryId, title: displayTitle, sha256: digest, source: { path: `artifacts/${digest}.json` } };
       if (publicEvidence) { await this.storePublisherEvidence(publicEvidence); entry.publisherEvidence = { source: { path: `publisher-evidence/${publicEvidence.sha256}.json` }, sha256: publicEvidence.sha256 }; }
       await this.storeMedia(images.assets);
-      const p = { entryId, kind: artifact.kind, id: artifact.id, version: artifact.version, title: displayTitle, sha256: digest, ownerId: user.id, createdAt: now(), hidden: false, entry, comments: [], proposals: [], presentation: images.presentation }; state.publications.push(p);
+      const p = { entryId, kind: artifact.kind, id: artifact.id, version: artifact.version, title: displayTitle, sha256: digest, ownerId: user.id, createdAt: now(), hidden: false, entry, comments: [], proposals: [], presentation: images.presentation,
+        ...(validated.manifest.scope ? { scope:validated.manifest.scope } : {}), ...(validated.manifest.purpose ? { purpose:validated.manifest.purpose } : {}) }; state.publications.push(p);
       return { publication: this.summary(p), entry, duplicate: false };
     });
   }

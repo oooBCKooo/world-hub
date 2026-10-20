@@ -5,7 +5,6 @@ import { constants, closeSync, mkdirSync, openSync, readFileSync, realpathSync, 
 import { createServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 
 export const REQUIRED_FILES = [
@@ -14,19 +13,18 @@ export const REQUIRED_FILES = [
   'src/hub/ws-server.mjs',
   ...['acl', 'address', 'blob-protocol', 'blob-store', 'hub', 'identity', 'router', 'store', 'topic', 'wire-json']
     .map(name => `src/hub/lib/${name}.mjs`),
-  'src/debug/page.mjs',
-  'src/ui/language.mjs',
-  ...['management-http.mjs', 'management-state.mjs', 'console.html', 'canvas-i18n.mjs', 'manual-bridge.mjs', 'manual-console.mjs', 'manual-i18n.mjs', 'manual-experience-state.mjs', 'manual-console.css']
+  ...['management-http.mjs', 'management-state.mjs', 'management-modules.mjs', 'management-community.mjs']
     .map(name => `src/management/${name}`),
 ];
 
 export function parseArgs(argv) {
-  const args = { config: 'config/hub.json', port: null, check: false, open: false, help: false };
+  const args = { config: 'config/hub.json', port: null, check: false, help: false };
   const seen = new Set();
   for (let i = 0; i < argv.length; i++) {
     const option = argv[i];
     const canonical = option === '-c' ? '--config' : option === '-p' ? '--port' : option === '-h' ? '--help' : option;
-    if (!['--config', '--port', '--check', '--open', '--help'].includes(canonical)) {
+    if (canonical === '--open') throw new Error('world-hub 不附带界面；请使用独立 world-hub-ui 项目打开界面。');
+    if (!['--config', '--port', '--check', '--help'].includes(canonical)) {
       throw new Error(`未知参数：${option}。使用 --help 查看用法。`);
     }
     if (seen.has(canonical)) throw new Error(`参数重复：${canonical}`);
@@ -43,7 +41,6 @@ export function parseArgs(argv) {
       }
     } else args[canonical.slice(2)] = true;
   }
-  if (args.check && args.open) throw new Error('--check 与 --open 不能一起使用；环境检查不会启动枢纽。');
   return args;
 }
 
@@ -191,29 +188,7 @@ export function readyUrls(ready, bridgePath) {
   const localHost = host === '0.0.0.0' ? '127.0.0.1' : host === '::' ? '::1' : host;
   const loopback = ['127.0.0.1', 'localhost', '::1'].includes(localHost);
   const base = loopback ? `http://${wrap(localHost)}:${ready.port}` : null;
-  return { bridgeUrl, managementUrl: base ? `${base}/manage` : null, statusUrl: base ? `${base}/status` : null };
-}
-
-export async function openManagementPage(url) {
-  const target = new URL(url);
-  if (target.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(target.hostname)
-      || target.username || target.password || target.pathname !== '/manage' || target.search || target.hash) {
-    throw new Error('自动打开仅支持当前枢纽的本机管理地址');
-  }
-  const response = await fetch(target, { signal: AbortSignal.timeout(5000), redirect: 'error' });
-  if (!response.ok || !String(response.headers.get('content-type')).includes('text/html')) {
-    await response.body?.cancel();
-    throw new Error(`管理入口尚不可用：HTTP ${response.status}`);
-  }
-  await response.body?.cancel();
-  const [command, argv] = process.platform === 'win32'
-    ? [join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'rundll32.exe'), ['url.dll,FileProtocolHandler', target.href]]
-    : process.platform === 'darwin' ? ['open', [target.href]] : ['xdg-open', [target.href]];
-  await new Promise((resolveOpen, reject) => {
-    const child = spawn(command, argv, { shell: false, windowsHide: true, detached: true, stdio: 'ignore' });
-    child.once('error', reject);
-    child.once('spawn', () => { child.unref(); resolveOpen(); });
-  });
+  return { bridgeUrl, managementApiUrl: base ? `${base}/manage/api` : null, statusUrl: base ? `${base}/status` : null };
 }
 
 // Observe the original machine-readable ready line without rewriting it. Restore

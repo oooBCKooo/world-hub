@@ -44,7 +44,7 @@ export class ModuleUninstall {
       source.push([id, files]);
     }
     return hash(JSON.stringify({ records, source, identities: [...local.identities], groups: [...local.groups],
-      plan: local.startupPlanData, handles: [...local.handles].map(([id, handle]) => [id, { pid: handle.pid ?? null,
+      plan: local.startupPlanData, resources: local.resourceState ?? null, handles: [...local.handles].map(([id, handle]) => [id, { pid: handle.pid ?? null,
         ...(masked && selected.has(id) ? {} : { exit: handle.exit ?? null, cleanupIncomplete: Boolean(handle.cleanupIncomplete), stopping: Boolean(handle.stopping) }) }]) }));
   }
   async build(kind, id, input = {}) {
@@ -76,6 +76,8 @@ export class ModuleUninstall {
       const consumers = consumersFor(programId).map(consumer => ({ programId: consumer.programId, module: clone(consumer.module), state: consumer.state,
         selected: selected.has(consumer.programId), contracts: clone(consumer.bindings.filter(binding => binding.providerId === programId).map(binding => binding.contract)) }));
       const issues = [];
+      const configurations = local.resourceProfilesFor(programId);
+      if (configurations.length) issues.push(add('RESOURCE_CONFIGURATION_IN_USE', 'Deactivate and release configurations retaining this instance before uninstalling it.', { programId, profileIds: configurations.map(profile => profile.profileId) }));
       if (kind === 'module-group' && groups.some(group => group.id !== id)) issues.push(add('UNINSTALL_SHARED_MEMBER', 'This instance belongs to another module group.', { programId }));
       if (consumers.some(consumer => !consumer.selected)) issues.push(add('UNINSTALL_PROVIDER_IN_USE', 'A retained module still binds this capability provider.', { programId, consumerIds: consumers.filter(consumer => !consumer.selected).map(consumer => consumer.programId) }));
       if (row.state === 'unknown' && !handle || liveStates.has(row.state) && !handle)
@@ -172,7 +174,7 @@ export class ModuleUninstall {
     const previous = { records: new Map(local.records), identities: new Map(local.identities), handles: new Map(local.handles),
       groups: new Map(local.groups), startupPlanData: local.startupPlanData };
     try {
-      for (const programId of fresh.review.programIds) { local.records.delete(programId); local.identities.delete(programId); local.handles.delete(programId); }
+      for (const programId of fresh.review.programIds) { await local.markResourceRetired(programId); local.records.delete(programId); local.identities.delete(programId); local.handles.delete(programId); }
       for (const changed of fresh.review.groupsChanged) {
         if (changed.removed) local.groups.delete(changed.id);
         else local.groups.set(changed.id, normalizeModuleGroup({ ...previous.groups.get(changed.id), memberProgramIds: changed.memberProgramIds,

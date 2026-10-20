@@ -6,6 +6,7 @@ import { LocalPrograms } from '../../tools/launcher/local-programs.mjs';
 import { ModuleGroups, normalizeModuleGroup } from '../../tools/launcher/module-groups.mjs';
 import { ModuleVersions } from '../../tools/launcher/module-versions.mjs';
 import { ModuleUninstall } from '../../tools/launcher/module-uninstall.mjs';
+import { ModuleResources } from '../../tools/launcher/resources.mjs';
 import { WiringDefaults } from '../../tools/launcher/wiring-defaults.mjs';
 import { DemandLifecycle } from '../../tools/launcher/demand-lifecycle.mjs';
 import { PathsService } from '../../tools/launcher/paths-service.mjs';
@@ -45,6 +46,7 @@ export class ManagementModules {
     this.uninstall = null;
     this.wiringDefaults = null;
     this.demandLifecycle = null;
+    this.resources = null;
   }
 
   async updateCredentials(change) {
@@ -93,6 +95,8 @@ export class ManagementModules {
     await this.pathsService.initialize();
     this.sourceRegistry = new SourceRegistry(this.root);
     await this.sourceRegistry.initialize();
+    this.resources = new ModuleResources(this);
+    await this.resources.initialize(); this.resourcesInitialized = true;
 
     this.hubHandle = {
       url: `http://${host}:${port}/`,
@@ -344,6 +348,12 @@ export class ManagementModules {
       res.end(JSON.stringify(data));
       return true;
     };
+
+    if (pathname === '/manage/api/resources' || pathname.startsWith('/manage/api/resources/')) {
+      this.resources ??= new ModuleResources(this);
+      if (!this.resourcesInitialized) { await this.resources.initialize(); this.resourcesInitialized = true; }
+      return json(200, await this.resources.dispatch(method, pathname.slice('/manage/api/resources'.length).replace(/^\//, ''), body ?? {}));
+    }
 
     // 1. Programs Overview
     if (method === 'GET' && pathname === '/manage/api/programs') {
@@ -1024,10 +1034,10 @@ process.on('message', (msg) => {
     if (method === 'POST' && pathname === '/manage/api/workshop/inspect') {
       try {
         const source = body?.source?.trim() || 'https://peros.cn/workshop/index.json';
-        const result = await readSourceIndex(source, {
-          allowPrivateNetwork: body?.allowPrivateNetwork === true
-        });
-        const entries = result.index.entries.filter(entry => ['module', 'module-group'].includes(entry.kind));
+        const chosen = await this.sourceRegistry.resolve({ source, ...(body?.allowPrivateNetwork !== undefined ? { allowPrivateNetwork: body.allowPrivateNetwork === true } : {}) });
+        const result = await readSourceIndex(chosen.source, chosen);
+        await this.sourceRegistry.assertCurrent(chosen);
+        const entries = result.index.entries.filter(entry => ['module', 'configuration', 'data'].includes(entry.kind));
         let catalog = null;
         try {
           if (/^https?:\/\//i.test(source)) {
@@ -1140,13 +1150,13 @@ process.on('message', (msg) => {
               } catch {}
 
               const kind = parsed.kind || parsed.artifact?.kind || 'module';
+              if (!['module', 'configuration', 'data'].includes(kind)) continue;
               const id = parsed.id || parsed.artifact?.id || '';
               const version = parsed.version || parsed.artifact?.version || '';
               const title = parsed.title || parsed.artifact?.title || id;
 
-              const isInstalled = kind === 'module-group'
-                ? Boolean(installedGroups.get(id)?.has(version) || installedGroups.has(id))
-                : Boolean(installedModules.get(id)?.has(version) || installedModules.has(id));
+              const isInstalled = kind === 'module' ? Boolean(installedModules.get(id)?.has(version))
+                : (kind === 'configuration' ? this.resources.state.profiles : this.resources.state.data).some(row => row.manifest.id === id && row.manifest.version === version);
 
               artifacts.push({
                 sha256,
@@ -1194,12 +1204,13 @@ process.on('message', (msg) => {
       try {
         const cache = join(this.root, 'source-cache');
         await mkdir(cache, { recursive: true, mode: 0o700 });
-        const result = await fetchSourceArtifact(body.source, body.digest, body.entryId, {
-          cacheRoot: cache,
-          allowPrivateNetwork: body.allowPrivateNetwork === true
-        });
+        const chosen = await this.sourceRegistry.resolve({ source: body.source, ...(body.allowPrivateNetwork !== undefined ? { allowPrivateNetwork: body.allowPrivateNetwork === true } : {}) });
+        const result = await fetchSourceArtifact(chosen.source, body.digest, body.entryId, { ...chosen, cacheRoot: cache });
+        await this.sourceRegistry.assertCurrent(chosen);
         await this.pathsService.remember({ path: result.directory, purpose: result.kind, library: true });
-        return json(200, { ok: true, ...result });
+        if (!['module', 'configuration', 'data'].includes(result.kind)) throw fail(400, 'RESOURCE_KIND_INVALID', 'Choose a module, configuration or data artifact.');
+        const resource = await this.resources.import({ path: result.directory }, result.kind);
+        return json(200, { ok: true, ...result, resource });
       } catch (err) {
         return json(err.status ?? 500, { error: err.code || 'FETCH_FAILED', message: err.message });
       }

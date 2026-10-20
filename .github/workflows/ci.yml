@@ -9,6 +9,21 @@ permissions:
   contents: read
 
 jobs:
+  agents:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.2'
+      - name: Prepare independently locked MCP dependencies without lifecycle scripts
+        run: npm ci --prefix tools/mcp --ignore-scripts --no-audit --no-fund
+      - name: Skill installation and real independent MCP stdio acceptance
+        run: npm run test:agents
   ownership-linux:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -24,7 +39,7 @@ jobs:
         run: python -m pip install -r sdk/python/requirements.txt
       - name: Select the installed Python executable for runtime acceptance
         run: python -c 'import os,sys; print("WORLD_HUB_RUNTIME_TEST_PYTHON=" + os.path.realpath(sys.executable))' >> "$GITHUB_ENV"
-      - name: Linux Launcher ownership recovery and linked CLI entry paths
+      - name: Linux ownership recovery and linked headless CLI entry paths
         run: node --test --test-timeout=120000 --test-concurrency=1 tests/integration/launcher/owner-lock.test.mjs tests/integration/npm/entry-paths.test.mjs
       - name: Linux owned program process-group retirement and local deployment lifecycle
         run: node --test --test-timeout=120000 --test-concurrency=1 tests/integration/runtime/host-process.test.mjs tests/integration/launcher-single-hub/*.test.mjs
@@ -40,7 +55,7 @@ jobs:
         run: npm run check:repository
       - name: Node-only conformance and independent-program scenarios
         run: npm test
-      - name: Purpose demos and demo distribution
+      - name: Headless independent-program scenarios
         run: npm run test:demos
       - name: Optional hosted Workshop closure
         run: npm run test:workshop
@@ -84,7 +99,9 @@ jobs:
         run: python -m pip install cryptography==50.0.0
       - name: Shared module validation, source and owned-process acceptance
         run: npm run test:ecosystem
-      - name: Single-Hub Launcher, direct configuration and module-group acceptance
+      - name: Headless module configuration, groups and lifecycle acceptance
         run: npm run test:launcher
+      - name: Independent module bodies, configuration switching, retained references and data recovery
+        run: npm run test:resources
       - name: Native module version changes across Node and Python runtimes
         run: node --test --test-timeout=120000 tests/integration/module-versions/*.test.mjs

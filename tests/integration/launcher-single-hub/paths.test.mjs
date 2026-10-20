@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
 import {join,parse} from 'node:path';
 import {PathsService,identifyDirectory} from '../../../tools/launcher/paths-service.mjs';
-import {pathPurpose} from '../../../tools/launcher/public/path-ui.mjs';
 import {workspace,ROOT} from '../launcher/helpers.mjs';
 
 test('module path browsing, known candidates and native picker share exact reviewed path selection without execution',async t=>{
@@ -27,8 +26,6 @@ test('directory and ZIP chooser modes, Unicode paths and discovery expose module
   const retired=join(root,'retired');await mkdir(retired);await writeFile(join(retired,'template.json'),'{}');
   const zip=join(root,'模块.zip');await writeFile(zip,'selection does not claim archive integrity');
   assert.equal((await paths.check({path:zip,purpose:'source'})).selectable,true);
-  assert.equal((await paths.check({path:zip,purpose:'module'})).selectable,false);
+  assert.equal((await paths.check({path:zip,purpose:'module'})).selectable,true);
   const found=await paths.discover({directory:root});assert.equal(found.objects.filter(row=>row.kind==='module').length,1);assert.ok(found.objects.every(row=>row.kind==='module'));assert.equal(found.startsModules,false);
-  const input=(name,dataset={})=>({name,dataset,closest:()=>({textContent:'Module source directory'})});
-  assert.equal(pathPurpose(input('directory')),'module');assert.equal(pathPurpose(input('moduleDirectory')),'module');assert.equal(pathPurpose(input('artifactPath',{pathPurpose:'source'})),'source');
 });

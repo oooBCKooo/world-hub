@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startPurposeDemo } from '../../../examples/purpose-demos/run-demo.mjs';
+import { startPurposeDemo } from '../../../examples/purpose-demos/run-session.mjs';
 import { principalFor } from '../../../examples/purpose-demos/profiles.mjs';
 
 const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));

@@ -149,6 +149,26 @@ test('a reserved pending acquisition prevents queued idle-stop races', async t =
   const ticking = s.broker.tick(), acquiring = s.command({ action: 'acquire', programId: 'target' });
   await Promise.all([ticking, acquiring]); assert.equal(s.stops, 0); assert.equal(s.starts, 1);
 });
+
+test('an acquisition reserved during automatic idle-stop cleanup survives for a new owned run', async t => {
+  const s = scene(t), first = await s.command({ action: 'acquire', programId: 'target' });
+  await s.command({ action: 'release', leaseId: first.leaseId, completed: true }); s.advance(1000);
+  const previous = s.local.handles.get('target'), notifyStopped = s.local.lifecycleStopped;
+  let stopping, finishStop;
+  const entered = new Promise(resolve => { stopping = resolve; }), cleanup = new Promise(resolve => { finishStop = resolve; });
+  s.local.lifecycleStopped = async (id, info) => { stopping(); await cleanup; return notifyStopped(id, info); };
+  const ticking = s.broker.tick();
+  try {
+    await entered;
+    const acquiring = s.command({ action: 'acquire', programId: 'target' });
+    assert.equal([...s.broker.leases.values()].filter(lease => lease.pending).length, 1);
+    finishStop();
+    const [, second] = await Promise.all([ticking, acquiring]);
+    assert.equal(s.stops, 1); assert.equal(s.starts, 2);
+    assert.notEqual(s.local.handles.get('target'), previous);
+    assert.equal(s.broker.leases.get(second.leaseId).handle, s.local.handles.get('target'));
+  } finally { finishStop(); }
+});
 test('an explicit stop may cancel a queued activation, which must not return a nonexistent lease', async t => {
   const s = scene(t); const stopping = s.local.enqueue(() => s.local.stopNow('target'));
   const acquiring = s.command({ action: 'acquire', programId: 'target' });

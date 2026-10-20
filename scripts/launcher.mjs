@@ -4,22 +4,22 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isDirectExecution } from './cli-entry.mjs';
-import { acquireDataLocks, checkEnvironment, checkPortAvailable, observeReady, openManagementPage, parseArgs, readyUrls } from './launcher-support.mjs';
+import { acquireDataLocks, checkEnvironment, checkPortAvailable, observeReady, parseArgs, readyUrls } from './launcher-support.mjs';
 
 export const BUNDLE_ROOT = fileURLToPath(new URL('../', import.meta.url));
-export const HELP = `世界枢纽整合包（前台运行）
+export const HELP = `世界枢纽（无界面，前台运行）
 
-  node scripts/launcher.mjs [--config <path>] [--port <n>] [--open]
+  node scripts/launcher.mjs [--config <path>] [--port <n>]
   node scripts/launcher.mjs --check [--config <path>]
 
   --config, -c <path>  默认 config/hub.json；相对路径以整合包根目录为基准
   --port, -p <n>       仅本次启动覆盖监听端口；0 至 65535，0 为系统分配
   --check             只读检查 Node、配置、必需资源与数据路径，不启动、不落盘
-  --open              就绪后校验本机管理入口，再打开默认浏览器
   --help, -h          显示帮助
 
 启动后使用 Ctrl+C，等待 stopped 行后关闭终端。请不要直接关闭窗口或强杀进程。
-本入口仅运行枢纽和内置管理界面；其他程序通过自己的 枢纽桥接入。
+本入口运行无界面枢纽和管理 JSON API；其他程序通过自己的枢纽桥接入。
+可选界面由独立 world-hub-ui 项目提供。
 源码仓库和整合包均使用 config/hub.json；可明确传入自己的配置路径。
 `;
 
@@ -58,15 +58,12 @@ export async function runLauncher(argv = process.argv.slice(2), { bundleRoot = B
     readySeen = true;
     const urls = readyUrls(ready, checked.transport.path);
     process.stderr.write(`已就绪（PID ${ready.pid}）\nmod 通讯：${urls.bridgeUrl}\n`);
-    if (urls.managementUrl) process.stderr.write(`管理界面：${urls.managementUrl}\n只读状态：${urls.statusUrl}\n`);
-    else process.stderr.write('当前监听地址不提供本机回环管理入口；管理界面需要监听回环或通配地址。\n');
-    const httpUrl = urls.managementUrl ? new URL(urls.managementUrl).origin : null;
+    if (urls.managementApiUrl) process.stderr.write(`管理 API：${urls.managementApiUrl}\n只读状态：${urls.statusUrl}\n`);
+    else process.stderr.write('当前监听地址不提供本机回环管理 API；管理 API 需要监听回环或通配地址。\n');
+    const httpUrl = urls.managementApiUrl ? new URL(urls.managementApiUrl).origin : null;
     send({ type: 'ready', pid: ready.pid, port: ready.port, httpUrl, httpBase: httpUrl, wsUrl: urls.bridgeUrl,
-      managementUrl: urls.managementUrl, statusUrl: urls.statusUrl, configPath: checked.configPath,
+      managementApiUrl: urls.managementApiUrl, statusUrl: urls.statusUrl, configPath: checked.configPath,
       dataRoot: dirname(checked.storage.management.path), storage: checked.storage, locks: locks.paths });
-    if (args.open && urls.managementUrl) {
-      openManagementPage(urls.managementUrl).catch(error => process.stderr.write(`浏览器未打开：${error.message}；枢纽仍在运行。\n`));
-    } else if (args.open) process.stderr.write('未自动打开浏览器：该配置没有本机回环管理地址。\n');
     if (requestedStop) stop();
   });
   const entry = resolve(bundleRoot, 'src/hub/hub-server.mjs');

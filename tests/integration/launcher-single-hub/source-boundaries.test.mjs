@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import { createLauncherServer } from '../../../tools/launcher/server.mjs';
 import { publishArtifact, readSourceIndex, fetchSourceArtifact, validateSourceIndex } from '../../../scripts/runtime/sources.mjs';
 import { collectFiles } from '../../../scripts/runtime/paths.mjs';
-import { sameSourceArtifact } from '../../../tools/launcher/public/app.mjs';
 import { workspace, ROOT } from '../launcher/helpers.mjs';
 
 async function publication(t) {
@@ -138,7 +137,6 @@ test('mixed catalogs are readable but retired entries cannot be acquired, and pr
     const result = await finish(await call('/api/sources/fetch', { sourceId, receiptId: inspected.body.receiptId, entryId }));
     assert.equal(result.state, 'failed'); assert.equal(result.error.code, 'MODULE_REQUIRED');
   }
-  assert.equal(sameSourceArtifact(module, { ...module, kind: 'pack' }), false);
   for (const url of ['http://example.test/index.json', 'https://localhost/artifact', 'https://127.0.0.1/artifact', 'https://169.254.169.254/artifact', 'https://example.test:444/artifact']) {
     assert.throws(() => validateSourceIndex({ ...index, entries: [{ ...module, source: { url } }] }, { allowPrivateNetwork: true }), /HTTPS|local|private|ports/i, url);
   }

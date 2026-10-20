@@ -26,18 +26,15 @@ function moduleArtifact({ id = 'configuration.widget', version = '1.0.0', execut
   return { format: 'world-hub.source-artifact/v1', kind: 'module', id, version, files,
     provenance: { redistributionAcknowledged: true, allowedCallers: ['not-a-grant'], secret: 'not-projected' } };
 }
-function groupArtifact() {
-  const source = moduleArtifact({ id: 'configuration.source', executionDefaults: { mode: 'on-demand', idleTimeoutMs: 15000 } });
-  const inherited = moduleArtifact({ id: 'configuration.inherited', executionDefaults: { mode: 'on-demand', idleTimeoutMs: 17000 } });
-  const system = moduleArtifact({ id: 'configuration.system', deployment: false });
-  const members = [source, inherited, system].map((item, index) => ({ id: ['source', 'inherited', 'system'][index], path: 'modules/' + ['source', 'inherited', 'system'][index], moduleId: item.id, version: item.version,
-    configuration: { topics: { events: 'configuration/group/' + index }, bridges: { main: { publish: ['events'], subscribe: [] } }, settings: index === 2 ? {} : { label: 'group value' }, bindings: [],
-      ...(index === 0 ? { executionDefaults: { mode: 'resident', idleTimeoutMs: 24000 } } : {}) } }));
-  const manifest = { format: 'world-hub.module-group/v1', id: 'configuration.group', version: '1.0.0', title: 'Configuration group', license: 'MIT', platforms: ['win32-x64', 'linux-x64'], provides: [], requires: [], modules: members,
-    startupPlan: { members: members.map(member => ({ programId: member.id, enabled: member.id !== 'system', after: [] })), onFailure: 'continue-independent', startupOrder: members.map(member => member.id) } };
-  return { format: 'world-hub.source-artifact/v1', kind: 'module-group', id: manifest.id, version: manifest.version,
-    files: [file('module-group.json', manifest), ...[source, inherited, system].flatMap((item, index) => item.files.map(entry => ({ ...entry, path: members[index].path + '/' + entry.path })))], provenance: { redistributionAcknowledged: true } };
+function configurationArtifact() {
+  const members = ['source', 'inherited', 'system'].map((id,index) => ({ id, module:{id:'configuration.'+id,version:'1.0.0',digest:String(index+1).repeat(64)},
+    configuration:{topics:{events:'configuration/profile/'+index},bridges:{main:{publish:['events'],subscribe:[]}},settings:index === 2 ? {} : {label:'profile value'},bindings:[],
+      ...(index === 0 ? {executionDefaults:{mode:'resident',idleTimeoutMs:24000}} : {})} }));
+  const manifest = {format:'world-hub.configuration/v1',id:'configuration.profile',version:'1.0.0',title:'Configuration profile',license:'MIT',platforms:['win32-x64','linux-x64'],provides:[],requires:[],scope:'global',modules:members,
+    startupPlan:{members:members.map(member => ({programId:member.id,enabled:member.id !== 'system',after:[]})),onFailure:'continue-independent',startupOrder:members.map(member => member.id)}};
+  return {format:'world-hub.source-artifact/v1',kind:'configuration',id:manifest.id,version:manifest.version,files:[file('configuration.json',manifest)],provenance:{redistributionAcknowledged:true}};
 }
+
 async function fixture(t) {
   const parent = resolve('.artifacts/workshop-configuration-tests'); await mkdir(parent, { recursive: true }); const root = await mkdtemp(join(parent, 'case-'));
   const store = await WorkshopStore.open({ root }); await store.initializeAdmin('admin', password); await store.close();
@@ -65,16 +62,19 @@ test('exact bytes project author defaults, public configuration and declared dep
   assert.deepEqual(artifactConfiguration(moduleArtifact({ deployment: false })).executionDefaults, { declared: null, effective: { mode: 'resident', idleTimeoutMs: 60000, allowedCallers: [] }, source: 'system' });
 });
 
-test('module groups distinguish group overrides, inherited declarations and system defaults; retain actual member settings and startup selection', () => {
-  const configuration = artifactConfiguration(groupArtifact());
-  assert.equal(configuration.executionDefaults, null); assert.equal(configuration.modules.length, 3);
-  const [source, inherited, system] = configuration.modules;
-  assert.deepEqual(source.executionDefaults, { declared: { mode: 'resident', idleTimeoutMs: 24000 }, effective: { mode: 'resident', idleTimeoutMs: 24000, allowedCallers: [] }, source: 'module-group' });
-  assert.equal(source.deployment.executionDefaults.mode, 'on-demand', 'the module author baseline remains distinct from the group override');
-  assert.equal(source.effectiveConfiguration.settings.label, 'group value'); assert.equal(source.deployment.settings[0].default, 'module default');
-  assert.equal(source.configurationSources.settings, 'module-group'); assert.equal(inherited.executionDefaults.source, 'module'); assert.equal(inherited.executionDefaults.effective.idleTimeoutMs, 17000);
-  assert.equal(system.executionDefaults.source, 'system'); assert.equal(system.executionDefaults.effective.mode, 'resident'); assert.deepEqual(system.effectiveConfiguration.bindings, []);
-  assert.equal(configuration.startupPlan.members[2].enabled, false); assert.deepEqual(configuration.startupPlan.startupOrder, ['source', 'inherited', 'system']);
+test('configuration overrides remain separate from pinned module declarations and unresolved defaults', () => {
+  const configuration = artifactConfiguration(configurationArtifact());
+  assert.equal(configuration.modules.length,3); assert.equal(configuration.scope,'global');
+  const [source,inherited,system] = configuration.modules;
+  assert.deepEqual(source.executionDefaults,{declared:{mode:'resident',idleTimeoutMs:24000},effective:{mode:'resident',idleTimeoutMs:24000,allowedCallers:[]},source:'configuration'});
+  const baseline = artifactConfiguration(moduleArtifact({executionDefaults:{mode:'on-demand',idleTimeoutMs:17000}}));
+  assert.equal(baseline.executionDefaults.effective.mode,'on-demand');
+  assert.equal(source.effectiveConfiguration.settings.label,'profile value'); assert.equal(source.configurationSources.settings,'configuration');
+  assert.equal(source.module.id,'configuration.source'); assert.equal(source.manifest,undefined);
+  assert.deepEqual(inherited.executionDefaults,{declared:null,effective:null,source:'module'});
+  assert.deepEqual(system.executionDefaults,{declared:null,effective:null,source:'module'});
+  assert.deepEqual(system.effectiveConfiguration.bindings,[]);
+  assert.equal(configuration.startupPlan.members[2].enabled,false); assert.deepEqual(configuration.startupPlan.startupOrder,['source','inherited','system']);
 });
 
 test('invalid configuration, forged caller grants and broken dependency recipes fail full preview validation', () => {
@@ -86,7 +86,7 @@ test('invalid configuration, forged caller grants and broken dependency recipes 
   assert.throws(() => artifactConfiguration(artifact), /private configuration/);
   replace(artifact, 'deployment.json', { ...deployment, dependencies: { kind: 'npm-lock', manifest: 'package.json', lock: 'package-lock.json', recipes: [] } });
   assert.throws(() => artifactConfiguration(artifact), /complete bounded npm lock/);
-  const forged = groupArtifact(), group = get(forged, 'module-group.json'); group.modules[0].configuration.executionDefaults.allowedCallers = ['attacker']; replace(forged, 'module-group.json', group);
+  const forged = configurationArtifact(), group = get(forged, 'configuration.json'); group.modules[0].configuration.executionDefaults.allowedCallers = ['attacker']; replace(forged, 'configuration.json', group);
   assert.throws(() => artifactConfiguration(forged), /Execution defaults/);
 });
 
@@ -119,12 +119,12 @@ test('historical versions and restarted publications derive configuration from t
 
 test('hidden configuration follows publication visibility and never becomes an anonymous digest backdoor', async t => {
   const { service, actor } = await fixture(t), owner = await registerMember(service, actor, 'owner', password), stranger = await registerMember(service, actor, 'stranger', password);
-  const publication = (await workshopCall(service, 'api/publications', { artifact: groupArtifact(), redistributionAcknowledged: true }, owner, 201)).data.publication;
+  const publication = (await workshopCall(service, 'api/publications', { artifact: configurationArtifact(), redistributionAcknowledged: true }, owner, 201)).data.publication;
   await workshopCall(service, `api/publications/${publication.entryId}/visibility`, { hidden: true }, actor);
   await workshopCall(service, `api/publications/${publication.entryId}/configuration`, undefined, null, 404);
   await workshopCall(service, `api/publications/${publication.entryId}/configuration`, undefined, stranger, 404);
   const authorized = (await workshopCall(service, `api/publications/${publication.entryId}/configuration`, undefined, owner)).data;
-  assert.equal(authorized.sha256, publication.sha256); assert.equal(authorized.modules[0].executionDefaults.source, 'module-group');
+  assert.equal(authorized.sha256, publication.sha256); assert.equal(authorized.modules[0].executionDefaults.source, 'configuration');
   await workshopCall(service, `api/publications/${publication.entryId}/configuration`, undefined, actor);
   assert.equal((await fetch(`${service.baseURL}/artifacts/${publication.sha256}.json`)).status, 404);
   await workshopCall(service, `api/publications/${publication.entryId}/configuration/extra`, undefined, actor, 404);

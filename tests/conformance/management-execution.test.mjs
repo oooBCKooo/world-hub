@@ -109,6 +109,32 @@ test('management execution: two real caller requests wake a provider once, prote
   }, 'the lifecycle providers should release their own control records while preserving all business requests and responses');
 });
 
+test('management execution: a real call reserved while automatic idle-stop completion is pending wakes the next owned process', async t => {
+  const scene = await sceneWithCallers(t), local = scene.owner.localPrograms, supervisor = scene.owner.demandLifecycle;
+  okay(await scene.call('/manage/api/programs/caller/start', {}));
+  const notifyStopped = local.lifecycleStopped;
+  let stoppedInfo, completeStop, paused = false;
+  const stopCompletion = new Promise(resolve => { completeStop = resolve; });
+  local.lifecycleStopped = async (id, info) => {
+    if (id === 'provider' && !paused) { paused = true; stoppedInfo = info; await stopCompletion; }
+    return notifyStopped(id, info);
+  };
+  try {
+    const initial = await invoke(scene, 'caller', 'before-idle-stop', { text: 'first run' });
+    assert.equal(initial.ok, true, JSON.stringify(initial));
+    const stopped = await waitFor(() => stoppedInfo, 'the first provider run should reach automatic idle-stop cleanup');
+    assert.ok(stopped.handle.exit); assert.equal(local.row('provider').state, 'stopped');
+    const next = invoke(scene, 'caller', 'during-idle-stop', { text: 'next run' });
+    await waitFor(() => [...supervisor.leases.values()].some(lease => lease.programId === 'provider' && lease.pending),
+      'a real authenticated acquire should be reserved behind automatic stop cleanup');
+    completeStop();
+    const result = await next;
+    assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.body.text, 'next run');
+    assert.notEqual(local.row('provider').runId, stopped.runId);
+    assert.notEqual(local.handles.get('provider'), stopped.handle);
+  } finally { completeStop(); }
+});
+
 test('management execution: unauthorized modules cannot wake a provider even though they know its address', async t => {
   const scene = await sceneWithCallers(t, { outsider: true }); okay(await scene.call('/manage/api/programs/outsider/start', {}));
   const result = await invoke(scene, 'outsider', 'refused', { text: 'not authorized' });

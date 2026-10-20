@@ -12,9 +12,9 @@ import { startOwnedProgram } from '../../helpers/owned-program.mjs';
 import { reserveEvidenceRun } from '../../helpers/evidence-run.mjs';
 import { until } from '../../helpers/hub-harness.mjs';
 import { getProfile, principalFor } from '../../../examples/purpose-demos/profiles.mjs';
-import { DEMO_TOKEN } from '../../../examples/purpose-demos/run-demo.mjs';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
+const DEMO_TOKEN = 'world-hub-purpose-demo'; // Public credential for these isolated loopback fixtures.
 const PROFILE = 'capability-directory';
 const PREFIX = `demo/${PROFILE}`;
 const CONTRACT = { id: 'text.statistics', version: '1.0.0' };
@@ -100,7 +100,7 @@ async function scene(t, { skip = [], extraCredentials = {}, extraTopics = [], ca
   const compose = body => call('composer', 'compose/run', body);
   const sink = () => call('output', 'output/read', { command: 'snapshot' });
   const log = async () => {
-    const response = await fetch(new URL('/log?limit=400', hub.ready.managementUrl), { signal: AbortSignal.timeout(3000) });
+    const response = await fetch(new URL('/log?limit=400', hub.ready.statusUrl), { signal: AbortSignal.timeout(3000) });
     assert.equal(response.status, 200); return (await response.json()).records.filter(row => row.kind === 'message');
   };
   const discovery = async ids => until(async () => {

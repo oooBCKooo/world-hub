@@ -6,7 +6,7 @@ import { ordinaryPath, privateJson, readBounded } from '../../scripts/runtime/pa
 import { ownProcess } from '../../scripts/runtime/process.mjs';
 import { detectEnvironment, discoverEnvironment } from './environment.mjs';
 import { readSourceIndex, fetchSourceArtifact, publishArtifact, validateArtifactBytes } from '../../scripts/runtime/sources.mjs';
-import { managementLink } from './topology.mjs';
+import { managementApiLink } from './topology.mjs';
 import { diagnose } from './diagnostics.mjs';
 import { SourceRegistry } from './source-registry.mjs';
 import { verifyStoredPublisherEvidence } from '../../scripts/runtime/publisher-store.mjs';
@@ -299,8 +299,8 @@ export class LauncherManager {
   }
   async hubs() { const live=this.hub&&!this.hub.exit; return [{id:'default',managedBy:'launcher',ownership:'managed',state:live?'running':this.hubFailure?'failed':'stopped',
     url:live?this.hub.url:null,runId:live?this.hub.launcherRunId:null,
-    managementUrl:live?managementLink({hubUrl:this.hub.url,launcherUrl:this.url}):null,
-    workbenchUrl:live?managementLink({hubUrl:this.hub.url,launcherUrl:this.url,workbench:true}):null,error:this.hubFailure}]; }
+    managementApiUrl:live?managementApiLink({hubUrl:this.hub.url}):null,
+    statusUrl:live?new URL('/status',this.hub.url).href:null,error:this.hubFailure}]; }
   async close() {
     this.closing=true; this.localPrograms.pauseStarts();
     for(const op of this.operations.values())if(op.state==='running')op.controller.abort();

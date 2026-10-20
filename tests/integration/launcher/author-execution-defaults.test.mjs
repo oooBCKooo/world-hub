@@ -60,11 +60,8 @@ test('author execution defaults: group override precedes module defaults and reg
   await defaults(join(source.directory, 'modules/override'), { mode: 'resident', idleTimeoutMs: 8000 });
   await defaults(join(source.directory, 'modules/inherited'), { mode: 'on-demand', idleTimeoutMs: 19000 });
   source.manifest.modules[0].configuration.executionDefaults = { mode: 'on-demand', idleTimeoutMs: 23000 }; await saveGroup(source);
-  const reviewed = okay(await scene.call('/manage/api/artifacts/preview', { path: source.directory }));
   const expected = [policy('on-demand', 23000), policy('on-demand', 19000), policy('resident')];
-  assert.deepEqual(reviewed.review.members.map(member => member.review.executionPolicy), expected);
-  assert.deepEqual(reviewed.review.members.map(member => member.review.executionPolicySource), ['module-group', 'module', 'system']);
-  const result = okay(await scene.call('/manage/api/artifacts/apply', { kind: 'module-group', reviewId: reviewed.reviewId, accepted: true }));
+  const result = await importGroup(scene, source);
   assert.deepEqual(result.programs.map(program => program.executionPolicy), expected);
   assert.ok(result.programs.every(program => program.state === 'stopped')); assert.equal(scene.owner.localPrograms.handles.size, 0);
 });
@@ -115,17 +112,19 @@ test('author execution defaults: author-configuration updates never apply new de
   assert.deepEqual(executionPolicy(scene.owner.localPrograms.row('old-row')), policy('resident'));
 });
 
-test('author execution defaults: explicit group export includes execution defaults but excludes all local caller grants', async t => {
+test('author execution defaults: configuration export includes mode defaults and excludes local wake authorization', async t => {
   const scene = await setup(t), source = await groupSource(scene, '1.0.0', ['callee', 'caller']);
   const imported = await importGroup(scene, source), group = imported.group, mapping = group.origin.members, local = scene.owner.localPrograms;
   await local.saveExecutionPolicy(mapping.callee, { expectedRevision: executionPolicyRevision(local.row(mapping.callee)), policy: policy('on-demand', 49000, [mapping.caller]) });
-  const result = okay(await scene.call(`/manage/api/groups/${group.id}/export`, { expectedRevision: group.revision, destination: join(scene.root, 'exported'),
-    version: '2.0.0', redistributionAcknowledged: true }));
+  const result = okay(await scene.call(`/manage/api/groups/${group.id}/export`, { expectedRevision: group.revision, destination: join(scene.root, 'exported'), version: '2.0.0', redistributionAcknowledged: true }));
   const artifact = JSON.parse(await readFile(result.artifactPath, 'utf8'));
-  const manifest = JSON.parse(Buffer.from(artifact.files.find(file => file.path === 'module-group.json').base64, 'base64').toString('utf8'));
-  assert.deepEqual(manifest.modules.find(member => member.id === 'callee').configuration.executionDefaults, { mode: 'on-demand', idleTimeoutMs: 49000 });
-  assert.deepEqual(manifest.modules.find(member => member.id === 'caller').configuration.executionDefaults, { mode: 'resident', idleTimeoutMs: 60000 });
-  assert.equal(JSON.stringify(manifest).includes('allowedCallers'), false); assert.equal(JSON.stringify(manifest).includes(mapping.caller), false);
-  const reimported = await importGroup(scene, { directory: result.artifactPath });
-  assert.deepEqual(reimported.programs.find(program => program.programId === reimported.group.origin.members.callee).executionPolicy, policy('on-demand', 49000));
+  assert.equal(artifact.kind, 'configuration'); assert.deepEqual(artifact.files.map(file => file.path), ['configuration.json']);
+  const manifest = JSON.parse(Buffer.from(artifact.files[0].base64, 'base64'));
+  const callee = manifest.modules.find(member => member.module.id === 'versions.callee');
+  assert.deepEqual(callee.configuration.executionDefaults, { mode: 'on-demand', idleTimeoutMs: 49000 });
+  assert.equal(JSON.stringify(manifest).includes('allowedCallers'), false);
+  const saved = okay(await scene.call('/manage/api/resources/profiles/import', { path: result.artifactPath }));
+  const reviewed = okay(await scene.call('/manage/api/resources/profiles/preview', { profileId: saved.profile.profileId, mapping: Object.fromEntries(manifest.modules.map((member,i) => [member.id, `fresh-${i}`])) }));
+  const applied = okay(await scene.call('/manage/api/resources/profiles/apply', { reviewId: reviewed.reviewId, accepted: true }));
+  assert.deepEqual(executionPolicy(local.row(applied.mapping[callee.id])), policy('on-demand', 49000));
 });

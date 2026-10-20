@@ -2,11 +2,12 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { mkdtemp, mkdir, writeFile, readFile, copyFile, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { Hub } from '../../src/hub/lib/hub.mjs';
 import { normalizeConfig } from '../../src/hub/lib/store.mjs';
 import { attachWebSocketServer } from '../../src/hub/ws-server.mjs';
 import { createManagementHttp } from '../../src/management/management-http.mjs';
-import { ordinaryPath } from '../../scripts/runtime/paths.mjs';
+import { ordinaryPath, hash } from '../../scripts/runtime/paths.mjs';
 
 const json = value => JSON.stringify(value, null, 2) + '\n';
 const rootDirectory = resolve('.artifacts/management-version-tests');
@@ -106,13 +107,43 @@ async function groupSource(scene, version, definitions) {
     startupPlan: { members: modules.map(row => ({ programId: row.id, enabled: true, after: [] })), startupOrder: modules.map(row => row.id), onFailure: 'continue-independent' } };
   await writeFile(join(directory, 'module-group.json'), json(manifest)); return { directory, manifest };
 }
+async function configurationSource(scene, source) {
+  const { readModuleGroup } = await import('../../scripts/runtime/module-group.mjs');
+  const { sourceFilesDigest } = await import('../../scripts/runtime/resource-artifacts.mjs');
+  const { collectSourceFiles } = await import('../../scripts/runtime/source-guidance.mjs');
+  const { manifest, modules } = await readModuleGroup(source.directory);
+  const directory = join(scene.root, 'configuration-' + randomUUID()); await mkdir(directory);
+  const configuration = { ...manifest, format: 'world-hub.configuration/v1', scope: 'local', provides: [], requires: [], modules: [] };
+  for (const row of modules) configuration.modules.push({ id: row.member.id, module: { id: row.manifest.id, version: row.manifest.version, digest: sourceFilesDigest(await collectSourceFiles(row.directory)) }, configuration: row.member.configuration });
+  await writeFile(join(directory, 'configuration.json'), json(configuration));
+  return { directory, manifest: configuration };
+}
 async function importGroup(scene, source) {
-  const review = okay(await scene.call('/manage/api/artifacts/preview', { path: source.directory }));
-  return okay(await scene.call('/manage/api/artifacts/apply', { kind: 'module-group', reviewId: review.reviewId, accepted: true }));
+  // Group lifecycle/version tests need a local reference group, not a retired
+  // downloadable bundle. Assemble it through independent body/configuration APIs.
+  const { readModuleGroup } = await import('../../scripts/runtime/module-group.mjs');
+  const { moduleGroupWiringBaseline } = await import('../../tools/launcher/module-groups.mjs');
+  const { sourceFilesDigest } = await import('../../scripts/runtime/resource-artifacts.mjs');
+  const { collectSourceFiles } = await import('../../scripts/runtime/source-guidance.mjs');
+  const { manifest, modules } = await readModuleGroup(source.directory);
+  const directory = join(scene.root, 'configuration-' + randomUUID()); await mkdir(directory);
+  const configuration = { ...manifest, format: 'world-hub.configuration/v1', scope: 'local', provides: [], requires: [], modules: [] };
+  for (const row of modules) {
+    okay(await scene.call('/manage/api/resources/bodies/import', { path: row.directory }));
+    configuration.modules.push({ id: row.member.id, module: { id: row.manifest.id, version: row.manifest.version, digest: sourceFilesDigest(await collectSourceFiles(row.directory)) }, configuration: row.member.configuration });
+  }
+  await writeFile(join(directory, 'configuration.json'), json(configuration));
+  const imported = okay(await scene.call('/manage/api/resources/profiles/import', { path: directory }));
+  const review = okay(await scene.call('/manage/api/resources/profiles/preview', { profileId: imported.profile.profileId }));
+  const result = okay(await scene.call('/manage/api/resources/profiles/apply', { reviewId: review.reviewId, accepted: true }));
+  okay(await scene.call('/manage/api/resources/profiles/deactivate', { profileIds: [imported.profile.profileId], accepted: true }));
+  const groupId = 'configuration-' + hash(manifest.id).slice(0, 24), group = scene.owner.localPrograms.groups.get(groupId);
+  const saved = okay(await scene.call('/manage/api/groups/save', { expectedRevision: group.revision, group: { ...group, origin: { id: manifest.id, version: manifest.version, members: result.mapping }, wiringBaseline: moduleGroupWiringBaseline(manifest) } }));
+  return { group: saved.group, programs: Object.values(result.mapping).map(id => scene.owner.localPrograms.public(scene.owner.localPrograms.row(id))), startsModules: false, createsHub: false };
 }
 async function stateFile(scene, id, value) {
   const directory = scene.owner.localPrograms.path(id, 'state'); await mkdir(directory, { recursive: true });
   const path = join(directory, 'application.txt'); if (value !== undefined) await writeFile(path, value); return path;
 }
 
-export { json, nativeProgram, setup, okay, refused, endpoint, overview, preview, apply, rollbackPreview, moduleSource, importModule, groupSource, importGroup, stateFile };
+export { json, nativeProgram, setup, okay, refused, endpoint, overview, preview, apply, rollbackPreview, moduleSource, importModule, groupSource, importGroup, configurationSource, stateFile };

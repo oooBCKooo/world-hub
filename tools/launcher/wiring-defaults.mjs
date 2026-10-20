@@ -1,13 +1,14 @@
 // Reviewed local wiring edits. The Hub does not interpret these author recipes.
 import { randomUUID } from 'node:crypto';
 import { lstat } from 'node:fs/promises';
+import { join } from 'node:path';
 import { hash, readBounded, collectFiles } from '../../scripts/runtime/paths.mjs';
 import { collectSourceFiles } from '../../scripts/runtime/source-guidance.mjs';
 import { readDeployment } from '../../scripts/runtime/deployment.mjs';
-import { readModuleGroup } from '../../scripts/runtime/module-group.mjs';
 import { resolveDefaultConnections } from '../../scripts/runtime/default-connections.mjs';
 import { safeId } from '../../scripts/runtime/package.mjs';
 import { importLocalArtifact } from './local-artifacts.mjs';
+import { sourceFilesDigest } from '../../scripts/runtime/resource-artifacts.mjs';
 import { normalizeModuleGroup, moduleGroupWiringBaseline } from './module-groups.mjs';
 
 const clone = value => structuredClone(value), plain = value => value && typeof value === 'object' && !Array.isArray(value);
@@ -28,21 +29,21 @@ const active = handle => Boolean(handle && (!handle.exit || handle.cleanupIncomp
 export class WiringDefaults {
   constructor(owner) { this.owner = owner; this.local = owner.localPrograms; this.reviews = new Map(); }
   async source(group, path, previous) {
-    if (typeof path !== 'string' || !path.trim()) throw fault('WIRING_GROUP_SOURCE_INVALID', 'Choose the exact author module-group directory, ZIP or artifact JSON.');
+    if (typeof path !== 'string' || !path.trim()) throw fault('WIRING_GROUP_SOURCE_INVALID', 'Choose the exact configuration directory, ZIP or artifact JSON.');
     const info = await lstat(path), original = info.isDirectory() ? await collectFiles(path) : hash(await readBounded(path, 96 * 1024 * 1024));
-    const imported = previous ?? await importLocalArtifact({ root: this.owner.root ?? this.local.root, path, kind: 'module-group' });
-    const source = await readModuleGroup(imported.object.path), files = await collectFiles(imported.object.path);
-    if (source.manifest.id !== group.origin.id || source.manifest.version !== group.origin.version)
+    const imported = previous ?? await importLocalArtifact({ root: this.owner.root ?? this.local.root, path, kind: 'configuration' });
+    const manifest = JSON.parse(await readBounded(join(imported.object.path, 'configuration.json'))), files = await collectFiles(imported.object.path);
+    if (manifest.id !== group.origin.id || manifest.version !== group.origin.version)
       throw fault('WIRING_GROUP_SOURCE_MISMATCH', 'Choose the exact ID and version of this group origin.');
-    for (const member of source.modules) {
-      const id = own(group.origin.members, member.member.id);
+    for (const member of manifest.modules) {
+      const id = own(group.origin.members, member.id);
       if (!id || !group.memberProgramIds.includes(id)) continue;
       const row = this.local.records.get(id);
-      if (!row || row.module.id !== member.member.moduleId || row.module.version !== member.member.version
-          || stringify(await collectSourceFiles(member.directory)) !== stringify(row.files))
+      if (!row || row.module.id !== member.module.id || row.module.version !== member.module.version || sourceFilesDigest(row.files) !== member.module.digest
+          || stringify(await collectSourceFiles(this.local.path(id, 'module'))) !== stringify(row.files))
         throw fault('WIRING_GROUP_SOURCE_MEMBER_MISMATCH', 'The selected author artifact member bytes, module ID or version differ from the currently registered source.');
     }
-    return { imported, baseline: moduleGroupWiringBaseline(source.manifest), snapshot: { path, original, files } };
+    return { imported, baseline: moduleGroupWiringBaseline(manifest), snapshot: { path, original, files } };
   }
   async snapshot(ids) {
     const local = this.local, sources = [], identities = [];

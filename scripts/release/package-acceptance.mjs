@@ -165,7 +165,7 @@ async function run() {
     const ready = processRecord.record.ready;
     const port = ready?.port;
     assert.ok(Number.isInteger(port) && port > 0);
-    const base = ready.httpUrl ? new URL(ready.httpUrl).origin : ready.managementUrl ? new URL(ready.managementUrl).origin : `http://127.0.0.1:${port}`;
+    const base = ready.httpUrl ? new URL(ready.httpUrl).origin : ready.managementApiUrl ? new URL(ready.managementApiUrl).origin : `http://127.0.0.1:${port}`;
     return { base, ws: ready.wsUrl ?? ready.endpoint ?? `ws://127.0.0.1:${port}/bridge`, port };
   };
   async function json(base, path) {
@@ -191,7 +191,7 @@ async function run() {
     peers.push(peer);
     ws.addEventListener('close', event => { closed = { code: event.code, reason: event.reason }; });
     await bounded(new Promise((accept, reject) => {
-      ws.addEventListener('open', () => peer.send({ type: 'hello', wire: '0.1', bridge: peer.bridge, credential: 'ui.manual', ...(config.acl?.credentials?.['ui.manual']?.token ? { token: config.acl.credentials['ui.manual'].token } : {}), displayName: '分发真实整合包验收 mod' }));
+      ws.addEventListener('open', () => peer.send({ type: 'hello', wire: '0.1', bridge: peer.bridge, credential: 'package.acceptance', token: config.acl.credentials['package.acceptance'].token, displayName: '分发真实通讯验收桥' }));
       ws.addEventListener('error', () => reject(new Error('acceptance mod socket error')));
       ws.addEventListener('message', event => {
         const raw = String(event.data), frame = JSON.parse(raw); frames.push({ raw, frame });
@@ -242,7 +242,7 @@ async function run() {
     const logDir = resolve(dirname(configPath), config.log?.dir ?? './.hub/log');
     const dataDir = join(movedBundle, 'data');
     assert.ok(inside(dataDir, logDir), 'default communications data remains inside the relocated package/data');
-    assert.ok(config.acl?.credentials?.['ui.manual'], 'bundle permits a real own ui.manual credential');
+    assert.deepEqual(config.acl?.credentials, {}, 'stock bundle grants no implicit interface credential');
     await step('readonly --check from unrelated cwd', async () => {
       const before = await inventory(movedBundle, { includeDirectories: true });
       const variants = [];
@@ -258,13 +258,19 @@ async function run() {
       assert.deepEqual(await inventory(foreignCwd, { includeDirectories: true }), [], 'foreign cwd remains empty');
       return { variants, noFilesOrDirectoriesChanged: true };
     });
+    await step('explicit test-provider grant exists only in the owned editable configuration', async () => {
+      config.acl.credentials['package.acceptance'] = { token: randomUUID(), maxConnections: 4,
+        allow: { publish: ['package-test/#'], subscribe: ['package-test/#'] } };
+      await writeFile(configPath, JSON.stringify(config, null, 2) + '\n');
+      return { credential: 'package.acceptance', scope: 'owned acceptance copy', topics: ['package-test/#'] };
+    });
     const running = await start(movedBundle, ['--port', '0'], { expectReady: true });
     const endpoint = endpointOf(running);
     await step('real IPC launch and HTTP surfaces', async () => {
       assert.ok(running.record.ready.logDir ? inside(dataDir, resolve(running.record.ready.logDir)) : true);
       for (const kind of ['log', 'blobs', 'management']) assert.ok(inside(dataDir, resolve(running.record.ready.storage[kind].path)), `${kind} path stays package-local`);
       const assets = [];
-      for (const [path, mime] of [['/manage', 'text/html'], ['/manage/manual-bridge.mjs', 'javascript'], ['/manage/manual-console.mjs', 'javascript'], ['/manage/manual-console.css', 'text/css']]) {
+      for (const [path, mime] of [['/status', 'application/json'], ['/manage/api/state', 'application/json']]) {
         const response = await fetch(endpoint.base + path, { signal: AbortSignal.timeout(TIMEOUT) });
         const body = await response.text(); assert.equal(response.status, 200, path); assert.ok((response.headers.get('content-type') ?? '').includes(mime)); assert.ok(body.length > 0);
         assets.push({ path, status: response.status, bytes: Buffer.byteLength(body), sha256: createHash('sha256').update(body).digest('hex') });
@@ -296,13 +302,13 @@ async function run() {
     let sequence, subscription;
     let otherSubscription;
     await step('one credential permits independent simultaneous hub bridges', async () => {
-      assert.equal(peer.welcome.principal, 'ui.manual'); assert.equal(otherPeer.welcome.principal, 'ui.manual');
+      assert.equal(peer.welcome.principal, 'package.acceptance'); assert.equal(otherPeer.welcome.principal, 'package.acceptance');
       assert.notEqual(peer.bridge, otherPeer.bridge); assert.notEqual(peer.welcome.bridge, otherPeer.welcome.bridge); assert.notEqual(peer.welcome.session, otherPeer.welcome.session);
       otherPeer.send({ type: 'register', requestToken: 'package-other-register', channels: [{ name: topic, subscribe: true }] });
       await otherPeer.frame(frame => frame.type === 'registered' && frame.requestToken === 'package-other-register', 'other registered');
       otherPeer.send({ type: 'subscribe', token: 'package-other-subscribe', filters: [topic], from: 'now' });
       otherSubscription = (await otherPeer.frame(frame => frame.type === 'subscribed' && frame.token === 'package-other-subscribe', 'other subscribed')).frame.subscription;
-      const state = await json(endpoint.base, '/manage/api/state'); assert.equal(state.bridges.find(item => item.key === 'ui.manual').instances.length, 2);
+      const state = await json(endpoint.base, '/manage/api/state'); assert.equal(state.bridges.find(item => item.key === 'package.acceptance').instances.length, 2);
       return { first: peer.welcome, second: otherPeer.welcome, instances: 2 };
     });
     await step('own hub bridge dynamic channels raw publish delivery and explicit ACK', async () => {
@@ -328,7 +334,7 @@ async function run() {
       const files = (await inventory(logDir)).filter(file => /^log-\d+\.jsonl$/.test(file.path));
       const records = [];
       for (const file of files) for (const line of (await readFile(join(logDir, file.path), 'utf8')).split(/\r?\n/)) if (line.trim()) records.push(JSON.parse(line));
-      const record = records.find(item => item.seq === sequence); assert.ok(record); assert.equal(record.bodyRaw, rawBody); assert.equal(record.owner, 'ui.manual'); assert.equal(record.kind, 'message'); assert.equal(record.headers.kind, kind);
+      const record = records.find(item => item.seq === sequence); assert.ok(record); assert.equal(record.bodyRaw, rawBody); assert.equal(record.owner, 'package.acceptance'); assert.equal(record.kind, 'message'); assert.equal(record.headers.kind, kind);
       await save('disk-message.json', record);
       return { bridge: peer.welcome.bridge, declaredBridge: peer.bridge, principal: peer.welcome.principal, topic, kind, sequence, subscription, rawBodySha256: createHash('sha256').update(rawBody).digest('hex') };
     });
@@ -364,11 +370,11 @@ async function run() {
       return { id: blobObject.id, sequence: blobSequence, size: blobBytes.length, sha256: blobSha256, chunks, readPreservesProviderProtection: true };
     });
     await step('management changes use CSRF and persist across graceful restart', async () => {
-      const rejected = await fetch(endpoint.base + '/manage/api/bridge', { method: 'POST', headers: { 'content-type': 'application/json', origin: endpoint.base }, body: JSON.stringify({ key: 'ui.manual', action: 'pause' }), signal: AbortSignal.timeout(TIMEOUT) });
+      const rejected = await fetch(endpoint.base + '/manage/api/bridge', { method: 'POST', headers: { 'content-type': 'application/json', origin: endpoint.base }, body: JSON.stringify({ key: 'package.acceptance', action: 'pause' }), signal: AbortSignal.timeout(TIMEOUT) });
       assert.equal(rejected.status, 403); const rejection = await rejected.json(); assert.equal(rejection.error.code, 'MANAGEMENT_TOKEN_REQUIRED');
-      await post(endpoint.base, '/manage/api/annotation', { key: 'ui.manual', bridgeName: '分发搬迁后的手动桥', programs: [{ id: 'package-check-program', name: '仅测试通讯的外部程序注记' }] });
-      await post(endpoint.base, '/manage/api/bridge', { key: 'ui.manual', action: 'pause' });
-      const paused = await json(endpoint.base, '/manage/api/state'); assert.equal(paused.bridges.find(item => item.key === 'ui.manual').paused, true);
+      await post(endpoint.base, '/manage/api/annotation', { key: 'package.acceptance', bridgeName: '分发搬迁后的验收桥', programs: [{ id: 'package-check-program', name: '仅测试通讯的外部程序注记' }] });
+      await post(endpoint.base, '/manage/api/bridge', { key: 'package.acceptance', action: 'pause' });
+      const paused = await json(endpoint.base, '/manage/api/state'); assert.equal(paused.bridges.find(item => item.key === 'package.acceptance').paused, true);
       await save('paused-state-before-restart.json', paused);
       await peer.close(); await otherPeer.close(); const exit = await stop(running); assert.equal(exit.code, 0); assert.equal(exit.signal, null);
       assert.equal(await listening(endpoint.port), false);
@@ -378,12 +384,12 @@ async function run() {
       const restarted = await start(persistedBundle, ['--port', '0'], { expectReady: true });
       const restoredEndpoint = endpointOf(restarted), restored = await json(restoredEndpoint.base, '/manage/api/state');
       for (const kind of ['log', 'blobs', 'management']) assert.ok(inside(join(persistedBundle, 'data'), resolve(restarted.record.ready.storage[kind].path)), `${kind} path follows the relocated bundle`);
-      const bridge = restored.bridges.find(item => item.key === 'ui.manual');
-      assert.equal(bridge.paused, true); assert.equal(bridge.label, '分发搬迁后的手动桥'); assert.equal(bridge.programs[0].id, 'package-check-program');
+      const bridge = restored.bridges.find(item => item.key === 'package.acceptance');
+      assert.equal(bridge.paused, true); assert.equal(bridge.label, '分发搬迁后的验收桥'); assert.equal(bridge.programs[0].id, 'package-check-program');
       assert.ok(restored.hub.lastSeq >= blobSequence); assert.ok(restored.log.records.some(item => item.seq === sequence)); assert.ok(restored.log.records.some(item => item.seq === blobSequence));
       await save('restored-state-before-resume.json', restored);
-      await post(restoredEndpoint.base, '/manage/api/bridge', { key: 'ui.manual', action: 'resume' });
-      const resumed = await json(restoredEndpoint.base, '/manage/api/state'); assert.equal(resumed.bridges.find(item => item.key === 'ui.manual').paused, false);
+      await post(restoredEndpoint.base, '/manage/api/bridge', { key: 'package.acceptance', action: 'resume' });
+      const resumed = await json(restoredEndpoint.base, '/manage/api/state'); assert.equal(resumed.bridges.find(item => item.key === 'package.acceptance').paused, false);
       const historyPeer = await connect(restoredEndpoint.ws, config);
       historyPeer.send({ type: 'subscribe', token: 'package-history', filters: [topic, blobTopic], from: 0 });
       const historySubscription = (await historyPeer.frame(frame => frame.type === 'subscribed' && frame.token === 'package-history', 'history subscribed')).frame.subscription;
@@ -400,7 +406,7 @@ async function run() {
       assert.equal(await listening(restoredEndpoint.port), false);
       return { pausedPersisted: true, annotationPersisted: true, rawHistoryReplayed: true, blobReplayedAfterRelocation: { id: blobObject.id, sha256: blobSha256, bytes: downloadedAfterMove.length }, persistedBundle, resumed: true, releasesRequested: 0, exit, finalExit };
     });
-    await step('missing UI asset and corrupt editable config fail readonly check', async () => {
+    await step('missing management backend and corrupt editable config fail readonly check', async () => {
       await cp(args.bundle, negativeBundle, { recursive: true, errorOnExist: true, force: false });
       const negativeConfig = join(negativeBundle, 'config/hub.json');
       const originalConfig = await readFile(negativeConfig);
@@ -409,7 +415,7 @@ async function run() {
       const corrupt = await start(negativeBundle, ['--check']); assert.notEqual(corrupt.record.exit.code, 0); assert.deepEqual(await inventory(negativeBundle, { includeDirectories: true }), corruptBefore);
       await writeFile(negativeConfig, originalConfig);
       const manifest = JSON.parse(await readFile(join(negativeBundle, 'manifest.json'), 'utf8'));
-      const asset = manifest.files.find(file => file.path === 'src/management/manual-console.mjs'); assert.ok(asset, 'manifest names the manual UI module');
+      const asset = manifest.files.find(file => file.path === 'src/management/management-http.mjs'); assert.ok(asset, 'manifest names the management API backend');
       await unlink(join(negativeBundle, asset.path));
       const missingBefore = await inventory(negativeBundle, { includeDirectories: true });
       const missing = await start(negativeBundle, ['--check']); assert.notEqual(missing.record.exit.code, 0); assert.deepEqual(await inventory(negativeBundle, { includeDirectories: true }), missingBefore);
@@ -418,8 +424,9 @@ async function run() {
     await step('original remains untouched and relocated immutable files remain valid', async () => {
       assert.deepEqual(await inventory(args.bundle), report.originalInventory, 'supplied extraction never changed');
       assert.deepEqual(await inventory(foreignCwd, { includeDirectories: true }), [], 'no accidental data in process cwd');
-      const detail = await integrity(movedBundle); await save('relocated-manifest-check.json', detail);
-      await save('persisted-relocation-manifest-check.json', await integrity(persistedBundle));
+      assert.deepEqual(JSON.parse(await readFile(configPath, 'utf8')), config, 'only the explicit owned test configuration changed');
+      const detail = await integrity(movedBundle, { allowEditableConfiguration: true }); await save('relocated-manifest-check.json', detail);
+      await save('persisted-relocation-manifest-check.json', await integrity(persistedBundle, { allowEditableConfiguration: true }));
       await save('relocated-data-inventory.json', await inventory(dataDir));
       return detail;
     });

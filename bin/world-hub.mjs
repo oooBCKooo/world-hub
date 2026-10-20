@@ -10,23 +10,23 @@ import { checkEnvironment, parseArgs } from '../scripts/launcher-support.mjs';
 import { normalizeConfig } from '../src/hub/lib/store.mjs';
 
 export const PACKAGE_ROOT = fileURLToPath(new URL('../', import.meta.url));
-export const HELP = `世界枢纽 npm 命令（前台运行）
+export const HELP = `世界枢纽 npm 命令（无界面，前台运行）
 
-  world-hub [--config <path>] [--data-dir <path>] [--port <n>] [--open]
+  world-hub [--config <path>] [--data-dir <path>] [--port <n>]
   world-hub --check [--config <path>] [--data-dir <path>] [--port <n>]
 
   --config, -c <path>  使用自己的配置；相对路径以当前工作目录为基准
   --data-dir <path>    明确指定通讯日志、大对象与管理状态的数据根
   --port, -p <n>       本次覆盖监听端口；0 至 65535，0 为系统分配
   --check             只读检查；不会创建配置、数据或运行锁，也不启动服务
-  --open              就绪后打开本机管理界面
   --help, -h          显示帮助
 
 未指定配置时，首次启动会在当前目录 world-hub-data/hub.json 写入参考配置，
 默认数据也在 world-hub-data 内。已存在的配置会继续使用，不会被参考配置覆盖。
 指定 --data-dir 时三类数据都放在该根；原 --config 文件保持不变。
 安装目录不保存运行配置和数据。启动后使用 Ctrl+C 等待 stopped 行再关闭终端。
-通信管理界面在同一个本机 Hub 中管理独立模块实例和模块组。
+本包提供通讯、SDK、管理 JSON API、Skill 与 MCP，不附带界面。
+可选界面由独立 world-hub-ui 项目提供。
 枢纽只提供通讯；外部程序由自己的枢纽桥接入。
 `;
 
@@ -104,7 +104,6 @@ export async function runNpmCli(argv = process.argv.slice(2), options = {}) {
   }
   const launcherArgs = ['--config', plan.configPath];
   if (args.port !== null) launcherArgs.push('--port', String(args.port));
-  if (args.open) launcherArgs.push('--open');
   return runLauncher(launcherArgs, { bundleRoot: options.packageRoot ?? PACKAGE_ROOT });
 }
 

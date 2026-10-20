@@ -13,11 +13,11 @@ let suite = 'node', evidenceRoot = join(root, '.artifacts/evidence');
 const seen = new Set();
 for (let index = 0; index < args.length; index += 2) {
   const option = args[index], value = args[index + 1];
-  if (!['--suite', '--evidence'].includes(option) || !value || seen.has(option)) throw new Error('usage: node scripts/verify.mjs [--suite node|dsh|cross-language|demos|capabilities|ecosystem|launcher|workshop|interop] [--evidence directory]');
+  if (!['--suite', '--evidence'].includes(option) || !value || seen.has(option)) throw new Error('usage: node scripts/verify.mjs [--suite node|dsh|cross-language|demos|capabilities|ecosystem|launcher|workshop|interop|agents|resources] [--evidence directory]');
   seen.add(option);
   if (option === '--suite') suite = value; else evidenceRoot = resolve(value);
 }
-if (!['node', 'dsh', 'cross-language', 'demos', 'capabilities', 'ecosystem', 'launcher', 'workshop', 'interop'].includes(suite)) throw new Error(`unknown suite: ${suite}`);
+if (!['node', 'dsh', 'cross-language', 'demos', 'capabilities', 'ecosystem', 'launcher', 'workshop', 'interop', 'agents', 'resources'].includes(suite)) throw new Error(`unknown suite: ${suite}`);
 const directory = join(evidenceRoot, `${suite}-${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID()}`);
 await mkdir(directory, { recursive: true });
 const report = { suite, startedAt: new Date().toISOString(), node: process.version, platform: process.platform, arch: process.arch,
@@ -66,19 +66,15 @@ try {
     await execute('Bidirectional event panel with independent programs', ['examples/event-panel/run-demo.mjs']);
     await execute('Independent-program directed transfer', ['examples/directed-transfer/run-phase4.mjs']);
     await execute('Three-program route', ['examples/three-programs/run-three.mjs']);
-    await execute('Source distribution allowlist, integrity and safe outputs', nodeTests(['scripts/release/distribution.test.mjs']), { test: true });
+    await execute('Source distribution allowlist, integrity and safe outputs', nodeTests(['scripts/release/distribution.test.mjs', 'scripts/release/community-distribution.test.mjs']), { test: true });
   } else if (suite === 'demos') {
     await execute('Purpose demos: real external programs, bidirectional actions, distributed context and world rounds', nodeTests([
-      'tests/integration/purpose-demos/scenarios.test.mjs', 'tests/integration/purpose-demos/launcher.test.mjs',
-      'tests/integration/purpose-demos/explorer-view.test.mjs',
+      'tests/integration/purpose-demos/scenarios.test.mjs',
       'tests/integration/capability-directory/ecosystem.test.mjs',
     ]), { test: true });
-    await execute('Purpose bundles: allowlist, fixed profiles, integrity and safe build outputs', nodeTests(['scripts/release/demo-distribution.test.mjs']), { test: true });
   } else if (suite === 'capabilities') {
     await execute('External capability directory, independent processor replacement and explained failures', nodeTests([
       'tests/integration/capability-directory/ecosystem.test.mjs',
-      'tests/integration/purpose-demos/explorer-view.test.mjs',
-      'tests/integration/purpose-demos/launcher.test.mjs',
     ]), { test: true });
   } else if (suite === 'interop') {
     await execute('Public application contract benchmark: unchanged consumer, Node/Python providers, failure boundaries', nodeTests(['tests/integration/interop/reference.test.mjs']), { test: true });
@@ -88,13 +84,17 @@ try {
       'tests/integration/ecosystem-runtime/publisher-trust.test.mjs',
       'tests/integration/ecosystem-runtime/dependency-prepare.test.mjs',
       'tests/integration/runtime/host-process.test.mjs',
-      'tests/integration/runtime/soft-ui-modules.test.mjs',
-      'tests/integration/runtime/soft-ui-delivery.test.mjs',
     ]), { test: true, timeoutMs: 600000 });
   } else if (suite === 'launcher') {
     const cases = (await readdir(join(root, 'tests/integration/launcher-single-hub'))).filter(name => name.endsWith('.test.mjs')).sort().map(name => `tests/integration/launcher-single-hub/${name}`);
     const shared=['owner-lock','asset-versions','global-external-programs','author-execution-defaults'].map(name=>`tests/integration/launcher/${name}.test.mjs`);
-    await execute('Single-Hub Launcher: direct module configuration, reference groups, shared processes, sources and browser UI contracts', nodeTests([...cases,...shared]), { test: true, timeoutMs: 600000 });
+    await execute('Headless module management: direct configuration, reference groups, owned processes and source APIs', nodeTests([...cases,...shared]), { test: true, timeoutMs: 600000 });
+  } else if (suite === 'resources') {
+    const cases = (await readdir(join(root, 'tests/integration/resources'))).filter(name => name.endsWith('.test.mjs')).sort().map(name => `tests/integration/resources/${name}`);
+    await execute('Independent module bodies, configurations, data, switching and retention cleanup', nodeTests(cases), { test: true });
+  } else if (suite === 'agents') {
+    const cases = (await readdir(join(root, 'tests/integration/mcp'))).filter(name => name.endsWith('.test.mjs')).sort().map(name => `tests/integration/mcp/${name}`);
+    await execute('Official Skill installation and real MCP stdio communication over independent Hub bridges', nodeTests(cases), { test: true });
   } else if (suite === 'workshop') {
     const cases = (await readdir(join(root, 'tests/integration/workshop'))).filter(name => name.endsWith('.test.mjs')).sort().map(name => `tests/integration/workshop/${name}`);
     await execute('Optional hosted Workshop: publication, accounts, collaboration and persistence', nodeTests(cases), { test: true });

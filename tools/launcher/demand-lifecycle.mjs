@@ -34,7 +34,7 @@ export class DemandLifecycle {
   enabled() { return [...this.local.records.values()].some(row => executionPolicy(row).mode === 'on-demand'); }
   descriptor() { return this.enabled() ? { protocol, principal: this.principal, topic: this.topic } : null; }
   program(id) {
-    if (!this.programStates.has(id)) this.programStates.set(id, { auto: null, pinned: false, idleSince: null, lastError: null });
+    if (!this.programStates.has(id)) this.programStates.set(id, { auto: null, idleStop: null, pinned: false, idleSince: null, lastError: null });
     return this.programStates.get(id);
   }
   async connect() {
@@ -205,7 +205,11 @@ export class DemandLifecycle {
     const state = this.program(id);
     // A manual stop explicitly resolves uncertainty for the stopped run. A
     // later process with the same instance ID never inherits the old leases.
-    for (const [leaseId, lease] of this.leases) if (lease.programId === id && (lease.pending || lease.handle === handle || lease.runId === runId)) this.leases.delete(leaseId);
+    // An automatic idle stop may already be completing when the next acquire
+    // reserves a pending lease behind the same process queue. That new work
+    // belongs to the next run, not to the automatically retired owned process.
+    const automatic = !!state.idleStop && state.idleStop.handle === handle && state.idleStop.runId === runId;
+    for (const [leaseId, lease] of this.leases) if (lease.programId === id && ((!automatic && lease.pending) || lease.handle === handle || lease.runId === runId)) this.leases.delete(leaseId);
     state.auto = null; state.pinned = false; state.idleSince = null;
   }
   beginIdle(id) { const state = this.program(id); if (state.auto && ![...this.leases.values()].some(lease => lease.programId === id) && state.idleSince === null) state.idleSince = this.now(); }
@@ -244,7 +248,9 @@ export class DemandLifecycle {
           };
           if (!eligible()) return;
           try { await this.local.assertVersionReady(id); if (!eligible()) return;
-            await this.local.stopNow(id);
+            state.idleStop = ownership;
+            try { await this.local.stopNow(id); }
+            finally { if (state.idleStop === ownership) state.idleStop = null; }
           } catch (issue) { state.lastError = this.describe(issue); }
         });
       }

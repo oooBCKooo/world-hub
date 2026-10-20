@@ -166,7 +166,10 @@ export class ModuleVersions {
     if (input.expectedRevision !== current.revision) throw fault('VERSION_TARGET_CHANGED', 'The target configuration changed. Reload it before reviewing a version update.');
     const dataPolicy = input.dataPolicy ?? 'preserve', configurationPolicy = input.configurationPolicy ?? 'preserve';
     if (!['preserve', 'fresh'].includes(dataPolicy) || !['preserve', 'author'].includes(configurationPolicy)) throw fault('VERSION_POLICY_INVALID', 'Choose preserve/fresh private data and preserve/author public configuration.');
-    const object = prepared?.object ?? (await importLocalArtifact({ root: this.directory, path: input.path, kind })).object;
+    // Local reference-group maintenance reads its explicit author directory.
+    // Public acquisition accepts only independent module/configuration/data artifacts.
+    const groupDirectory = !prepared && kind === 'module-group' ? await readModuleGroup(input.path) : null;
+    const object = prepared?.object ?? (groupDirectory ? { kind, path: input.path, id: groupDirectory.manifest.id, version: groupDirectory.manifest.version } : (await importLocalArtifact({ root: this.directory, path: input.path, kind })).object);
     const oldGroup = kind === 'module-group' ? this.local.groups.get(id) : null;
     if (object.id !== current.id && (!oldGroup || oldGroup.origin)) throw fault('VERSION_SOURCE_ID_CHANGED', 'Choose a release of the same module or module-group source identity.');
     if (oldGroup && !oldGroup.origin && input.establishOrigin !== true) throw fault('VERSION_ORIGIN_REQUIRED', 'This local group has no publisher baseline. Explicitly establish it from the selected group release.');

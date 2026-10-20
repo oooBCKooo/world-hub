@@ -19,11 +19,14 @@ function artifact(kind, version) {
   // If a downloader or preview executes this file, this test must fail.
   const files = [encoded('module.json', manifest), encoded('program.mjs', "throw new Error('Historical source was executed instead of downloaded');\n")];
   if (kind === 'module') return { format: 'world-hub.source-artifact/v1', kind, id, version, files, provenance: { redistributionAcknowledged: true } };
-  const group = { format: 'world-hub.module-group/v1', id: 'test.history-group', version, title: 'Version history group', license: 'MIT', platforms: manifest.platforms, provides: [], requires: [], modules: [{ id: 'widget', path: 'modules/widget', moduleId: id, version: '1.0.0', configuration: { topics: { events: 'test/history/events' }, bridges: { main: { publish: ['events'], subscribe: [] } }, settings: {}, bindings: [] } }], startupPlan: { members: [{ programId: 'widget', enabled: false, after: [] }], onFailure: 'continue-independent', startupOrder: ['widget'] } };
-  return { format: 'world-hub.source-artifact/v1', kind, id: group.id, version, files: [encoded('module-group.json', group), ...files.map(file => ({ ...file, path: 'modules/widget/' + file.path }))], provenance: { redistributionAcknowledged: true } };
+  const metadata = {id:'test.history-'+kind,version,title:'Version history '+kind,license:'MIT',platforms:manifest.platforms,provides:[],requires:[],scope:'global'};
+  const reference = {id,version:'1.0.0',digest:'a'.repeat(64)};
+  const document = kind === 'configuration' ? {format:'world-hub.configuration/v1',...metadata,modules:[{id:'widget',module:reference,configuration:{topics:{events:'test/history/events'},bridges:{main:{publish:['events'],subscribe:[]}},settings:{},bindings:[]}}],startupPlan:{members:[{programId:'widget',enabled:false,after:[]}],onFailure:'continue-independent',startupOrder:['widget']}}
+    : {format:'world-hub.module-data/v1',...metadata,purpose:'dataset',instances:[{id:'widget',module:reference,path:'data/widget',dataFormat:{id:'test.rows',version:'1.0.0'}}]};
+  return {format:'world-hub.source-artifact/v1',kind,id:document.id,version,files:[encoded(kind+'.json',document),...(kind === 'data' ? [encoded('data/widget/rows.json',{version})] : [])],provenance:{redistributionAcknowledged:true}};
 }
 
-for (const kind of ['module', 'module-group']) test(`${kind} historical releases remain selectable and exact downloads never resolve to the latest release`, async t => {
+for (const kind of ['module', 'configuration', 'data']) test(`${kind} historical releases remain selectable and exact downloads never resolve to the latest release`, async t => {
   const parent = resolve('.artifacts/workshop-history-tests'); await mkdir(parent, { recursive: true });
   const root = await mkdtemp(join(parent, 'case-')), data = join(root, 'data');
   const initial = await WorkshopStore.open({ root: data }); await initial.initializeAdmin('admin', password); await initial.close();
@@ -45,7 +48,7 @@ for (const kind of ['module', 'module-group']) test(`${kind} historical releases
   assert.equal(fetched.entry.sha256, oldest.sha256); assert.notEqual(fetched.entry.sha256, latest.sha256);
   const cachedArtifact = JSON.parse(await readFile(join(root, 'cache', oldest.sha256 + '.artifact.json'), 'utf8'));
   assert.deepEqual(cachedArtifact, artifact(kind, '1.0.0'));
-  assert.equal(fetched.startsModules, false); assert.equal(fetched.requiresExecutionReview, true);
+  assert.equal(fetched.startsModules, false); assert.equal(fetched.requiresExecutionReview, kind === 'module');
   const selected = (await workshopCall(service, `api/publications/${oldest.entryId}`)).data;
   assert.equal(selected.publication.sha256, oldest.sha256); assert.equal(selected.publication.version, '1.0.0');
   const before = await service.store.artifactBytes(oldest.sha256);
@@ -55,6 +58,6 @@ for (const kind of ['module', 'module-group']) test(`${kind} historical releases
   assert.equal(fallback.publications[0].version, '2.0.0'); assert.equal(fallback.publications[0].versionCount, 2);
   assert.deepEqual((await workshopCall(service, `api/publications/${oldest.entryId}`)).data.versions.map(row => row.version), ['2.0.0', '1.0.0']);
   assert.ok((await service.store.artifactBytes(oldest.sha256)).equals(before));
-  const cachedManifest = await readFile(join(fetched.directory, kind === 'module' ? 'module.json' : 'module-group.json'), 'utf8');
+  const cachedManifest = await readFile(join(fetched.directory, kind + '.json'), 'utf8');
   assert.equal(JSON.parse(cachedManifest).version, '1.0.0');
 });
