@@ -1,7 +1,7 @@
 ---
 name: world-hub
 description: Install, operate and connect to World Hub through its CLI, MCP adapter or hub bridge SDKs. Use for module resources and lifecycle, wiring, configuration selection, retained messages, directed communication and attachments.
-license: MIT
+license: Apache-2.0
 metadata:
   project: https://github.com/oooBCKooo/world-hub
 ---

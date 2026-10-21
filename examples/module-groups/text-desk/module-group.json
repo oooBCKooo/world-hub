@@ -3,7 +3,7 @@
   "id": "demo.text-desk",
   "version": "1.0.0",
   "title": "Cross-language text desk / 跨语言文本台",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "platforms": ["win32-x64", "linux-x64", "darwin-arm64"],
   "provides": [],
   "requires": [],

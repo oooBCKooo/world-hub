@@ -12,6 +12,10 @@ test('AUTHOR-01 generated Node/Python samples are complete, self-test separately
   for (const runtime of ['node', 'python']) {
     const directory = join(app.directory, runtime); const generated = await initModule({ directory, id: `author.${runtime}`, runtime });
     assert.equal(generated.startsModules, false); assert.equal(generated.installsDependencies, false);
+    assert.equal(generated.manifest.license, 'Apache-2.0');
+    for (const file of ['LICENSE', 'NOTICE']) {
+      assert.deepEqual(await readFile(join(directory, file)), await readFile(new URL('../../../' + file, import.meta.url)));
+    }
     assert.equal((await validateModuleDirectory({ directory })).ok, true);
     const entry = join(directory, generated.manifest.runtime.entry), original = await readFile(entry);
     await writeFile(entry, runtime === 'node' ? 'throw new Error("Doctor executed code");' : 'raise Exception("Doctor executed code")');

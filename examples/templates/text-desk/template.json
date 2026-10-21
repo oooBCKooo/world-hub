@@ -3,7 +3,7 @@
   "id": "demo.text-template",
   "version": "1.0.2",
   "title": "Reusable text workbench / 可复用文本工作台",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "base": "base",
   "parameters": [
     {

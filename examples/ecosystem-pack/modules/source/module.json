@@ -2,7 +2,7 @@
   "format": "world-hub.module/v1",
   "id": "demo.source",
   "version": "1.0.3",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "platforms": [
     "win32-x64",
     "linux-x64",

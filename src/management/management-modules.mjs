@@ -12,6 +12,7 @@ import { DemandLifecycle } from '../../tools/launcher/demand-lifecycle.mjs';
 import { PathsService } from '../../tools/launcher/paths-service.mjs';
 import { defaultLauncherRoot } from '../../tools/launcher/owner-lock.mjs';
 import { inspectDeployment } from '../../scripts/runtime/deployment.mjs';
+import { repository } from '../../scripts/runtime/package.mjs';
 import { validateExecutionDefaults } from '../../scripts/runtime/execution-defaults.mjs';
 import { prepareDependencies } from '../../scripts/runtime/dependency-prepare.mjs';
 import { importLocalArtifact } from '../../tools/launcher/local-artifacts.mjs';
@@ -844,7 +845,7 @@ ws.on('message', (data) => {
           format: 'world-hub.module/v1',
           id,
           version: '1.0.0',
-          license: 'MIT',
+          license: 'Apache-2.0',
           platforms: ['win32-x64', 'linux-x64', 'darwin-arm64'],
           runtime: {
             kind: runtime,
@@ -907,6 +908,9 @@ ws.on('message', (data) => {
 
         await privateJson(join(dir, 'module.json'), moduleJson);
         await privateJson(join(dir, 'deployment.json'), deploymentJson);
+        for (const file of ['LICENSE', 'NOTICE']) {
+          await writeFile(join(dir, file), await readBounded(join(repository, file)), { mode: 0o600 });
+        }
 
         // Generate boilerplate entry file
         let starterCode = '';

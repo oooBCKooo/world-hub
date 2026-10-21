@@ -19,7 +19,7 @@ export const SDK_FILES = ['sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-
 export const SDK_DOCUMENTATION_FILES = Object.freeze(['sdk/javascript/README.md', 'sdk/javascript/LIFECYCLE.md', 'sdk/python/README.md', 'sdk/powershell/README.md']);
 export const MODULE_CONTRACT_FILES = Object.freeze(['docs/modules/text-statistics.contract.json']);
 export const AGENT_FILES = Object.freeze(['bin/world-hub-skill.mjs', 'bin/world-hub-mcp.mjs',
-  ...['SKILL.md','references/setup.md','references/communication.md','references/modules.md','references/mcp.md','references/management.md'].map(name => `skills/world-hub/${name}`),
+  ...['SKILL.md','LICENSE','NOTICE','references/setup.md','references/communication.md','references/modules.md','references/mcp.md','references/management.md'].map(name => `skills/world-hub/${name}`),
   ...['package.json','package-lock.json','cli.mjs','config.mjs','service.mjs'].map(name => `tools/mcp/${name}`)]);
 export const ECOSYSTEM_SCHEMA_FILES = Object.freeze(['docs/ecosystem/module.schema.json', 'docs/ecosystem/module-group.schema.json', 'docs/ecosystem/configuration.schema.json', 'docs/ecosystem/data.schema.json', 'docs/ecosystem/deployment.schema.json', 'docs/ecosystem/publisher-vectors.json', 'docs/ecosystem/publisher-vector-check.py']);
 // No pack runtime or template entry is distributed. These files are retained
@@ -110,7 +110,8 @@ export async function buildPackage({ output, runtimeDirectory = null, sourceRoot
   await copy('scripts/release/verify-package.mjs', 'tooling');
   await copy('config/hub.json', 'configuration');
   await copy('LICENSE', 'license');
-  await add('package.json', JSON.stringify({ name: 'world-hub', version, private: true, type: 'module', license: 'MIT', engines: { node: '>=22.4.0' }, exports: { '.': './sdk/javascript/bridge-kit.mjs', './bridge': './sdk/javascript/bridge-kit.mjs', './blob': './sdk/javascript/blob-client.mjs', './lifecycle': './sdk/javascript/lifecycle-client.mjs', './management': './sdk/javascript/management-client.mjs', './workshop': './tools/workshop/server.mjs' }, scripts: { start: 'node scripts/launcher.mjs', check: 'node scripts/launcher.mjs --check', 'verify:package': 'node scripts/release/verify-package.mjs' } }, null, 2) + '\n', 'tooling');
+  await copy('NOTICE', 'license');
+  await add('package.json', JSON.stringify({ name: 'world-hub', version, private: true, type: 'module', license: packageInfo.license, engines: { node: '>=22.4.0' }, exports: { '.': './sdk/javascript/bridge-kit.mjs', './bridge': './sdk/javascript/bridge-kit.mjs', './blob': './sdk/javascript/blob-client.mjs', './lifecycle': './sdk/javascript/lifecycle-client.mjs', './management': './sdk/javascript/management-client.mjs', './workshop': './tools/workshop/server.mjs' }, scripts: { start: 'node scripts/launcher.mjs', check: 'node scripts/launcher.mjs --check', 'verify:package': 'node scripts/release/verify-package.mjs' } }, null, 2) + '\n', 'tooling');
   await add('README.md', (await readFile(join(sourceRoot, 'README.md'), 'utf8')) + '\n' + portableReadme(version, kind), 'documentation');
   await copy('README.en.md', 'documentation');
   await add('start.cmd', wrapper('start'), 'tooling');

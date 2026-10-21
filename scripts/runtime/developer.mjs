@@ -21,8 +21,9 @@ export async function initModule({ directory, id, runtime }) {
   for (const file of files) inputs.set(file, await readBounded(join(repository, 'scripts/runtime/templates', runtime, file)));
   for (const file of sdkFiles) inputs.set(file, await readBounded(join(repository, 'sdk', runtime === 'node' ? 'javascript' : 'python', file)));
   inputs.set('LICENSE', await readBounded(join(repository, 'LICENSE')));
+  inputs.set('NOTICE', await readBounded(join(repository, 'NOTICE')));
   inputs.set('text-statistics.contract.json', await readBounded(join(repository, 'docs/modules/text-statistics.contract.json')));
-  const manifest = { format: 'world-hub.module/v1', id, version: '1.0.0', license: 'MIT',
+  const manifest = { format: 'world-hub.module/v1', id, version: '1.0.0', license: 'Apache-2.0',
     platforms: ['win32-x64', 'linux-x64', 'darwin-arm64'], runtime: { kind: runtime, entry: runtime === 'node' ? 'program.mjs' : 'program.py' },
     bridges: ['main'], provides: [{ id: 'text.statistics', version: '1.0.0' }], requires: [],
     permissions: { filesystem: 'instance-state', network: ['hub-loopback'], processes: 'none' } };

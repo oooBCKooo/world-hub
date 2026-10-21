@@ -103,4 +103,4 @@ npm run build -- --output .artifacts/packages/world-hub-source
 
 The wire protocol remains `wire: "0.1"`; extensions use `welcome.features`. Open-ended composition remains bounded by resources, authorization, protocol limits and application capability.
 
-**Connect. Compose. Decouple. Soften. Plug. Route. Extend.** Source and documentation use [MIT](LICENSE).
+**Connect. Compose. Decouple. Soften. Plug. Route. Extend.** Source and documentation use the [Apache License 2.0](LICENSE); attribution is retained in [NOTICE](NOTICE).

@@ -35,4 +35,4 @@ npm run test:capabilities
 
 以上字段由示例业务约定，完整输入输出和错误以实现为准。先运行原场景再修改相应程序；更改业务格式时同步修改调用方或消费者。每个实际运行程序有自己的身份和枢纽桥，一个程序也可使用多座桥。Hub 不规定它们的语言、页面或进程组织。
 
-助手中的两个执行器都是确定性本地实现，返回 `modelInvoked: false`。业务数据在程序的运行目录保存，通信记录在 Hub 保存；读取、ACK、回应和退出均不等于提供者释放。参见[通信协议](../../docs/specs/protocol.md)与[接入指南](../../docs/onboarding.md)。源码按 [MIT 许可](../../LICENSE)使用。
+助手中的两个执行器都是确定性本地实现，返回 `modelInvoked: false`。业务数据在程序的运行目录保存，通信记录在 Hub 保存；读取、ACK、回应和退出均不等于提供者释放。参见[通信协议](../../docs/specs/protocol.md)与[接入指南](../../docs/onboarding.md)。源码按 [Apache License 2.0](../../LICENSE)使用。

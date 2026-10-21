@@ -1,9 +1,9 @@
 {
   "name": "world-hub-mcp",
-  "version": "0.22.0",
+  "version": "0.22.1",
   "private": true,
   "type": "module",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "engines": {
     "node": ">=22.4.0"
   },

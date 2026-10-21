@@ -8,7 +8,7 @@
 | `demo.stats` | `modules/stats/program.py` | 实现 `text.statistics@1.0.0` 精确 UTF-8 统计 | 无业务状态 |
 | `demo.desk` | `modules/desk/program.mjs` | 浏览器界面、读取来源、调用统计、保存成果 | `results.json`，最近 20 份成果 |
 
-各目录的 `module.json` 是外部程序部署声明，`bridge-kit.mjs` / `blob-client.mjs` 或 `hub_bridge.py` 是该模块携带的桥，`LICENSE` 保留项目 MIT 许可。Python 的 `websockets` 库需由部署环境另行提供，使用自己的许可。模块不会从仓库外的固定路径导入桥或业务源码。
+各目录的 `module.json` 是外部程序部署声明，`bridge-kit.mjs` / `blob-client.mjs` 或 `hub_bridge.py` 是该模块携带的桥，`LICENSE` 与 `NOTICE` 保留项目 Apache License 2.0 许可及版权声明。Python 的 `websockets` 库需由部署环境另行提供，使用自己的许可。模块不会从仓库外的固定路径导入桥或业务源码。
 
 ## 检查、导入与启动
 

@@ -3,7 +3,7 @@
   "pack": {
     "id": "demo.polyglot",
     "version": "1.1.5",
-    "sha256": "83910166aab54370909b2b02fe10fbaf038fb82705fab4352c2ba073b4370274"
+    "sha256": "f2f7c8c34bc3f118709b63b0d3140abf0682f95d34f748adf838f5591d965039"
   },
   "hubVersion": "0.21.0",
   "hubCompatibility": {
@@ -45,11 +45,15 @@
         },
         {
           "path": "LICENSE",
-          "sha256": "e8ea5d5d1c47a3e1987afb046d86b55f4d3ef5bcb56ca0eb37ac7c7830a768c8"
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
         },
         {
           "path": "module.json",
-          "sha256": "54f8f2e101f1460dfd42ec039f91d1996738d089f49e7bc7ee3fee9b689ccd7f"
+          "sha256": "c7d98ac0f6d6f5e5b534be4e05d3c934c641fcdd69e34a8abbccbc41212d478c"
+        },
+        {
+          "path": "NOTICE",
+          "sha256": "a069b12ddf624e9a162a3e7e90ec1f4473ed0d935f1b05051c5df3256ab07428"
         },
         {
           "path": "program.mjs",
@@ -76,11 +80,15 @@
         },
         {
           "path": "LICENSE",
-          "sha256": "e8ea5d5d1c47a3e1987afb046d86b55f4d3ef5bcb56ca0eb37ac7c7830a768c8"
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
         },
         {
           "path": "module.json",
-          "sha256": "a31a90160bd1083ca2ca1ea00526dfcfe1685f43d5ac1512e50b27661d2853da"
+          "sha256": "416e232d40a27c622cd52cf8498823c9cdbdaf1e43aa16f6e898da41e83b9ccb"
+        },
+        {
+          "path": "NOTICE",
+          "sha256": "a069b12ddf624e9a162a3e7e90ec1f4473ed0d935f1b05051c5df3256ab07428"
         },
         {
           "path": "program.mjs",
@@ -103,11 +111,15 @@
         },
         {
           "path": "LICENSE",
-          "sha256": "e8ea5d5d1c47a3e1987afb046d86b55f4d3ef5bcb56ca0eb37ac7c7830a768c8"
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
         },
         {
           "path": "module.json",
-          "sha256": "8a63ed33a1f9c314bb5259ecd4a487b8d1e6f8bfe3d02ab7e1cc56b4ad6d7296"
+          "sha256": "c6d7643a66ae05857aab6f87666beb5424c2e89ac9607c58c1ccd93f6de9905b"
+        },
+        {
+          "path": "NOTICE",
+          "sha256": "a069b12ddf624e9a162a3e7e90ec1f4473ed0d935f1b05051c5df3256ab07428"
         },
         {
           "path": "program.py",

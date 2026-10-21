@@ -10,6 +10,10 @@ test('author execution defaults: native creator writes reviewed deployment defau
     id: 'creator-default', runtime: 'node', directory, executionDefaults: { mode: 'on-demand', idleTimeoutMs: 12000 }
   }));
   const deployment = JSON.parse(await readFile(join(directory, 'deployment.json'), 'utf8'));
+  assert.equal(JSON.parse(await readFile(join(directory, 'module.json'), 'utf8')).license, 'Apache-2.0');
+  for (const file of ['LICENSE', 'NOTICE']) {
+    assert.deepEqual(await readFile(join(directory, file)), await readFile(new URL('../../' + file, import.meta.url)));
+  }
   assert.deepEqual(deployment.executionDefaults, { mode: 'on-demand', idleTimeoutMs: 12000 });
   const local = scene.owner.localPrograms, row = local.row(result.programId);
   assert.deepEqual(row.executionPolicy, { mode: 'on-demand', idleTimeoutMs: 12000, allowedCallers: [] });

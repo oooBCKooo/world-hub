@@ -36,6 +36,8 @@ test('packaged Skill installs to an explicit new client directory with exact con
       await readFile(target);
     }
   }
+  for (const file of ['LICENSE', 'NOTICE']) assert.deepEqual(await readFile(join(destination, file)), await readFile(join(root, file)));
+  assert.match(await readFile(join(destination, 'SKILL.md'), 'utf8'), /^license: Apache-2\.0$/m);
   assert.deepEqual(await readdir(cwd), ['my-agent']);
 });
 
