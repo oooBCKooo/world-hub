@@ -4,12 +4,12 @@
   "title": "World Hub example modules",
   "entries": [
     {
-      "entryId": "module.demo.stats.1.0.0",
+      "entryId": "module.demo.stats.1.0.1",
       "kind": "module",
       "id": "demo.stats",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "title": "demo.stats",
-      "license": "MIT",
+      "license": "Apache-2.0",
       "platforms": [
         "win32-x64",
         "linux-x64",
@@ -25,7 +25,7 @@
       "source": {
         "url": "https://raw.githubusercontent.com/oooBCKooo/world-hub/main/examples/software-source/text-statistics.module.json"
       },
-      "sha256": "added256c8ead91a2aac558fb67e37f72d797e2700c5b9a1e07302f21d78b0b5"
+      "sha256": "a8d823d19bdc06bc67342045f1176338f426d02e1f9ece119a52e2b3b42cbdb9"
     }
   ]
 }

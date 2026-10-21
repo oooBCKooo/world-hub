@@ -1,7 +1,7 @@
 {
   "name": "world-hub",
-  "version": "0.22.0",
-  "license": "MIT",
+  "version": "0.22.1",
+  "license": "Apache-2.0",
   "author": "oooBCKooo",
   "repository": {
     "type": "git",
@@ -35,6 +35,7 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "NOTICE",
     "README.en.md",
     "bin/world-hub-interop.mjs",
     "bin/world-hub-mcp.mjs",
@@ -184,7 +185,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "type": "module",
-  "description": "Communications crossroads for external programs connected through bidirectional hub bridges.",
+  "description": "Connect independent programs through hub bridges. Compose, decouple, soften hardcoded links, plug, route and extend.",
   "engines": {
     "node": ">=22.4.0"
   },

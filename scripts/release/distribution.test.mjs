@@ -32,6 +32,10 @@ test('source distribution is independent of local runtime caches and copies only
   assert.equal(manifest.version, pkg.version);
   assert.equal(manifest.kind, 'source');
   const metadata = JSON.parse(await readFile(join(bundle, 'package.json'), 'utf8'));
+  assert.equal(metadata.license, 'Apache-2.0');
+  for (const file of ['LICENSE', 'NOTICE']) {
+    assert.deepEqual(await readFile(join(bundle, file)), await readFile(join(repository, file)));
+  }
   assert.equal(metadata.exports['./management'], './sdk/javascript/management-client.mjs');
   const commands = spawnSync(process.execPath, ['bin/world-hub.mjs', 'operations', '--json'], { cwd: bundle, encoding: 'utf8', windowsHide: true });
   assert.equal(commands.status, 0, commands.stderr);

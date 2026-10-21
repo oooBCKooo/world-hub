@@ -35,4 +35,4 @@ Import the group through the local communication management interface, review me
 
 The group contains member sources and a versioned public recipe. It contains no Hub, interpreter, credentials or runtime data. Members remain independent instances and may be managed individually. From the source repository, the build command above creates a fresh stage and four digest-verified artifacts without changing member source bytes or including the historical pack runtime.
 
-MIT. Each member retains its own license; external runtimes and Python dependencies retain their respective licenses.
+Apache License 2.0. Each member retains its own license and attribution notices; external runtimes and Python dependencies retain their respective licenses.

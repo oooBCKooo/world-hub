@@ -110,7 +110,8 @@ export async function buildPackage({ output, runtimeDirectory = null, sourceRoot
   await copy('scripts/release/verify-package.mjs', 'tooling');
   await copy('config/hub.json', 'configuration');
   await copy('LICENSE', 'license');
-  await add('package.json', JSON.stringify({ name: 'world-hub', version, private: true, type: 'module', license: 'MIT', engines: { node: '>=22.4.0' }, exports: { '.': './sdk/javascript/bridge-kit.mjs', './bridge': './sdk/javascript/bridge-kit.mjs', './blob': './sdk/javascript/blob-client.mjs', './lifecycle': './sdk/javascript/lifecycle-client.mjs', './management': './sdk/javascript/management-client.mjs', './workshop': './tools/workshop/server.mjs' }, scripts: { start: 'node scripts/launcher.mjs', check: 'node scripts/launcher.mjs --check', 'verify:package': 'node scripts/release/verify-package.mjs' } }, null, 2) + '\n', 'tooling');
+  await copy('NOTICE', 'license');
+  await add('package.json', JSON.stringify({ name: 'world-hub', version, private: true, type: 'module', license: packageInfo.license, engines: { node: '>=22.4.0' }, exports: { '.': './sdk/javascript/bridge-kit.mjs', './bridge': './sdk/javascript/bridge-kit.mjs', './blob': './sdk/javascript/blob-client.mjs', './lifecycle': './sdk/javascript/lifecycle-client.mjs', './management': './sdk/javascript/management-client.mjs', './workshop': './tools/workshop/server.mjs' }, scripts: { start: 'node scripts/launcher.mjs', check: 'node scripts/launcher.mjs --check', 'verify:package': 'node scripts/release/verify-package.mjs' } }, null, 2) + '\n', 'tooling');
   await add('README.md', (await readFile(join(sourceRoot, 'README.md'), 'utf8')) + '\n' + portableReadme(version, kind), 'documentation');
   await copy('README.en.md', 'documentation');
   await add('start.cmd', wrapper('start'), 'tooling');

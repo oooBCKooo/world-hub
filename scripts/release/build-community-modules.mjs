@@ -59,7 +59,7 @@ export async function buildCommunityModules({ output, sourceRoot = repository } 
   }
   const platforms = inputs[0].manifest.platforms.filter(platform => inputs.every(input => input.manifest.platforms.includes(platform)));
   if (!platforms.length) throw new Error('Sample modules have no common platform');
-  const metadata = { version: '1.0.0', license: 'MIT', platforms, provides: [], requires: [], scope: 'local' };
+  const metadata = { version: '1.0.0', license: 'Apache-2.0', platforms, provides: [], requires: [], scope: 'local' };
   const data = validateData({ format: 'world-hub.module-data/v1', ...metadata, id: 'demo.text-desk.sample-data',
     title: 'Text desk sample data / 文本台示例数据', purpose: 'dataset',
     instances: [{ id: 'source', module: bodies.get('source').reference, path: 'data/source', dataFormat: { id: 'demo.source.text-state', version: '1.0.0' } }] });

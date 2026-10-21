@@ -9,7 +9,7 @@ import { validateLock } from './runtime/package.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const directories = ['bin', 'src', 'sdk', 'skills', 'config', 'examples', 'tests', 'scripts', 'tools', 'docs', '.github'];
-const rootFiles = ['README.md', 'README.en.md', 'LICENSE', 'package.json', '.gitignore', '.gitattributes'];
+const rootFiles = ['README.md', 'README.en.md', 'LICENSE', 'NOTICE', 'package.json', '.gitignore', '.gitattributes'];
 const required = [...rootFiles, 'config/hub.json', 'src/hub/hub-server.mjs', 'src/hub/ws-server.mjs',
   'src/management/management-http.mjs', 'sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-client.mjs',
   'sdk/python/hub_bridge.py', 'sdk/python/requirements.txt', 'sdk/powershell/HubBridge.psm1',
@@ -23,6 +23,7 @@ const ecosystemLock = 'examples/ecosystem-pack/pack.lock';
 const templateLocks = ['examples/templates/text-desk/base/pack.lock'];
 const ecosystemLicenses = new Set([...['source', 'stats', 'desk'].map(name => `examples/ecosystem-pack/modules/${name}/LICENSE`),
   ...['source','stats','desk'].map(name=>`examples/templates/text-desk/base/modules/${name}/LICENSE`), ...['desktop','counter'].map(name=>`examples/soft-ui-modules/${name}/LICENSE`)]);
+const ecosystemNotices = new Set([...ecosystemLicenses].map(path => path.replace(/LICENSE$/, 'NOTICE')));
 const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const jpegStartOfFrame = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -109,7 +110,7 @@ for (const path of paths) {
   if (path.startsWith('config/') && path !== 'config/hub.json') reject(path, 'Only the reference configuration can be published');
   const screenshot = screenshotPath.test(path) || path === 'examples/soft-ui-modules/desktop/desktop/assets/tray.png';
   if (!rootFiles.includes(path) && !extensions.has(extname(path)) && path !== 'scripts/release/prepare-isolation-ci.sh' && !screenshot
-      && path !== ecosystemLock && !templateLocks.includes(path) && !ecosystemLicenses.has(path)) reject(path, 'Unexpected source file type');
+      && path !== ecosystemLock && !templateLocks.includes(path) && !ecosystemLicenses.has(path) && !ecosystemNotices.has(path)) reject(path, 'Unexpected source file type');
   const key = path.toLowerCase();
   if (cases.has(key)) reject(path, 'Filename conflicts on case-insensitive filesystems');
   cases.set(key, path);
@@ -131,7 +132,7 @@ for (const path of paths) {
   try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
   catch { reject(path, 'Source is not UTF-8 text'); continue; }
   if (content.includes('\0')) reject(path, 'Binary data in source');
-  if (ecosystemLicenses.has(path) && hash(bytes) !== hash(await readFile(join(root, 'LICENSE')))) reject(path, 'Sample module license differs from the project MIT license');
+  if (ecosystemLicenses.has(path) && hash(bytes) !== hash(await readFile(join(root, 'LICENSE')))) reject(path, 'Sample module license differs from the project Apache-2.0 license');
   if (path === ecosystemLock) {
     try {
       const lock = JSON.parse(content);

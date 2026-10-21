@@ -104,4 +104,4 @@ npm run build -- --output .artifacts/packages/world-hub-source
 
 线协议保持 `wire: "0.1"`，扩展通过 `welcome.features` 协商。开放的组合空间仍受资源、授权、协议和程序能力限制。
 
-**互联，自由，解耦，软化，拔插，任意，无限。** 源码与文档采用 [MIT](LICENSE) 许可。
+**互联，自由，解耦，软化，拔插，任意，无限。** 源码与文档采用 [Apache License 2.0](LICENSE)，版权声明见 [NOTICE](NOTICE)。

@@ -44,7 +44,7 @@ async function tree(directory, prefix = '') {
 function allowedPackageFile(path) {
   if (path.split('/').some(part => ['.local', '.artifacts', 'data', 'dist', 'node_modules', '__pycache__', '.venv', '.hub', '.state', 'generated'].includes(part))
       || /(?:\.py[co]|\.log|\.bak|\.tmp|\.tgz|\.zip|\.local\.json)$/i.test(path)) return false;
-  return ['package.json','README.md','README.en.md','LICENSE','config/hub.json',
+  return ['package.json','README.md','README.en.md','LICENSE','NOTICE','config/hub.json',
     'scripts/launcher.mjs','scripts/launcher-support.mjs',
     'docs/modules/text-statistics.contract.json',...APPLICATION_FILES,...SDK_FILES,...SDK_DOCUMENTATION_FILES,...CURRENT_DOCUMENTATION_FILES,...DOCUMENTATION_IMAGE_FILES,
     ...ecosystemFiles,...LAUNCHER_FILES,...WORKSHOP_FILES,...INTEROP_FILES,...SOFT_UI_MODULE_FILES,...AGENT_FILES].includes(path);
@@ -86,7 +86,7 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
   const npm = (label, args, options) => execute(label, process.execPath, [npmCli, ...args], options);
   try {
     assert.equal(pkg.private, undefined, 'Remove private rather than publishing a private project manifest');
-    assert.equal(pkg.license, 'MIT'); assert.equal(pkg.bin?.['world-hub'], 'bin/world-hub.mjs');
+    assert.equal(pkg.license, 'Apache-2.0'); assert.equal(pkg.bin?.['world-hub'], 'bin/world-hub.mjs');
     assert.equal(pkg.exports?.['.'], './sdk/javascript/bridge-kit.mjs');
     assert.equal(pkg.exports?.['./blob'], './sdk/javascript/blob-client.mjs');
     assert.equal(pkg.exports?.['./lifecycle'], './sdk/javascript/lifecycle-client.mjs');
@@ -134,7 +134,9 @@ export async function acceptNpmPackage({ sourceRoot = root, evidenceRoot = join(
     const beforeLocal = await tree(localPackage), beforeGlobal = await tree(globalPackage);
     for (const installation of [localPackage, globalPackage]) {
       const installed = JSON.parse(await readFile(join(installation, 'package.json'), 'utf8'));
-      assert.equal(installed.name, pkg.name); assert.equal(installed.version, pkg.version); assert.equal(installed.license, 'MIT');
+      assert.equal(installed.name, pkg.name); assert.equal(installed.version, pkg.version); assert.equal(installed.license, 'Apache-2.0');
+      assert.equal(hash(await readFile(join(installation, 'LICENSE'))), hash(await readFile(join(sourceRoot, 'LICENSE'))));
+      assert.equal(hash(await readFile(join(installation, 'NOTICE'))), hash(await readFile(join(sourceRoot, 'NOTICE'))));
       assert.deepEqual(installed.bin, pkg.bin); assert.deepEqual(installed.exports, pkg.exports);
       assert.deepEqual(installed.dependencies ?? {}, {}); assert.deepEqual(installed.optionalDependencies ?? {}, {});
       for (const path of developerMaterial) {

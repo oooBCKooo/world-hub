@@ -1,5 +1,9 @@
 # 构建与分发
 
+## 0.22.1
+
+项目源码、文档、SDK 与 Skill 改用 Apache License 2.0，npm 和 ZIP 包携带 LICENSE 与 NOTICE。包描述统一使用“枢纽桥 / hub bridge”及当前用途；第三方依赖和独立模块继续使用各自声明的许可证。界面独立补丁版本为 `world-hub-ui@0.1.2`。TUI 的延后安排保持不变。
+
 ## 0.22.0
 
 - 非交互 CLI 提供 84 项本机管理操作，包括模块、配置、数据、接线、启动计划、版本、卸载及外部桥接入；CLI、JavaScript 管理 SDK 和可选 MCP 共用公开 API 客户端及操作目录。

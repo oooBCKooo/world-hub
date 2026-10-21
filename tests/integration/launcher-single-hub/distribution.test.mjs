@@ -16,7 +16,7 @@ test('npm exposes communication SDKs and current commands without a cancelled pa
   assert.equal(pkg.exports['.'], './sdk/javascript/bridge-kit.mjs');
   assert.equal(pkg.exports['./blob'], './sdk/javascript/blob-client.mjs');
   assert.equal(pkg.exports['./workshop'], './tools/workshop/server.mjs');
-  assert.equal(pkg.license, 'MIT');
+  assert.equal(pkg.license, 'Apache-2.0');
   assert.ok(pkg.files.every(path => !path.includes('*')), 'Published source uses an explicit list, not a broad historical-directory glob');
   for (const path of [...SHARED_RUNTIME_FILES, ...LAUNCHER_FILES, ...WORKSHOP_FILES, ...INTEROP_FILES, ...AGENT_FILES, ...ECOSYSTEM_SCHEMA_FILES]) {
     assert.ok(pkg.files.includes(path), path);
