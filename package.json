@@ -124,6 +124,8 @@
     "sdk/python/hub_bridge.py",
     "sdk/python/requirements.txt",
     "skills/world-hub/SKILL.md",
+    "skills/world-hub/LICENSE",
+    "skills/world-hub/NOTICE",
     "skills/world-hub/references/communication.md",
     "skills/world-hub/references/mcp.md",
     "skills/world-hub/references/management.md",

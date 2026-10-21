@@ -19,7 +19,7 @@ export const SDK_FILES = ['sdk/javascript/bridge-kit.mjs', 'sdk/javascript/blob-
 export const SDK_DOCUMENTATION_FILES = Object.freeze(['sdk/javascript/README.md', 'sdk/javascript/LIFECYCLE.md', 'sdk/python/README.md', 'sdk/powershell/README.md']);
 export const MODULE_CONTRACT_FILES = Object.freeze(['docs/modules/text-statistics.contract.json']);
 export const AGENT_FILES = Object.freeze(['bin/world-hub-skill.mjs', 'bin/world-hub-mcp.mjs',
-  ...['SKILL.md','references/setup.md','references/communication.md','references/modules.md','references/mcp.md','references/management.md'].map(name => `skills/world-hub/${name}`),
+  ...['SKILL.md','LICENSE','NOTICE','references/setup.md','references/communication.md','references/modules.md','references/mcp.md','references/management.md'].map(name => `skills/world-hub/${name}`),
   ...['package.json','package-lock.json','cli.mjs','config.mjs','service.mjs'].map(name => `tools/mcp/${name}`)]);
 export const ECOSYSTEM_SCHEMA_FILES = Object.freeze(['docs/ecosystem/module.schema.json', 'docs/ecosystem/module-group.schema.json', 'docs/ecosystem/configuration.schema.json', 'docs/ecosystem/data.schema.json', 'docs/ecosystem/deployment.schema.json', 'docs/ecosystem/publisher-vectors.json', 'docs/ecosystem/publisher-vector-check.py']);
 // No pack runtime or template entry is distributed. These files are retained
